@@ -60,7 +60,7 @@ MLTransfers.lua, or MLYear.lua):
   - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3fdf (<= 1424 B)
   - CAVE_D2 (.xcode page end) : 0x047d3fe0..0x047d3fff (32 / 32 B, RWX)
   - CAVE_D  (.data1 mid-gap)  : 0x047d4170..0x047d41ff (144 / 144 B)
-MLTransfers.lua 3 uses all of 0x047d4200..0x047d4fff, so CAVE_D2 is not behind it
+MLTransfers.lua 3 and 4 use all of 0x047d4200..0x047d4fff, so CAVE_D2 is not behind it
 any more (it was at 0x047d4f60 and the two modules could not be installed together).
   - CAVE_ET (.reloc page)     : 0x047d5040..0x047d5fff (<= 4032 B)
   - CAVE_PK (.link page)      : 0x047d6030..0x047d6fff (<= 4048 B)
