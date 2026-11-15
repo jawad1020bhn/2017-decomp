@@ -8,12 +8,13 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
-| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas and scouting. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Has run in the emulator only |
+| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Has run in the game: one transfer window was read from two saves |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
 | `money_cave.py` | what the two modules write (13 small routines, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
+| `window_report.py <PES2017.exe> <save before> <save after>` | reads one transfer window from two Master League saves: who signed whom, from where, by persona and by level, and whether the signings follow the rules of `MLTransfers.lua` (needs `pip install lupa unicorn`) |
 
 ## Install and run `MLCheck.lua`
 
@@ -161,8 +162,9 @@ so a ninth place that takes the year in another way would not be seen. The searc
 
 ## `MLTransfers.lua`, version 2: the selling side, club personas, scouting, rivals
 
-Emulator only: this version has not run in the game yet. It needs `MLMoney.lua`
-version 7 as before. The price ceiling of version 1 is still there and is described in
+Run in the game: one transfer window played with it was read from two save files
+(see "What the second window showed" below). It needs `MLMoney.lua` version 7 as
+before. The price ceiling of version 1 is still there and is described in
 the next section; this section says what is new.
 
 ### Why
@@ -175,7 +177,7 @@ One transfer window of a career played with version 1 was read from two save fil
 | signings by computer clubs | 511 |
 | of them players without a contract | 506 |
 | of them from another club | 5 |
-| players on the lists of their clubs before / after | 816 / 1,547 |
+| players on the lists of their clubs before / after | 816 / 1,548 |
 | listed players who were sold | 0 |
 
 The ceiling was not what stood in the way of a move between two clubs. Two things in
@@ -433,31 +435,93 @@ computer clubs, selling side, club personas, scouting, rivals.`
 bytes and version 1's place (`0x047d3c40`, 384 bytes) is too small, so it uses another
 piece of memory that has never been used in the running game: the rest of the page of
 the small code section `.data1`. In the file that page holds 368 bytes of code and
-zeros after them, and nothing in the file points behind the code. Whether the running
-game leaves it alone can only be seen in the game. If the line says `NOT EMPTY`, the
-module writes nothing; send the log.
+zeros after them, and nothing in the file points behind the code. In the one window
+that was played with it the game left it alone: the signings follow the rules up to the
+last one, on 30 August. If the line says `NOT EMPTY`, the module writes nothing; send
+the log.
 
 ### What to look at in the game
 
 1. The log lines above.
-2. Play to the end of the first transfer window and look at the transfer news, or send
-   the save files of before and after as last time. The save of 1 July used last time
-   can be played again: in it no club has chosen yet (all 7,968 slots of the 498 plan
-   records are empty), so version 2 decides the whole window and the two results can be
-   compared. What should differ from the 506 of
-   511: moves between computer clubs, listed players who find a club, and no player of
-   85 at a club of the lower half.
-3. If the computer clubs sign almost nobody: set `SCOUTING = false` first, then
-   `PERSONA = false`; each takes away one set of refusals. `SELL_SIDE = false` gives
-   the game's order back.
+2. The transfer news of a window. `window_report.py` reads a window from the save
+   files of before and after.
+3. For more signings: set `SCOUTING = false` first, then `PERSONA = false`; each takes
+   away one set of refusals. `SELL_SIDE = false` gives the game's order back.
+
+### What the second window showed
+
+A new career (SSC Napoli) was played from 1 July to the end of the window with the
+settings of the file, and the two saves were read with
+
+    python3 window_report.py <PES2017.exe> <save before> <save after>
+
+Computer clubs only (what they bought from the user's club is left out: 2 and 4
+players).
+
+| | version 1 | version 2 |
+|---|---|---|
+| signings by the 498 computer clubs | 509 | 430 |
+| players without a contract | 506 | 176 |
+| players on the list of their club | 0 | 40 |
+| other players of clubs | 3 | 214 |
+| clubs that signed / clubs that sold | 230 / 3 | 221 / 172 |
+| players on the lists before / after | 816 / 1,548 | 816 / 1,288 |
+| mean age of the signed players | 30.1 | 27.3 |
+| their rating against the buyer's first eleven | 3.9 above | 0.3 above |
+| signed players of 80 and more | 17 | 8 |
+| best player signed by a club of the lower half | 76 | 74 |
+| clubs under 23 players before / after | 49 / 25 | 49 / 26 |
+
+The module's rules are seen in who was signed. A club with `knows = 50` knows half of
+the players; of the 176 signed players without a contract all 176 were known to their
+buyer (75 would be by chance; in the first window 241 of 506, as chance says). All 430
+pass `prestige` (first window: 195 of 509), 428 the price. 16 signings (4 %) do not
+fit scouting or `keeps`; the saves do not say why (most likely the player was put on
+his club's list during the window, and a listed player skips both).
+
+By persona (signings; no contract / listed / other; clubs that signed):
+
+| persona | signings | from | clubs |
+|---|---|---|---|
+| Survival churner | 127 | 76 / 16 / 35 | 61 of 140 |
+| Mid-table | 90 | 19 / 9 / 62 | 41 of 90 |
+| Crisis | 54 | 39 / 7 / 8 | 27 of 60 |
+| Academy purist | 39 | 7 / 2 / 30 | 20 of 52 |
+| Elite trader | 35 | 5 / 1 / 29 | 21 of 36 |
+| Selling farm | 29 | 8 / 4 / 17 | 19 of 49 |
+| New-money | 26 | 16 / 0 / 10 | 12 of 19 |
+| Moneyball | 21 | 3 / 1 / 17 | 11 of 24 |
+| Old-money | 9 | 3 / 0 / 6 | 9 of 23 |
+| State-backed | 0 | | 0 of 2 |
+| Galactico | 0 | | 0 of 3 |
+
+Three weak points, none of them a fault of the code:
+
+1. **The biggest clubs buy almost nothing** (first twenty: 5 signings; version 1: 8).
+   15 of the 19 start with 32 players, the most a club can hold, and so do 99 of the
+   498 clubs. A full club cannot sign. Version 2 makes them sell (those 99 clubs lost
+   88 players and signed 4), so there is room from the winter on. This comes from the
+   database: squads filled to 32.
+2. **No star moves.** No player of 85 or more moved in either window. Nearly all of
+   them (111 of the 130 players of 84 and more) are at one of the first twenty clubs,
+   and the game lets those clubs sell only in a few cases. The module can refuse a
+   player; it cannot make the game offer one.
+3. **The best players without a contract stay without a club**: of the 19 of 80 and
+   more, computer clubs signed 2 (version 1: 14, most of them at clubs far below
+   them). For a player of 84 only 49 clubs are good enough (`prestige`), 35 of them
+   can pay, 24 of those know him, 12 of those have room, 7 of those want his age.
+   To change it: raise `prestige` of the personas (each point lets him join a club one
+   rating point weaker), or set `SCOUTING = false` (24 becomes 35). Not tried in the
+   game.
+
+The lists are used little (40 of 816) because the listed players are weak: none above
+74, 658 below 65.
 
 ### What is not known
 
-- The module has never run in the game. In the emulator the game's own choosing code
-  runs with it; the days of a season do not.
-- How many signings the settings give was not worked out. The earlier analysis of the
-  two saves was not repeated for version 2, so the mix per persona in the table is
-  what the settings ask for, not what was seen.
+- The winter window, a second season and the fees paid were not looked at.
+- The mix per persona in the table of the settings is what the settings ask for; the
+  table above is what one window gave.
 - The number the game keeps per club and tests against 23 is taken to be the size of
   the squad without the players already promised away (read, not proven).
 - `ambition` and `prestige` lean on the club ranking. If a club's points drift far over
