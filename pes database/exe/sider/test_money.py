@@ -582,9 +582,10 @@ class Harness:
                 self.by_id.clear()
                 bands.clear()
                 # one player in four is put on a limit that chance alone meets too seldom: an id whose
-                # draw for the age or for scouting is exactly the buyer's number (`strict`, `knows`), or
-                # a rating at the line of his club's first team (KEEP_BEST) with an id whose draw is at
-                # one end of what the club keeps there. Own dice: the other players are those of every run
+                # draw for the age or for scouting is exactly the buyer's number (`strict`, `knows`); a
+                # rating at the line of his club's first team (KEEP_BEST) with an id whose draw is at
+                # one end of what the club keeps there; an age at one end of the ages the buyer wants
+                # (AGE_SHIFT). Own dice: the other players are those of every run
                 limits = ()
                 if t is not None and t.transfers:
                     mine = mc.persona(t, club, buyer['level'])
@@ -610,7 +611,12 @@ class Harness:
                     if limits and self.dice.randint(0, 3) == 0:
                         factor, limit = self.dice.choice(limits)
                         other = mc.club_key(club)
-                        if his != mc.NO_CLUB and self.dice.randint(0, 1):
+                        edge = mine[self.dice.choice([mc.AGE_FROM, mc.AGE_TO])] + mc.age_shift(t, club) + self.dice.randint(-1, 1)
+                        if self.dice.randint(0, 2) == 0 and 0 <= edge <= 63:
+                            age, limit = edge, None              # with the id he has
+                            word = struct.unpack('<I', g.read(rec + 0x1c, 4))[0]
+                            g.write(rec + 0x1c, struct.pack('<I', word & ~(0x3f << 7) | age << 7))
+                        elif his != mc.NO_CLUB and self.dice.randint(0, 1):
                             seller = club_of(his)
                             line = mc.eleven(t, seller['points'], seller['level']) - t.keep_from
                             above = self.dice.randint(0, 2)
@@ -620,7 +626,7 @@ class Harness:
                                 limit = keeps + self.dice.choice([0, above]) * t.keep_step - self.dice.randint(0, 1)
                                 factor = mc.HASH_KEEPS
                                 other = mc.club_key(his) ^ ((today[0] | today[1] << 16) * mc.HASH_A & mc.M32)
-                        for _ in range(300):
+                        for _ in range(300 if limit is not None else 0):
                             new = (self.dice.getrandbits(16) << 16 | keys[k], self.dice.getrandbits(32) | 1)
                             if mc.draw(mc.player_key(new) ^ other, factor) == limit:
                                 ident = new

@@ -260,7 +260,7 @@ def routine(exe):
             (changed(('CEILING', '{ %s }' % ', '.join(['9999'] * 10)), ('CEILING_STRETCH', '300'), ('CEILING_NEED', '300'),
                      ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named), ('RIVALS', wide)), 200))
     tables = [mc.image_2(u)[:mc.CEILING_CODE - mc.CAVE_2] for u, _ in sets]
-    last = [mc.image_2(u)[mc.KEEP_FROM_AT - mc.CAVE_2:] for u, _ in sets]     # the five numbers behind the routine
+    ends = [mc.image_2(u)[mc.KEEP_FROM_AT - mc.CAVE_2:] for u, _ in sets]     # the five numbers behind the routine
     random.seed(1)
     print('without a fault: %d of 400 lists changed by the module, %d players refused' % h.choose_cases(400, t))
     good = h.g.read(mc.CEILING_CODE, len(mc.CEILING_BYTES))
@@ -274,7 +274,7 @@ def routine(exe):
         tm.poke(h.g, mc.CEILING_CODE + k, bytes([good[k] ^ (1 << bit if bit is not None else 0)]))
         random.seed(7)
         try:
-            for (u, n), table, numbers in zip(sets, tables, last):
+            for (u, n), table, numbers in zip(sets, tables, ends):
                 tm.poke(h.g, mc.CAVE_2, table)
                 tm.poke(h.g, mc.KEEP_FROM_AT, numbers)
                 h.choose_cases(n, u)
@@ -284,7 +284,7 @@ def routine(exe):
         finally:
             tm.poke(h.g, mc.CEILING_CODE + k, bytes([good[k]]))
             tm.poke(h.g, mc.CAVE_2, tables[0])
-            tm.poke(h.g, mc.KEEP_FROM_AT, last[0])
+            tm.poke(h.g, mc.KEEP_FROM_AT, ends[0])
 
     def sound():
         """the harness after a fault: the routine as it should be passes again"""
