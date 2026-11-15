@@ -11,6 +11,9 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas and scouting. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Has run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
+| `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI): smooth Davidson win/draw/loss probabilities with home advantage, realistic Poisson-derived scorelines, and Skip Match CPU substitutions for the user's team. Needs no other module. Has run in the emulator only |
+| `sim_cave.py` | the tables and four x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3de3`, 915 bytes) and their Python reference model |
+| `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03708230`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
 | `money_cave.py` | what the two modules write (13 small routines, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
@@ -1304,8 +1307,8 @@ Read from the DLL's code and strings, not run:
 - Free memory for code and tables: `0x047b0200`-`0x047b0fff`, the end of `.trace`
   (3,584 bytes; `MLMoney.lua` uses the first 3,568), and below it `0x047b0124`-
   `0x047b01fe` (used by version 5 only; free again). The end of `.xcode`,
-  `0x047d3a43`-`0x047d3dff` (used by version 6 of `MLMoney.lua` and version 1 of
-  `MLTransfers.lua` at `0x047d3c40`-`0x047d3dbc`; free again). The page of `.data1`
+  `0x047d3a43`-`0x047d3dff` (`MLSimMatch.lua` uses `0x047d3a50`-`0x047d3de3`, 915 bytes;
+  previously used by version 6 of `MLMoney.lua` and version 1 of `MLTransfers.lua`). The page of `.data1`
   behind its code, `0x047d4170`-`0x047d4fff`: `MLTransfers.lua` version 2 uses
   `0x047d4200`-`0x047d4f5f`; 160 bytes above it are free, and whether the running
   game leaves that page alone is not seen yet. A module must see zeros there before it
