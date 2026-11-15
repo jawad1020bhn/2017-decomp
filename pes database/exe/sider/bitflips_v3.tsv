@@ -1,0 +1,65 @@
+byte	bit	instruction	with the bit flipped	sorted as
+0	0	push ebx	push edx	same in effect
+1	1	push edi	push ebp	same in effect
+8	0	sub esp, 0x90	sub esp, 0x190	same in effect
+9	1	sub esp, 0x90	sub esp, 0x20090	not settled
+112	0	xor ecx, ecx	xor cl, cl	same in effect
+125	5	cmp edx, 1	sbb edx, 1	not settled
+183	7	and ecx, 0xffffff	and ecx, 0xff7fff	same in effect
+260	4	add esp, 0xc	adc esp, 0xc	not settled
+292	4	and dword ptr [ebp - 8], 0	and dword ptr [ebp - 8], 0x10	same in effect: the number is 13 there
+427	3	and eax, 0x3fff	and eax, 0x37ff	not settled
+432	0	cmp eax, 0x28d	cmp eax, 0x38d	not settled
+437	5	jae 0x47d4c32	jae 0x47d4c12	same in effect: lands on a path that refuses too
+484	4	cmp dword ptr [ebp - 0x48], 0	sub dword ptr [ebp - 0x48], 0	same in effect
+501	5	cmp dword ptr [ebp - 0x44], 4	sbb dword ptr [ebp - 0x44], 4	same in effect: the local is not read again
+520	0	jae 0x47d4c32	jae 0x47d4c31	same in effect: one more push, the stack is restored from ebp
+541	5	cmp edx, dword ptr [0x47d4ff4]	sbb edx, dword ptr [0x47d4ff4]	same in effect: the carry changes nothing below zero
+552	0	add edx, dword ptr [0x47d4fec]	add dl, byte ptr [0x47d4fec]	same in effect for ratings below 157
+561	1	jle 0x47d4c0c	jl 0x47d4c0c	same in effect: at the line nothing is added
+599	7	shr ecx, 8	shr ecx, 0x88	same in effect
+609	1	jmp 0x47d4c38	jmp 0x47d4c36	would crash the game: writes to an address below 0x1000, which the emulator has
+610	2	pop eax	pop esp	not settled
+616	0	cmp dword ptr [ebp - 0x30], 1	cmp byte ptr [ebp - 0x30], 1	same in effect
+704	0	cmp eax, dword ptr [0x47d4258]	cmp al, byte ptr [0x47d4258]	same in effect for counts below 256
+712	0	or edx, 1	or dl, 1	same in effect
+714	2	or edx, 1	or edx, 5	same in effect: only compared with 0
+724	4	jne 0x47d4da2	jne 0x47d4d92	not settled
+737	1	je 0x47d4d49	je 0x47d4d4b	would crash the game: lands on `in al, 0`, which the emulator lets pass
+750	6	shr ecx, 0x18	shr ecx, 0x58	same in effect
+776	0	cmp ecx, edx	cmp cl, dl	same in effect for sums below 256
+808	0	cmp dword ptr [ebp - 0x1c], 0	cmp byte ptr [ebp - 0x1c], 0	same in effect
+821	5	cmp ecx, dword ptr [0x47d4254]	sbb ecx, dword ptr [0x47d4254]	same in effect: the carry is clear
+838	6	shr ecx, 0x18	shr ecx, 0x58	same in effect
+845	5	cmp ecx, dword ptr [ebp - 0x84]	sbb ecx, dword ptr [ebp - 0x84]	a fault: the winter draw one step off when the carry is set. Noticed since the test puts cases on that limit
+867	3	movzx ecx, byte ptr [edx + 0x10]	movsx ecx, byte ptr [edx + 0x10]	same in effect
+875	3	movzx ecx, byte ptr [edx + 0x11]	movsx ecx, byte ptr [edx + 0x11]	same in effect
+880	0	cmp eax, dword ptr [ebp - 0x30]	cmp al, byte ptr [ebp - 0x30]	same in effect
+898	2	imul eax, dword ptr [ebp - 0x18], 0x9e3779b1	imul eax, dword ptr [ebp - 0x18], 0x9e3779b5	a fault: other ages for four clubs in five. Noticed since the test has personas that refuse for the age alone
+910	6	shr eax, 0x18	shr eax, 0x58	same in effect
+925	5	shr eax, 8	ror eax, 8	same in effect: only the low byte is used
+926	6	shr eax, 8	shr eax, 0x48	same in effect
+933	5	shr ecx, 7	ror ecx, 7	same in effect: the bits are masked
+934	6	shr ecx, 7	shr ecx, 0x47	same in effect
+946	2	jl 0x47d4d89	js 0x47d4d89	same in effect: no overflow with ages
+948	4	cmp cl, byte ptr [edx + 0xf]	sub cl, byte ptr [edx + 0xf]	same in effect: the register is not read again
+997	5	shr edx, 0x18	shr edx, 0x38	same in effect
+1041	1	je 0x47d4df1	je 0x47d4def	would crash the game: writes to an address below 0x1000, which the emulator has
+1065	1	cmp eax, -1	cmp edx, -1	not settled
+1066	2	cmp eax, -1	cmp eax, -5	not settled
+1096	0	je 0x47d4e34	je 0x47d4e33	same in effect: lands on `cld`
+1181	5	and ecx, 0xfff	and ecx, 0x200fff	same in effect
+1182	6	and ecx, 0xfff	and ecx, 0x40000fff	same in effect
+1209	1	call 0x47b0c90	call 0x47b0c8e	not settled
+1216	0	cmp ecx, 2	cmp cl, 2	same in effect
+1277	5	jae 0x47d4ed1	jae 0x47d4ef1	amount that does not fit 32 bits
+1281	1	or eax, 0xffffffff	or eax, 0x4501c3ff (6 bytes instead of 3)	amount that does not fit 32 bits
+1283	3	or eax, 0xffffffff	or eax, 0xfffffff7	amount that does not fit 32 bits
+1291	3	or dword ptr [ebp - 4], 0xffffffff	add dword ptr [ebp - 4], -1	amount that does not fit 32 bits
+1292	4	or dword ptr [ebp - 4], 0xffffffff	or dword ptr [ebp - 0x14], 0xffffffff	amount that does not fit 32 bits
+1293	5	or dword ptr [ebp - 4], 0xffffffff	or dword ptr [ebp - 4], 0xffffffdf	amount that does not fit 32 bits
+1296	0	movzx ecx, byte ptr [edx + 0xe]	movzx ecx, word ptr [edx + 0xe]	same in effect for levels below 256
+1338	2	jae 0x47d4f0e	ja 0x47d4f0e	same in effect: equal numbers
+1382	6	shr ecx, 0x18	shr ecx, 0x58	same in effect
+1493	5	mov ecx, 9	mov ecx, 0x20000009	same in effect: times 8 it is the same address
+1502	6	shr eax, 0x1d	shr eax, 0x5d	same in effect

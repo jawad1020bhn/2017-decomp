@@ -1181,7 +1181,7 @@ python3 test_money.py ~/pes-work/game/PES2017.exe
 ok 0: without the module the emulated game gives the amounts of ../tools/money.py (salary with role, age band and award bonuses at every place of the club ranking; fee); its budget function adds twice the mean of the 16 highest fees and the wage bill plus twice the mean of the 16 highest salaries; cup_prize and league_prize give the game's lists (2626 and 6720 cases); a prize goes to the balance only; the contract limit is 3 years up to age 23; the three amounts of yearly income are 25 x popularity - 670 x the club's number - 3,451,330 (whatever the wage bill), (403 - rank) x 5,000 and 15,000 + 165,000 x club level; on 28 and on 30 June the yearly budget step gives the two grants of money_cave.june_grants for 2,000 cases each (to within 2); ai_candidates, the code that lists the players a computer club may sign, run whole through its two calls in ai_pick_candidate and, for three cases in eight, with ai_pick_candidate itself run from its first instruction to the end of its two searches, lists the first three players of the lists from the highest overall down who pass its tests (in a deal, on loan, the status band a slot asks for), whatever their value; ai_pick_candidate searches the first set of lists and then the second, a plan of kind 1 or 4 the second only, in the rating range of the club level, or from 99 down to 41 when the lowest overall handed in is 0
 ok 1: MLMoney.lua and then MLTransfers.lua pass their checks, write only their own memory and the places they report, and what they wrote is what money_cave.py builds from the same settings
 ok 2: with the changes in, the game's code gives the amounts of money_cave.py: salary and fee for 3000 + 3000 random players (ratings 40 to 255, ages 0 to 63, every position, with and without awards and the random change) and for every place of the club ranking; the budgets of 150 squads of 0 to 40 players; cup_prize for 2626 cases (competitions 0 to 100, stages 0 to 12, two game modes; mode 0x28 keeps its own table); league_prize for 11648 cases (every list, place and half); the two places that pay a prize, in Master League and four other modes: balance, transfer budget, account line, registers and stack; the two bonus routines leave every other register as it was; the contract limit for every age; the three amounts of yearly income for 600 cases each, with wage bills from 0 to the largest number; ai_candidates run whole for 750 random sets of lists (club levels 0 to 9 and six numbers that are no level, both searches, both sets of lists, plans of every kind, any day, slots that ask for a status band; players without a contract, listed, in a deal and on loan, of any status band, of clubs with 0 to 40 counted players and of no club; buying and selling clubs anywhere in a made-up club ranking, named in CLUBS or not, some missing from the ranking, which the game's own search of the ranking answers as the routine does; the ceiling put where one player is just within the club's limit for him and 1 below that; three cases in eight with ai_pick_candidate itself run up to the end of its two searches, so that level, range, the mark of the second search and the place each search returns to are where the game puts them): it lists the players of money_cave.candidates (rivals, selling side, scouting, the persona of the buying club and of the selling club, the price), passes over the others and goes on, leaves stack, registers, player records and plan as the game does, and entered from anywhere else it lists as the game
-ok 3: with every optional part switched off only the fee place is written and salary, prizes and contract limit are the game's own; each of the 20 optional parts switched on alone changes its own places and nothing else; BUDGET_SALARY changes the salary budget; with spread, position and salary age switched off the value is VALUE x AGE plus popularity; PAY_GAP = 1, 1.5, 2, 2.75, 7.3, 10 give the club factor of money_cave.py at every place of the ranking; with every setting at its limit the code and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; 1, 7 and 15 personas with numbers anywhere inside their limits, groups of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each
+ok 3: with every optional part switched off only the fee place is written and salary, prizes and contract limit are the game's own; each of the 20 optional parts switched on alone changes its own places and nothing else; BUDGET_SALARY changes the salary budget; with spread, position and salary age switched off the value is VALUE x AGE plus popularity; PAY_GAP = 1, 1.5, 2, 2.75, 7.3, 10 give the club factor of money_cave.py at every place of the ranking; with every setting at its limit the code and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each
 ok 4: WRITE = false, one changed byte at 60 places of the checked code and data, memory not empty, 57 kinds of faulty settings: MLMoney.lua writes nothing, and MLTransfers.lua after it writes nothing either; a write to its memory that does not stick: the code is not touched. MLTransfers.lua: WRITE = false, one changed byte at 30 places of the transfer code, its memory not empty, 59 kinds of faulty settings, a write that does not stick: it writes no place of the code and MLMoney.lua is installed as without it; run without MLMoney.lua, before it, with a mark that is not MLMoney.lua's, with a changed byte at 6 places of the value routine and the two numbers it uses, or a second time: it writes nothing; with another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE and PERSONA off and RIVALS empty it does not look at the game at all
 ok 5: Bruno Fernandes as the user saw him without a module (rating 89, salary 7,259,700, value 36,743,200): the game's formula gives exactly that value from that salary with popularity 955, and with no other rating from 60 to 99
       as the user saw him with version 2 and SPREAD = 0 in a new career (age 32, value 52,973,200): the module's formula gives exactly that for an AMF of rating 89 with popularity 910, and with no other popularity
@@ -1237,9 +1237,12 @@ for 750 cases with the file's settings (the module changes the list in about thr
 four) and for 400 to 700 with each of the settings named under `ok 3`, among them
 personas whose numbers are drawn anywhere inside their limits. One player in four is
 put on a limit that chance meets too seldom (new with version 3): an id whose draw for
-the age or for scouting is exactly the buying club's number, or a rating at the line of
-his club's first team with a draw at one end of what the club keeps there. Each run of
-the game's code is stopped after 100,000 instructions, which no sound case reaches.
+the age or for scouting is the buying club's number or one less, a rating at the line
+of his club's first team with a draw at one end of what the club keeps there, or an age
+at one end of the ages the club wants; and in the winter month, every other case is
+dated to a year in which the club's winter draw is at its limit. 600 cases use personas
+that refuse for the age and nothing else. Each run of the game's code is stopped after
+100,000 instructions, which no sound case reaches.
 
 The test was tried against planted faults. Version 2: ten in the routines and the
 changed places (wrong shift for the position, wrong mask for the age, the id read with
@@ -1355,6 +1358,64 @@ eight, and seven bits of every byte are still untried. One flip found between th
 runs, in the distance of the call to the value routine, is of the kind the test cannot
 see: the call lands four bytes early on two zero bytes, which a processor reads as "add
 the low byte of `eax` to the byte `eax` points at", and then runs into the routine.
+
+Version 3 of `MLTransfers.lua`, the same two ways.
+
+*Faults in the files:* the list has 124. Run: the 18 new ones and the six whose text
+changed with version 3. New in the model: the line of the first team a point off, the
+first team kept against a bigger club too, "bigger" a point off, the line measured from
+the buyer's eleven, the step counted once only, "known to all" a point off or left
+out, the ages moved the other way, not at all, by one step too few, by a
+draw from the club's id without its first step. New in the Lua: the five numbers in
+another order, four bytes too low, a wrong one written, `KNOWN_FROM`, `AGE_SHIFT` or
+`KEEP_BEST` beyond their limits let through, the note about a club named twice wrong.
+**22 of the 24 made the test fail.** Of the two others one was no fault (at the line
+itself nothing is added to `keeps`, so "above the line" and "at or above" are the same;
+it was replaced by a fault that is one). The other was a real one that the test of
+version 2 had noticed by luck: the age draw exactly equal to `strict`. The test was
+changed for it: one player in four is now put on such a limit on purpose. After that
+both made it fail, and so did five more that sit on a limit and were run again. The 100
+older faults were not run on version 3 at all.
+
+*Flipped bits in the routine:* one bit of each of the 1,520 bytes, 1,800 cases after
+each. 1,443 were noticed. The 77 others were run again with twice the cases: 13 more
+were noticed. **1,456 of 1,520 are noticed, 64 are not** (`bitflips_v3.tsv`). Read one
+by one:
+
+- 43 do the same thing for every value that can occur (the kinds listed for version 2,
+  and in the new code: "less or equal" for "less" where equal adds nothing, a byte
+  added where the rating is below 157, a rotation where only the low byte is read).
+- 6 are on the path for an amount that does not fit 32 bits.
+- 3 would crash the game and the emulator does not show it: two jumps that land on
+  two zero bytes, which write one byte to an address below `0x1000` (the emulator has
+  memory there, Windows has not), and one that lands on an instruction a program is not
+  allowed to run. This is a hole in the test, known since version 2.
+- **2 were real faults that the test missed.** One moved the winter draw by one step
+  (no case stood on that limit). The other changed the number the age shift is drawn
+  from, so that four clubs in five wanted other ages: tried alone, it made the test fail
+  in only 1 of 17 runs of 50 cases, because few players are at the end of an age range
+  and pass every other step too.
+- 10 are not settled (a larger stack frame, a carry left by the game's rating function,
+  a club index beyond the pool, "no ceiling" compared with another number, a call two
+  bytes early, a jump that writes one byte in front of the player record).
+
+For the two real faults the test was changed: cases with personas that refuse for the
+age alone, an age at the end of the wanted ages, a year in which the winter draw is at
+its limit, and the draws one below their limit as well as on it. Then **every bit** of
+the two pieces of code was flipped (2,000 cases each, the age-alone personas among
+them):
+
+| code | flips | noticed | not noticed |
+|---|---|---|---|
+| the age shift and the age compare (bytes 895 to 952) | 464 | 443 | 21, all the same in effect (a shift count above 31, an arithmetic shift of a number that is not negative, a byte instead of four where only the byte is read, a signed jump where no number is negative) |
+| the winter draw (bytes 829 to 856) | 224 | 215 | 9, all the same in effect (the same kinds) |
+
+So the routine as written agrees with the model in every case that was run, and the
+test notices a fault in about 19 of 20 places. In the first sample about 1 flip in 750
+was a real fault that went through; both kinds are closed now, but seven bits of most
+bytes are still untried, so more of that kind may be there. The file faults were not
+run again after these last changes to the test, except the two on the limits of the
+age draw and of scouting: both made it fail.
 
 The price ceiling of version 1 (`python3 planted_faults.py <exe> routine` and `files`; run again
 after the ceiling moved to `MLTransfers.lua`, with the same counts for the routine):

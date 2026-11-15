@@ -6,19 +6,28 @@
     python3 planted_faults.py <PES2017.exe> files [numbers of faults]
 
 routine: every bit of the routine of MLTransfers.lua is flipped in turn in the emulator's
-memory, after the two modules are in, and 1,800 cases of Harness.choose_cases are run: 500
-with the settings of the files and 1,300 with five other sets of settings, whose tables are
+memory, after the two modules are in, and 2,000 cases of Harness.choose_cases are run: 500
+with the settings of the files and 1,500 with six other sets of settings, whose tables are
 put into the memory for it. Printed: the flips after which all cases still passed.
 "again" runs those of an earlier run once more, with twice the cases.
 files: one line of MLTransfers.lua or money_cave.py is changed in a copy of this folder and
 the whole test is run there. It must fail every time.
 
-Last runs (version 2 of MLTransfers.lua). files: 92 of 92 noticed before the rivals were
-added (about 100 minutes); with them the list has 106, of which the 14 new ones and eight
-others were run (numbers 11 12 16 17 23 32 33 35 to 49): 22 of 22 noticed.
-routine, with the rivals, one bit of each of the 1,413 bytes (`routine 0 1413 8`, about 55
-minutes of processor time, then `routine again` for the flips not noticed): 1,354 noticed;
-the 59 others are in bitflips_v2.tsv and are sorted in README.md.
+Last runs. Version 3 of MLTransfers.lua, files: the list has 124; the 18 new ones and the six
+whose text changed with version 3 were run (numbers 16 76 77 86 87 95 106 to 123). Two were
+not noticed: one was no fault and was replaced, the other (number 86, the age draw equal to
+`strict`) is why test_money.py now puts one player in four on a limit; with that both are
+noticed, and so are five others that were run again. The other 100 were not run on version 3.
+routine, one bit of each of the 1,520 bytes (`routine 0 1520 8`, about two hours of
+processor time, then `routine again` for the 77 flips not noticed): 1,456 noticed; the 64
+others are in bitflips_v3.tsv and are sorted in README.md. That run had 1,800 cases and
+five other sets, and AGE_SHIFT = 5 in the set with SQUAD_NEED = 32, where nearly every club
+is in need and no age is asked. Two flips that are faults passed it (age shift, winter
+draw); test_money.py was changed for them and the set with the ages alone was added here.
+After that only those two pieces of code were run again, all eight bits (`routine 895 953
+1`, `routine 829 857 1`): what is still not noticed there is the same in effect.
+Version 2: files 92 of 92 before the rivals were added, then 22 of 22 (the 14 for the
+rivals and eight others); routine 1,354 of 1,413, the 59 others are in bitflips_v2.tsv.
 """
 import gc
 import os
@@ -232,7 +241,8 @@ def routine(exe):
         for name, new in pairs:
             text = tm.setting(text, name, new)
         return tm.settings(text)
-    # the settings of the files and five other sets, each with its number of cases: the selling
+    # the settings of the files and six other sets, each with its number of cases: personas
+    # that refuse for the age alone (second, because it is quick to notice a fault), the selling
     # side alone, the ceiling alone (version 1, no rivals), made-up personas for made-up clubs
     # without the selling side and with 64 pairs of rivals among 12 clubs, the file's personas
     # without scouting and the ceiling, with other numbers, the made-up personas with the
@@ -249,16 +259,16 @@ def routine(exe):
                                         for k in range(64))
     dense, wide = some_rivals(12), some_rivals(128)
     sets = ((t, 500),
+            (changed(('CEILING', 'false'), ('SELL_SIDE', 'false'), ('RIVALS', '{ }'), *tm.ages_alone(5)), 200),
             (changed(('CEILING', 'false'), ('PERSONA', 'false')), 300),
             (changed(('SELL_SIDE', 'false'), ('PERSONA', 'false'), ('RIVALS', '{ }')), 200),
             (changed(('SELL_SIDE', 'false'), ('ARCHETYPES', tm.archetypes_text(kinds)),
                      ('PERSONA_GROUPS', groups), ('CLUBS', named), ('PERSONA_SPREAD', '50'), ('RIVALS', dense),
                      ('KEEP_BEST', '{ 0, 100, 99 }'), ('KNOWN_FROM', '100'), ('AGE_SHIFT', '0')), 400),
             (changed(('CEILING', 'false'), ('SCOUTING', 'false'), ('STRENGTH', '{ 0.02, 40 }'), ('SQUAD_NEED', '32'),
-                     ('WINTER_MONTH', '12'), ('PERSONA_SPREAD', '0'), ('KEEP_BEST', '{ 10, 3, 0 }'), ('KNOWN_FROM', '60'),
-                     ('AGE_SHIFT', '5')), 200),
+                     ('WINTER_MONTH', '12'), ('PERSONA_SPREAD', '0'), ('KEEP_BEST', '{ 10, 3, 0 }'), ('KNOWN_FROM', '60')), 200),
             (changed(('CEILING', '{ %s }' % ', '.join(['9999'] * 10)), ('CEILING_STRETCH', '300'), ('CEILING_NEED', '300'),
-                     ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named), ('RIVALS', wide)), 200))
+                     ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named), ('RIVALS', wide), ('AGE_SHIFT', '5')), 200))
     tables = [mc.image_2(u)[:mc.CEILING_CODE - mc.CAVE_2] for u, _ in sets]
     ends = [mc.image_2(u)[mc.KEEP_FROM_AT - mc.CAVE_2:] for u, _ in sets]     # the five numbers behind the routine
     random.seed(1)

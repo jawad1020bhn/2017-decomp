@@ -168,6 +168,22 @@ def some_archetypes(count):
     return kinds
 
 
+def ages_alone(shift):
+    """Settings with which a club refuses a player for his age and little else: five personas
+    that know, want and can pay everybody and always buy, with narrow and wide age ranges.
+    A wrong age shift shows in every such case. -> [(name of the setting, new text)]"""
+    wide = dict(dict.fromkeys(mc.GENE_NAMES, 0), free=34, listed=33, clubs=33, winter=100, knows=100, wealth=250,
+                premium=250, panic=250, ambition=99, prestige=99, strict=100)
+    ages = ((20, 24), (28, 34), (17, 36), (31, 31), (40, 63))
+    kinds = [('A%d' % (i + 1), dict(wide, age=age, second=mc.CHANNELS[i % 3:] + mc.CHANNELS[:i % 3]))
+             for i, age in enumerate(ages)]
+    groups = '{\n%s\n}' % '\n'.join('    { "A1", "A2", "A3", "A4", "A5" },' for _ in range(10))
+    return [('ARCHETYPES', archetypes_text([(name, dict(e, second=e['second'][:2])) for name, e in kinds])),
+            ('PERSONA_GROUPS', groups), ('CLUBS', '{ }'), ('PERSONA_SPREAD', '0'), ('SCOUTING', 'false'),
+            ('KEEP_BEST', '{ 0, 0, 0 }'), ('KNOWN_FROM', '0'), ('SQUAD_NEED', '0'), ('WINTER_MONTH', '0'),
+            ('AGE_SHIFT', str(shift))]
+
+
 def setting(source, name, new, part=None):
     """The Lua source with one setting replaced. part: for a name both files have (WRITE),
     0 MLMoney.lua, 1 MLTransfers.lua."""
@@ -582,7 +598,7 @@ class Harness:
                 self.by_id.clear()
                 bands.clear()
                 # one player in four is put on a limit that chance alone meets too seldom: an id whose
-                # draw for the age or for scouting is exactly the buyer's number (`strict`, `knows`); a
+                # draw for the age or for scouting is the buyer's number (`strict`, `knows`) or one less; a
                 # rating at the line of his club's first team (KEEP_BEST) with an id whose draw is at
                 # one end of what the club keeps there; an age at one end of the ages the buyer wants
                 # (AGE_SHIFT). Own dice: the other players are those of every run
@@ -591,6 +607,15 @@ class Harness:
                     mine = mc.persona(t, club, buyer['level'])
                     limits = tuple((factor, mc.gene(t, mine, mc.GENE_NAMES.index(name), club))
                                    for factor, name in ((mc.HASH_AGE, 'strict'), (mc.HASH_KNOWS, 'knows')))
+                    # and in the winter month every other case gets a year in which the club's draw
+                    # for buying in winter is its number `winter` or one less, if there is one
+                    if today[1] == t.winter and self.dice.randint(0, 1):
+                        winter = mc.gene(t, mine, mc.GENE_NAMES.index('winter'), club)
+                        for year in self.dice.sample(range(2016, 2061), 45):
+                            turn = (13 * mc.HASH_POSITION & mc.M32) ^ mc.club_key(club) ^ ((year | today[1] << 16) * mc.HASH_A & mc.M32)
+                            if mc.draw(turn, mc.HASH_WINTER) in (winter - 1, winter):
+                                today[0] = year
+                                break
                 lists, records, everyone, at = ({}, {}), [], [], self.entries
                 keys = random.sample(range(1, 0x10000), 14)      # the low word of an id: what the game finds the record by
                 for k in range(random.randint(1, 14)):
@@ -610,6 +635,7 @@ class Harness:
                     g.write(rec + 0xa8, struct.pack('<I', his))
                     if limits and self.dice.randint(0, 3) == 0:
                         factor, limit = self.dice.choice(limits)
+                        limit -= self.dice.randint(0, 1)                 # the last draw on one side, the first on the other
                         other = mc.club_key(club)
                         edge = mine[self.dice.choice([mc.AGE_FROM, mc.AGE_TO])] + mc.age_shift(t, club) + self.dice.randint(-1, 1)
                         if self.dice.randint(0, 2) == 0 and 0 <= edge <= 63:
@@ -1178,6 +1204,15 @@ def main(exe):
         assert len(t.genes) == 14 and len(t.hand) == 180 and t.genes[0] == mc.NEUTRAL
         assert all(record[mc.GENE_NAMES.index('knows')] == 255 for record in t.genes) == (scouting == 'false')
         assert h.choose_cases(500, t)[0] > 0
+    # the ages alone, moved by up to 2 and up to 5 years: nearly every refusal is one for the age
+    for shift in (2, 5):
+        text = only(PERSONA=None)
+        for name, new in ages_alone(shift):
+            text = setting(text, name, new)
+        t, lines = install(text, 'values')
+        assert t.age_shift == shift and len(t.genes) == 6 and not t.hand and not t.scouting
+        chosen = h.choose_cases(300, t)
+        assert chosen[1] > 300, chosen
     # the rivals alone and with each other part: 64 pairs among 12 clubs (every club has many
     # rivals, and many pairs stand twice or the other way round), one pair, 64 pairs of 128 clubs
     def some_rivals(pairs, clubs):
@@ -1298,7 +1333,7 @@ def main(exe):
           'four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs '
           'among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling '
           'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, '
-          'SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
+          'SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
           'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each' % (
               len(alone), ', '.join(gaps)))
 
