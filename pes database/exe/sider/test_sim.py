@@ -89,6 +89,8 @@ ALLOWED_CAVE_C = (sc.CAVE_C, len(bytes.fromhex(sc.CODE_PARTS["cards"][1])))
 ALLOWED_SITES = (
     (sc.OUTCOME_SITE, 7),
     (sc.SCORE_SITE, 5),
+    (sc.SMART_SUBS_SITE, 15),
+    (sc.GK_PROTECT_SITE, 2),
     (sc.SKIP_SUBS_SITE, 2),
     (sc.RATINGS_SITE, 6),
     (sc.SCORER_SITE, 8),
@@ -125,6 +127,8 @@ class SimHarness:
         self.player_map = {}
         self.player_team_map = {}
         self.ovr_map = {}
+        self.ovr_pos_map = {}
+        self.tactics_map = {}
         self.ban_set = set()
 
         self.state = {
@@ -149,7 +153,7 @@ class SimHarness:
 
         g.replace(COMP_RECORD, lambda gm, a: self.comp)
         g.replace(TEAM_RECORD, lambda gm, a: self.team0 if a(0) == 100 else self.team1)
-        g.replace(0x03822a29, lambda gm, a: self.mgr_rec)
+        g.replace(0x03822a29, lambda gm, a: self.tactics_map.get((a(0), a(1)), self.mgr_rec))
         g.replace(
             TEAM_STRENGTH,
             lambda gm, a: self.state["ovr0"] if struct.unpack("<I", gm.read(a(0), 4))[0] == 100 else self.state["ovr1"],
@@ -186,8 +190,9 @@ class SimHarness:
 
         def get_player_ovr(gm, a):
             id_ptr = a(0)
+            pos = struct.unpack("<I", gm.read(a(1), 4))[0]
             id_lo, id_hi = struct.unpack("<II", gm.read(id_ptr, 8))
-            return self.ovr_map.get((id_lo, id_hi), 75)
+            return self.ovr_pos_map.get((id_lo, id_hi, pos), self.ovr_map.get((id_lo, id_hi), 75))
 
         g.replace(sc.PLAYER_OVR, get_player_ovr)
 
@@ -309,6 +314,7 @@ class SimHarness:
         self.g.write(p + 0x18, struct.pack("<I", (stamina & 0x7f) << 7))
         self.g.write(p + 0x1c, struct.pack("<I", (fitness & 0x7f) | ((arrow & 7) << 21)))
         self.g.write(p + 0x23, bytes([inj_res & 3]))
+        self.g.write(p + 0x2c, struct.pack("<II", id_lo, id_hi))
         self.player_map[(id_lo, id_hi)] = p
         self.player_team_map[p] = team_id
         self.ovr_map[(id_lo, id_hi)] = ovr
@@ -321,12 +327,30 @@ class SimHarness:
             self.g.write(t + 0xf8 + i * 8, struct.pack("<II", id_lo, id_hi))
         self.g.write(t + 0x328, struct.pack("<I", (n & 0x7f) << 9))
 
+    def set_team_tactics(self, side, indices, pos_ids=None, *, sentinel=False):
+        t = self.team0 if side == 0 else self.team1
+        tid = (900 + side, 1)
+        self.g.write(t + 0x1f8, struct.pack("<II", *tid))
+        if sentinel:
+            self.tactics_map[tid] = self.mode_data + 0x5fea64
+            return
+        rec = self.g.alloc(size=0x280)
+        self.g.write(rec + 0x248, bytes(indices))
+        if pos_ids is None:
+            pos_ids = [0, 1, 2, 2, 3, 6, 7, 8, 9, 9, 10]
+        self.g.write(rec + 0x68, bytes(pos_ids))
+        self.tactics_map[tid] = rec
+
     def clear_squads(self):
         self.set_team_squad(0, [])
         self.set_team_squad(1, [])
+        self.g.write(self.team0 + 0x1f8, b"\x00" * 8)
+        self.g.write(self.team1 + 0x1f8, b"\x00" * 8)
         self.player_map.clear()
         self.player_team_map.clear()
         self.ovr_map.clear()
+        self.ovr_pos_map.clear()
+        self.tactics_map.clear()
         self.ban_set.clear()
 
     def read_player_fitness(self, p):
@@ -347,9 +371,9 @@ def main(exe):
     # 2. Check Keystone assembly matches CODE_PARTS if keystone is installed
     if tm.KEYSTONE:
         built = sc.assemble()
-        for name in ("chk", "rand", "score", "ratings", "scorer", "eff_strength", "et", "outcome", "pk", "card_adj", "fatigue", "injury", "cards"):
+        for name in ("chk", "rand", "score", "ratings", "scorer", "eff_strength", "player_eff_ovr", "smart_subs", "et", "outcome", "pk", "card_adj", "fatigue", "injury", "cards"):
             assert (built[name][0], built[name][1].hex()) == sc.CODE_PARTS[name], name
-    print("ok 2: Keystone assembly matches pre-assembled CODE_PARTS byte-for-byte (all 13 routines)")
+    print("ok 2: Keystone assembly matches pre-assembled CODE_PARTS byte-for-byte (all 15 routines)")
 
     h = SimHarness(exe)
     g = h.g
@@ -389,6 +413,8 @@ def main(exe):
         ("DRAW_WEIGHTS", "{ 0, 0, 0, 0, 0 }"),
         ("DRAW_WEIGHTS", "{ 10, -1, 5, 1, 1 }"),
         ("SKIP_SUBS", '"true"'),
+        ("GK_PROTECT", '"yes"'),
+        ("SMART_SUBS", "1"),
         ("RATINGS", '"true"'),
         ("RATING_BASE", "{ 6.4, 6.1 }"),
         ("RATING_BASE", "{ 3.5, 6.1, 5.7 }"),
@@ -425,6 +451,7 @@ def main(exe):
         ("RED_PCT", "-1"),
         ("RED_PCT", "31"),
         ("CONDITION_STRENGTH", "1"),
+        ("LINEUP_STRENGTH", "0"),
         ("CONDITION_OVR", "{ -4, -2, 0, 2 }"),
         ("CONDITION_OVR", "{ -11, -2, 0, 2, 4 }"),
         ("FATIGUE_THRESHOLD", "35"),
@@ -450,16 +477,28 @@ def main(exe):
     assert l2[-1] == "RESULT: nothing written (WRITE = false). All checks passed." and not w2, l2
 
     all_off = source
-    for k in ("SCOPE", "SKIP_SUBS", "RATINGS", "SCORERS", "ASSISTS", "EXTRA_TIME_PK", "CARDS", "STAMINA_FATIGUE"):
+    for k in ("SCOPE", "SKIP_SUBS", "GK_PROTECT", "SMART_SUBS", "RATINGS", "SCORERS", "ASSISTS", "EXTRA_TIME_PK", "CARDS", "STAMINA_FATIGUE"):
         all_off = set_lua(all_off, k, "false")
     all_off = set_lua(all_off, "INJURY_PCT", "0")
     l2, r2, w2 = run(g, all_off)
     assert "All features are off" in l2[-1] and not r2 and not w2, l2
 
-    # Partial modes: SKIP_SUBS-only, RATINGS-only, ASSISTS-only, ET/PK-only, CARDS-only, STAMINA_FATIGUE-only, INJURY-only
+    # Partial modes: SKIP_SUBS-only, GK_PROTECT-only, SMART_SUBS-only, RATINGS-only, ASSISTS-only, ET/PK-only, CARDS-only, STAMINA_FATIGUE-only, INJURY-only
     subs_only = set_lua(all_off, "SKIP_SUBS", "true")
     l2, _, w2 = run(g, subs_only)
     assert l2[-1] == "RESULT: installed. Active: Skip Match CPU substitutions." and w2 == [(sc.SKIP_SUBS_SITE, 2)], (l2, w2)
+
+    h.restore()
+    gk_only = set_lua(all_off, "GK_PROTECT", "true")
+    l2, _, w2 = run(g, gk_only)
+    assert l2[-1] == "RESULT: installed. Active: GK sub protection." and w2 == [(sc.GK_PROTECT_SITE, 2)], (l2, w2)
+
+    h.restore()
+    smart_only = set_lua(all_off, "SMART_SUBS", "true")
+    l2, _, w2 = run(g, smart_only)
+    assert l2[-1] == "RESULT: installed. Active: smart CPU subs." and set(w2) == {
+        ALLOWED_CAVE, ALLOWED_DATA_D2, ALLOWED_CAVE_ET, (sc.SMART_SUBS_SITE, 15)
+    }, (l2, w2)
 
     h.restore()
     ratings_only = set_lua(all_off, "RATINGS", "true")
@@ -499,12 +538,14 @@ def main(exe):
         ALLOWED_CAVE, ALLOWED_DATA_D2, ALLOWED_CAVE_PK, ALLOWED_CAVE_C, (sc.CARDS_SITE, 6)
     }, (l2, w2)
     h.restore()
-    print("ok 4: 69 faulty settings refused; WRITE=false, all-off, and 7 partial modes verified")
+    print("ok 4: 72 faulty settings refused; WRITE=false, all-off, and 9 partial modes verified")
 
     # 5. Tamper & sticky checks
     for name, addr, expected_hex in [
         ("outcome site", sc.OUTCOME_SITE, "0fb6bdf3ffffff"),
         ("score site", sc.SCORE_SITE, "8b45088b00"),
+        ("smart_subs site", sc.SMART_SUBS_SITE, "c785b4feffff64000000e8b0d81400"),
+        ("gk_protect site", sc.GK_PROTECT_SITE, "31ff"),
         ("skip_subs site", sc.SKIP_SUBS_SITE, "7417"),
         ("ratings site", sc.RATINGS_SITE, "8b4d0883f902"),
         ("scorer site", sc.SCORER_SITE, "31c9898de4ffffff"),
@@ -534,7 +575,7 @@ def main(exe):
     h.restore()
     l2, _, _ = run(g, source, sticky=lambda a: a != sc.FATIGUE_SITE)
     assert l2[-1].startswith("RESULT: a change did not go in."), l2
-    print("ok 5: tamper detection across all 10 sites & all 6 caves, e9 check, and sticky failure verified")
+    print("ok 5: tamper detection across all 12 sites & all 6 caves, e9 check, and sticky failure verified")
 
     # 6. Install and run REAL PES2017.exe machine code (`fcn_03707a1f` + `fcn_03705feb`)
     h.restore()
@@ -573,19 +614,29 @@ def main(exe):
         (1, 70, 88, "giant away win"),
         (0, 70, 85, "upset home win"),
     ]:
-        total_w = total_l = 0
+        total_w = total_l = blowouts_4gd = blowouts_50 = 0
         for _ in range(1000):
             hg, ag = h.run_score(res, ovr0, ovr1)
             if res == 0:
                 assert 1 <= hg <= 6 and 0 <= ag < hg, (label, hg, ag)
                 total_w += hg
                 total_l += ag
+                if hg - ag >= 4:
+                    blowouts_4gd += 1
+                if (hg, ag) == (5, 0):
+                    blowouts_50 += 1
             else:
                 assert 1 <= ag <= 6 and 0 <= hg < ag, (label, hg, ag)
                 total_w += ag
                 total_l += hg
+                if ag - hg >= 4:
+                    blowouts_4gd += 1
+                if (ag, hg) == (5, 0):
+                    blowouts_50 += 1
         avg_w, avg_l = total_w / 1000, total_l / 1000
-        assert 1.8 <= avg_w <= 3.3 and 0.2 <= avg_l <= 0.7, (label, avg_w, avg_l)
+        assert 1.75 <= avg_w <= 3.1 and 0.2 <= avg_l <= 0.7, (label, avg_w, avg_l)
+        if label == "upset home win":
+            assert blowouts_50 == 0 and blowouts_4gd <= 10, (blowouts_50, blowouts_4gd)
     print("ok 7: real fcn_03705feb scorelines satisfy invariants and realistic Poisson frequencies")
 
     # 7. Master League captain role bonus scaling
@@ -1103,17 +1154,17 @@ def main(exe):
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 80
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=200) == 80
 
-    # Blue arrows (+4) vs red arrows (-4) match Python compute_eff_ovr
+    # Blue arrows (+3) vs red arrows (-3) match Python compute_eff_ovr
     for i, pid in enumerate(h_ids[:11]):
         h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=100)
     for i, pid in enumerate(a_ids):
         h.alloc_player(*pid, team_id=200, ovr=80, arrow=0, fitness=100)
-    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 84
-    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=200) == 76
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 83
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=200) == 77
 
-    # Low fitness (40 < 80, penalty 8 -> -4 OVR) drops eff_ovr from 84 to 80
+    # Low fitness (36 < 72, penalty 5 -> -3 OVR) drops eff_ovr from 83 to 80
     for pid in h_ids[:11]:
-        h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=40)
+        h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=36)
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 80
 
     # Injured (attr 0x5e > 0) & banned players excluded via real fcn_0385b771 -> bench (70) + 40-fill!
@@ -1127,25 +1178,80 @@ def main(exe):
     # Effective OVR propagates into OUTCOME_FN (even when base ovr0 == ovr1 == 80!)
     h.ban_set.clear()
     for pid in h_ids[:11]:
-        h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=100)  # eff = 84
+        h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=100)  # eff = 83
     for pid in a_ids:
-        h.alloc_player(*pid, team_id=200, ovr=80, arrow=0, fitness=40)   # eff = 72 (+12 eff diff!)
+        h.alloc_player(*pid, team_id=200, ovr=80, arrow=0, fitness=36)   # eff = 74 (+9 eff diff!)
     idx = [0]
     h.state["rand_fn"] = lambda n: (idx.__setitem__(0, idx[0] + 1), idx[0] - 1)[1] % n
     counts = [0, 0, 0]
     for _ in range(1000):
         counts[h.run_outcome(80, 80)] += 1
-    exp_row = sc.build_outcome_table()[12 - sc.DIFF_MIN]
+    exp_row = sc.build_outcome_table()[9 - sc.DIFF_MIN]
     assert counts[0] == exp_row[0] and counts[2] == exp_row[1] - exp_row[0], (counts, exp_row)
 
-    # CONDITION_STRENGTH=false restores base TEAM_STRENGTH (80 vs 80)
+    # CONDITION_STRENGTH=false (with LINEUP_STRENGTH=true) evaluates raw OVR without arrow/fatigue
     h.restore()
     l2, _, _ = run(g, set_lua(source, "CONDITION_STRENGTH", "false"))
     assert l2[-1].startswith("RESULT: installed."), l2
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 80
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=200) == 80
+
+    # LINEUP_STRENGTH: Starting XI via tactics+0x248, positional OVR via tactics+0x68,
+    # injured/banned starter bench replacement, and invalid tactics fallback
+    h.restore()
+    l2, _, _ = run(g, source)
+    assert l2[-1].startswith("RESULT: installed."), l2
     h.clear_squads()
-    print("ok 16: eff_strength excludes injured/banned (fcn_0385b771), scales by arrow & fitness, propagates to outcomes")
+    h.state["ovr0"] = 80
+    lineup_ids = [(10 + i, 6500 + i) for i in range(18)]
+    # Squad 0..6 weak (65), 7..17 strong (85); Starting XI uses indices [11..17, 7..10] -> all 85!
+    for i, pid in enumerate(lineup_ids):
+        h.alloc_player(*pid, team_id=100, ovr=65 if i < 7 else 85, pos=0 if i == 11 else 9, arrow=2, fitness=100)
+    h.set_team_squad(0, lineup_ids)
+    # Without tactics, top-11 of squad = all 11 of 85 -> 85; now pick weak starters [0..6, 11..14] -> 7*65 + 4*85 = 72.27 -> 72
+    weak_xi = [0, 1, 2, 3, 4, 5, 6, 11, 12, 13, 14]
+    h.set_team_tactics(0, weak_xi)
+    exp_weak = sc.compute_eff_ovr([(65, 2, 100, True)] * 7 + [(85, 2, 100, True)] * 4)
+    assert exp_weak == 72
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == exp_weak
+
+    # Positional OVR (tactics+0x68): starter slot 7 (lineup_ids[11]) plays at pos=8 where OVR is 55 -> drops team!
+    h.ovr_pos_map[(lineup_ids[11][0], lineup_ids[11][1], 8)] = 55
+    exp_oop = sc.compute_eff_ovr([(65, 2, 100, True)] * 7 + [(55, 2, 100, True)] + [(85, 2, 100, True)] * 3)
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == exp_oop
+    h.ovr_pos_map.clear()
+
+    # Injured/banned starter in weak_xi is replaced by top eligible non-starter (85) -> 6*65 + 5*85 = 74
+    h.alloc_player(*lineup_ids[0], team_id=100, ovr=65, pos=0, arrow=2, fitness=100, inj_days=4)
+    h.ban_set.add(lineup_ids[1])  # 2 unavailable starters -> replaced by two 85s from bench (15, 16)
+    exp_rep = sc.compute_eff_ovr([(65, 2, 100, True)] * 5 + [(85, 2, 100, True)] * 6)
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == exp_rep
+    h.ban_set.clear()
+    h.alloc_player(*lineup_ids[0], team_id=100, ovr=65, pos=0, arrow=2, fitness=100, inj_days=0)
+
+    # Sentinel tactics_rec (mode_data+0x5fea64), out-of-range index, or duplicate index falls back to squad top-11 (85)
+    h.set_team_tactics(0, weak_xi, sentinel=True)
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 85
+    h.set_team_tactics(0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 25])  # 25 >= n_squad (18)
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 85
+    h.set_team_tactics(0, [0, 0, 2, 3, 4, 5, 6, 7, 8, 9, 10])  # duplicate 0
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 85
+
+    # LINEUP_STRENGTH=false (with CONDITION_STRENGTH=true) ignores valid weak_xi and uses squad top-11 (85)
+    h.set_team_tactics(0, weak_xi)
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "LINEUP_STRENGTH", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 85
+
+    # Both CONDITION_STRENGTH=false and LINEUP_STRENGTH=false restore base TEAM_STRENGTH (80)
+    h.restore()
+    l2, _, _ = run(g, set_lua(set_lua(source, "CONDITION_STRENGTH", "false"), "LINEUP_STRENGTH", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 80
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=200) == 80
+    h.clear_squads()
+    print("ok 16: eff_strength evaluates tactics Starting XI + position, bench replacement, fallbacks, arrow & fitness, and outcomes")
 
     # 17. Feature 5b: STAMINA_FATIGUE + AI_FATIGUE in real fcn_038556f1
     h.restore()
@@ -1280,7 +1386,94 @@ def main(exe):
     h.clear_squads()
     print(f"ok 18: INJURY_FN issued {sum(inj_hits)}/300 injuries (GK=0, IR0+tired={inj_hits[10]} vs IR2+fresh={inj_hits[1]}), <=7 guard & CARDS=false verified")
 
-    # 19. Coexistence with MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order
+    # 19. Feature 6: GK_PROTECT (0x0370818d) + SMART_SUBS (0x037080d9) in fcn_03707e71
+    from unicorn.x86_const import UC_X86_REG_EBX, UC_X86_REG_EBP, UC_X86_REG_ESI, UC_X86_REG_ESP
+    h.restore()
+    l2, _, _ = run(g, source)
+    assert l2[-1].startswith("RESULT: installed."), l2
+    frame6 = g.alloc(size=0x400) + 0x300
+    g.write(frame6 + 0x08, struct.pack("<I", h.match))
+    g.write(frame6 - 0x160, struct.pack("<I", h.mode_data))
+
+    # 19a. GK_PROTECT: even when rand(5)==0 and rand(4)==0, sub1 is 1..4 (never slot 0 GK!)
+    for r0 in range(5):
+        for r1 in range(4):
+            seq = iter([r0, r1, 0, 0])
+            h.state["rand_fn"] = lambda n, s=seq: next(s) % n
+            g.mu.reg_write(UC_X86_REG_ESP, STACK + STACK_SIZE - 0x1010)
+            g.mu.reg_write(UC_X86_REG_EBP, frame6)
+            g.mu.reg_write(UC_X86_REG_ESI, h.team0)
+            g.mu.emu_start(0x03708152, 0x03708220)
+            sub1 = struct.unpack("<i", g.read(frame6 - 0x1c, 4))[0]
+            assert 1 <= sub1 <= 4, (r0, r1, sub1)
+
+    # GK_PROTECT=false allows vanilla rand(5)==0 + rand(5)==0 -> sub1 == 0 (GK subbed off!)
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "GK_PROTECT", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    seq = iter([0, 0, 0, 0])
+    h.state["rand_fn"] = lambda n, s=seq: next(s) % n
+    g.mu.reg_write(UC_X86_REG_ESP, STACK + STACK_SIZE - 0x1010)
+    g.mu.reg_write(UC_X86_REG_EBP, frame6)
+    g.mu.reg_write(UC_X86_REG_ESI, h.team0)
+    g.mu.emu_start(0x03708152, 0x03708220)
+    assert struct.unpack("<i", g.read(frame6 - 0x1c, 4))[0] == 0
+
+    # 19b. SMART_SUBS: bench sort key = eff_ovr + rand(4), descending via fcn_03705ef2
+    h.restore()
+    l2, _, _ = run(g, source)
+    assert l2[-1].startswith("RESULT: installed."), l2
+    h.set_match(comp_id=1, team0_id=100, team1_id=200, tie_kind=0)
+    p_star = h.alloc_player(1, 9101, team_id=100, ovr=84, pos=9, arrow=4, fitness=100)  # 84 + 3 = 87
+    p_tired = h.alloc_player(2, 9102, team_id=100, ovr=80, pos=9, arrow=0, fitness=40)  # 80 - 3 - 2 = 75
+    p_low = h.alloc_player(3, 9103, team_id=100, ovr=68, pos=9, arrow=2, fitness=100)   # 68
+
+    def eval_sub_key(p_ptr, jitter):
+        h.state["rand_fn"] = lambda n, j=jitter: j % n
+        g.write(frame6 - 0x14c, struct.pack("<I", p_ptr))
+        g.mu.reg_write(UC_X86_REG_ESP, STACK + STACK_SIZE - 0x1000)
+        g.mu.reg_write(UC_X86_REG_EBP, frame6)
+        g.mu.reg_write(UC_X86_REG_EBX, 0xdeadbeef)
+        g.mu.emu_start(0x037080ac, 0x037080f1)
+        assert g.mu.reg_read(UC_X86_REG_EBX) == 0xdeadbeef, "ebx clobbered by smart_subs!"
+        return g.read(frame6 - 0x19c, 1)[0]
+
+    k_star = eval_sub_key(p_star, 0)
+    k_tired = eval_sub_key(p_tired, 3)
+    k_low = eval_sub_key(p_low, 3)
+    assert k_star == 87, k_star
+    assert k_tired == 78, k_tired
+    assert k_low == 71, k_low
+    assert k_star > k_tired > k_low
+
+    # Verify PES2017.exe comparator fcn_03705ef2 sorts k_star BEFORE k_tired (descending)
+    ent_a = g.alloc(struct.pack("<IIB", 1, 9101, k_star) + b"\x00\x00\x00")
+    ent_b = g.alloc(struct.pack("<IIB", 2, 9102, k_tired) + b"\x00\x00\x00")
+    assert g.call(0x03705ef2, [ent_a, ent_b]) == 1
+    assert g.call(0x03705ef2, [ent_b, ent_a]) == 0
+
+    # SCOPE="skip_only" when NOT skip-match falls back to vanilla rand(100)
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "SCOPE", '"skip_only"'))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    h.set_skip_flag(False)
+    h.set_team_user(0, False)
+    assert eval_sub_key(p_star, 42) == 42
+    h.set_skip_flag(True)
+    h.set_team_user(0, True)
+    assert eval_sub_key(p_star, 2) == 89
+    h.set_skip_flag(False)
+    h.set_team_user(0, False)
+
+    # SMART_SUBS=false falls back to vanilla rand(100)
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "SMART_SUBS", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    assert eval_sub_key(p_star, 77) == 77
+    h.clear_squads()
+    print("ok 19: GK_PROTECT (never sub1==0) & SMART_SUBS (eff_ovr + rand(4), descending fcn_03705ef2, scope/toggle fallbacks) verified")
+
+    # 20. Coexistence with MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order
     del h
     money_src = open(tm.MODULE, encoding="utf-8").read()
     trans_src = open(tm.MODULE_T, encoding="utf-8").read()
@@ -1294,7 +1487,7 @@ def main(exe):
         l_all, _, _ = run(g2, tm.SPLIT.join(order))
         res_lines = [l for l in l_all if l.startswith("RESULT")]
         assert len(res_lines) == 4 and all(l.startswith("RESULT: installed.") for l in res_lines), res_lines
-    print("ok 19: installs cleanly alongside MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order")
+    print("ok 20: installs cleanly alongside MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order")
 
 
 if __name__ == "__main__":

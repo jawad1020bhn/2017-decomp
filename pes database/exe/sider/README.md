@@ -1272,7 +1272,7 @@ places; no season was played. The emulator computes the club factor with 80-bit
 floating point; if the game runs with a lower precision setting, a salary can differ by
 1 (100 on the screen).
 
-## `MLSimMatch.lua`, version 5: simulated matches, condition, fatigue & injuries
+## `MLSimMatch.lua`, version 6: simulated matches, subs, lineup & condition strength, fatigue & injuries
 
 Emulator only: it has not run in the game yet. Needs no other module and coexists cleanly
 with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
@@ -1280,58 +1280,67 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
 ### What it changes
 
 1. **Match outcome (`0x03707a1f`):** replaces vanilla's harsh `diff >= 4` / `diff >= 2`
-   step function with a smooth Davidson win/draw/loss table plus `HOME_ADV` (and ML
-   captain role bonus via `CAPTAIN_BONUS`).
+   step function with a smooth Davidson win/draw/loss table plus `HOME_ADVANTAGE`
+   (`2.4` OVR, `ELO_SCALE = 6.2`, `BASE_DRAW = 0.27`) and ML captain role bonus via
+   `CAPTAIN_WEIGHT`.
 2. **Scorelines (`0x03705feb`):** replaces vanilla's narrow goal tables with Poisson-derived
-   goal distributions scaled by the effective strength gap (`GOAL_BASE`, `GOAL_GAP_PCT`,
-   `GOAL_MAX`), avoiding unrealistic `0-0` / `1-0` / `8-0` spikes.
-3. **Skip Match CPU substitutions (`0x03708230`):** removes the hardcoded `sub = 11`
-   overwrite when `SCOPE` includes Skip Match so simulated Skip Match fixtures behave like
-   AI-vs-AI simulations.
+   goal distributions across 7 strength-gap bands (`BAND_LAMBDAS`, damped `>= 4` GD
+   blowouts, `GOAL_SCALE`), avoiding unrealistic `0-0` / `1-0` / `8-0` spikes.
+3. **Skip Match substitutions, GK protection & smart CPU subs (`fcn_03707e71`):**
+   - `SKIP_SUBS` (`0x03708230`): removes the hardcoded `sub = 11` overwrite when `SCOPE`
+     includes Skip Match so simulated Skip Match fixtures behave like AI-vs-AI simulations.
+   - `GK_PROTECT` (`0x0370818d`, version 6): replaces `xor edi, edi` (`31 ff` -> `90 90`)
+     so slot `0` (starting GK) is never randomly selected as `sub1` for an outfielder.
+   - `SMART_SUBS` (`0x037080d9`, version 6): replaces pure `rand(100)` bench sort keys
+     with `player_eff_ovr(pos=13) + rand(4)` (clamped `<= 255`), so descending sort
+     (`fcn_03705ef2`) brings on stronger, in-form, fresh substitutes first (respecting
+     `SCOPE`).
 4. **Dynamic player ratings (`0x03708cc4`):** computes end-of-match ratings from team
    result (`W/D/L`), goal difference, clean sheet bonus, goals (`RATING_GOAL`), assists
    (`RATING_ASSIST`), and disciplinary card penalties (`CARDS` adjustment), replacing
    vanilla's flat base ratings.
 5. **Goal scorers & assists (`0x03706ef6`):** distributes goals across all 10 outfield
-   players using exponential weights (`SCORER_DECAY`, zero for GKs) and assigns assists
-   across the remaining outfielders (`ASSIST_PCT`, `ASSIST_DECAY`).
+   players using exponential weights (`SCORER_SHARPNESS`, zero for GKs) and assigns
+   assists across the remaining outfielders (`UNASSISTED_PCT`, `ASSIST_SHARPNESS`).
 6. **Extra Time & Penalty Shootouts (`0x037062ca`, `0x037063bb`):** adds strength-scaled
-   Extra Time goal chances (`ET_BASE`, `ET_GAP_PCT`) and replaces vanilla's broken
-   100%-home-win Penalty Shootout table with a symmetric OVR-weighted shootout (`PK_BASE`,
-   `PK_MAX_BONUS`).
-7. **Disciplinary cards (`0x03707d2f`):** awards position-weighted yellow and red cards
-   (`CARDS`, `YELLOW_BASE_X10`, `SECOND_YELLOW_PCT`, `STRAIGHT_RED_PCT`) and feeds
-   competition suspension tracking.
-8. **Condition & fatigue-adjusted team strength (`CONDITION_STRENGTH`, version 5):**
-   intercepts team strength lookups inside `outcome` (`CAVE_ET` `eff_strength`), walks
-   the team's up-to-32 registered squad entries, excludes injured or suspended players
-   via `fcn_0385b771`, shifts each eligible player's OVR by match-day condition arrow
-   (`CONDITION_OVR = { -4, -2, 0, 2, 4 }`) and pre-match fatigue below
-   `FATIGUE_THRESHOLD` (`80`, up to `FATIGUE_PENALTY = 8`), takes the top 11 effective
-   OVRs (filling missing slots with `40`), and feeds the resulting effective team OVR
-   into match outcomes, scorelines, ET, and PKs.
+   Extra Time goal chances (`ET_GOAL_SCALE`) and replaces vanilla's broken
+   100%-home-win Penalty Shootout table with a symmetric OVR-weighted shootout
+   (`PK_HOME_BIAS`, `PK_OVR_WEIGHT`).
+7. **Disciplinary cards (`0x03708f45`):** awards position-weighted yellow and red cards
+   (`CARDS`, `YELLOW_AVG`, `RED_PCT`) and feeds competition suspension tracking.
+8. **Starting XI lineup & condition/fatigue team strength (`LINEUP_STRENGTH`, `CONDITION_STRENGTH`):**
+   intercepts team strength lookups inside `outcome`, `score`, `et`, and `pk` (`CAVE_ET`
+   `eff_strength`), looks up the team's active tactics (`fcn_03117d98` + `fcn_03822a29`)
+   when `LINEUP_STRENGTH = true`, validates non-sentinel distinct indices in
+   `tactics_rec + 0x248[0..10]` (falling back to the squad top-11 loop when invalid),
+   evaluates each starter's positional OVR (`tactics_rec + 0x68[0..10]`, defaulting
+   `> 12` or `slot > 0 and pos == 0` to `13`), replaces injured/suspended starters
+   (`fcn_0385b771`) with the best eligible non-starters from the bench, and (when
+   `CONDITION_STRENGTH = true`) adjusts each player's OVR via `player_eff_ovr` by
+   condition arrow (`CONDITION_OVR = { -3, -1, 0, 1, 3 }`) and pre-match fatigue
+   below `FATIGUE_THRESHOLD` (`72`, up to `FATIGUE_PENALTY = 5`).
 9. **Stamina-scaled fatigue (`STAMINA_FATIGUE`, `AI_FATIGUE`, version 5):** hooks
    `fcn_038556f1` (`0x038557dc` & `0x038557d6`) so simulated AI teams also accumulate
    match fatigue when `AI_FATIGUE = true`, scales drain by player stamina around 75
-   (`STAMINA_WEIGHT = 10` per 10 points of stamina), keeps vanilla's `0.9x` GK factor,
-   and adds `+30` minutes when a simulated fixture went to Extra Time (without
-   double-counting played 120-minute fixtures).
+   (`STAMINA_WEIGHT`), keeps vanilla's `0.9x` GK factor, and adds `+30` minutes when
+   a simulated fixture went to Extra Time (without double-counting played 120-minute
+   fixtures).
 10. **Simulated match injuries (`INJURY_PCT`, `INJURY_DAYS`, version 5):** extends
     `CARDS_HOOK` so each simulated match rolls `INJURY_PCT` (`3%` default) per team
     (when more than 7 outfield-capable healthy players are available), picks a random
     healthy outfield player weighted by low injury resistance and low post-match
-    fitness, and sets injury duration in `[INJURY_DAYS[1], INJURY_DAYS[2]]` (`3..21`
+    fitness, and sets injury duration in `[INJURY_DAYS[1], INJURY_DAYS[2]]` (`7..28`
     days default). Works even when `CARDS = false`.
 
 ### Settings & verification
 
 All toggles and tuning parameters live at the top of `MLSimMatch.lua` and are validated
 by `settings_fault()` before any byte is written. `python3 test_sim.py <PES2017.exe>`
-runs 19 tests (all passing): generated block & Keystone byte-for-byte equivalence across
-all 13 routines and 6 caves, 69 invalid-setting rejections, 7 partial-mode installs,
-tamper detection across all 10 patch sites and 6 caves, real `PES2017.exe` execution for
-all match-sim hooks (`ok 6`–`ok 18`), and coexistence with `MLMoney.lua`, `MLTransfers.lua`,
-and `MLYear.lua` in any order (`ok 19`).
+runs 20 tests (all passing): generated block & Keystone byte-for-byte equivalence across
+all 15 routines and 6 caves, 72 invalid-setting rejections, 9 partial-mode installs,
+tamper detection across all 12 patch sites and 6 caves, real `PES2017.exe` execution for
+all match-sim hooks (`ok 6`–`ok 19`), and coexistence with `MLMoney.lua`, `MLTransfers.lua`,
+and `MLYear.lua` in any order (`ok 20`).
 
 ## What was looked at in `sider.dll`
 
@@ -1367,14 +1376,14 @@ Read from the DLL's code and strings, not run:
   the salary part to 0 in the function's own stack frame.)
 - Free memory for code and tables: `0x047b0200`-`0x047b0fff`, the end of `.trace`
   (3,584 bytes; `MLMoney.lua` uses the first 3,568), and below it `0x047b0060`-`0x047b01fd`
-  (`MLSimMatch.lua` version 5 uses `0x047b0060`-`0x047b01f4`, 405 bytes, for cards + injury call). The end of `.xcode`,
-  `0x047d3a43`-`0x047d3fff` (`MLSimMatch.lua` version 5 uses `0x047d3a50`-`0x047d3f81`,
-  1,330 bytes; previously used by version 6 of `MLMoney.lua` and version 1 of
+  (`MLSimMatch.lua` version 6 uses `0x047b0060`-`0x047b01f4`, 405 bytes, for cards + injury call). The end of `.xcode`,
+  `0x047d3a43`-`0x047d3fff` (`MLSimMatch.lua` version 6 uses `0x047d3a50`-`0x047d3f85`,
+  1,334 bytes; previously used by version 6 of `MLMoney.lua` and version 1 of
   `MLTransfers.lua`). The page of `.data1` behind its code, `0x047d4170`-`0x047d4fff`:
-  `MLSimMatch.lua` version 5 uses `0x047d4170`-`0x047d41ff` (144 bytes) for v1–v3
-  config/tables and `0x047d4f60`-`0x047d4f7f` (32 of 160 bytes) for v5 config; `MLTransfers.lua` version 2 uses
+  `MLSimMatch.lua` version 6 uses `0x047d4170`-`0x047d41ff` (144 bytes) for v1–v3
+  config/tables and `0x047d4f60`-`0x047d4f87` (40 of 160 bytes) for v5/v6 config; `MLTransfers.lua` version 2 uses
   `0x047d4200`-`0x047d4f5f`. `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
-  `MLSimMatch.lua` version 5's `eff_strength` + ET + outcome (`0x047d5040`-`0x047d5390`, 849 bytes) and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks. A module must
+  `MLSimMatch.lua` version 6's `eff_strength` + `player_eff_ovr` + `smart_subs` + ET + outcome (`0x047d5040`-`0x047d55f0`, 1,457 bytes) and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks. A module must
   see zeros there before it writes.
 - A routine that is called from inside a game function can read the arguments of that
   function's caller through the saved `ebp`, if it first checks the return address.

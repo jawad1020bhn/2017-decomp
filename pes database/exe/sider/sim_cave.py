@@ -7,7 +7,7 @@
                                    print the generated tables/hooks block for MLSimMatch.lua
                                    (test_sim.py checks that MLSimMatch.lua matches this)
 
-MLSimMatch.lua (version 5) improves simulated matches (Skip Match and AI-vs-AI) in
+MLSimMatch.lua (version 6) improves simulated matches (Skip Match and AI-vs-AI) in
 PES 2017 (sha256 44b0caaa...):
 
   1. Outcome probabilities (hook at 0x03707d56 inside fcn_03707a1f, cave .reloc):
@@ -19,9 +19,14 @@ PES 2017 (sha256 44b0caaa...):
      Weighted scoreline distributions precomputed from a conditional Poisson model across
      7 strength-gap bands (1-0..6-5) plus weighted draw scores (0-0..4-4).
 
-  3. Skip Match substitutions (patch at 0x03708230 inside fcn_03707e71):
-     Changes `je 0x3708249` (74 17) to `jmp 0x3708249` (eb 17) so the user's team makes
-     its 3 CPU substitutions during Skip Match instead of forcing sub1 = sub2 = sub3 = 11.
+  3. Skip Match substitutions, GK protection & smart CPU subs (patches/hook inside
+     fcn_03707e71):
+     - Patch at 0x03708230 (`74 17` -> `eb 17`) restores the user's 3 CPU substitutions
+       during Skip Match instead of forcing sub1 = sub2 = sub3 = 11.
+     - Patch at 0x0370818d (`31 ff` -> `90 90`) protects slot 0 (GK) from being subbed
+       off for an outfielder (1 + rand(4) instead of 0..4).
+     - Hook at 0x037080d9 ranks bench candidates by effective OVR (arrow & fatigue) +
+       small 0..3 jitter instead of pure rand(100).
 
   4. Dynamic match ratings (hook at 0x03708d39 inside fcn_03708cc4, cave .xcode):
      Replaces the fixed 11-slot rating tables (0x2105a40..0x2105a98) with ratings driven
@@ -45,11 +50,14 @@ PES 2017 (sha256 44b0caaa...):
      straight red cards into stat_rec +0x0c (bits 18..20), feeding directly into
      fcn_0370403e's competition card tallies and suspensions.
 
-  8. Squad condition, fatigue & injury simulation effects (eff_strength in .reloc,
-     fatigue hook at 0x038557dc + AI_FATIGUE at 0x038557d6 in fcn_038556f1, and
-     post-match injury roll called from 0x03708f45):
-     - Effective squad strength excludes injured/suspended players (fcn_0385b771) and
-       adjusts each player's OVR by condition arrow (0..4) and low-fitness penalty.
+  8. Squad condition, lineup strength, fatigue & injury simulation effects (eff_strength
+     + player_eff_ovr in .reloc, fatigue hook at 0x038557dc + AI_FATIGUE at 0x038557d6
+     in fcn_038556f1, and post-match injury roll called from 0x03708f45):
+     - Effective team strength evaluates each club's actual Starting XI from tactics
+       (tactics + 0x248[0..10] at tactical positions +0x68, replacing unavailable
+       starters from the best eligible bench players), excludes injured/suspended
+       players (fcn_0385b771), and adjusts each player's OVR by condition arrow (0..4)
+       and low-fitness penalty.
      - Stamina-scaled match fatigue drains fitness based on Stamina (attr 0x25), applies
        to AI teams too when AI_FATIGUE=true, and adds +30 mins for extra time.
      - Match injuries (attr 0x5e) are rolled per team weighted by Injury Resistance and
@@ -59,7 +67,7 @@ Memory caves used (all verified zeroed in PES2017.exe, zero overlap with MLMoney
 MLTransfers.lua, or MLYear.lua):
   - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3fff (<= 1456 B)
   - CAVE_D  (.data1 mid-gap)  : 0x047d4170..0x047d41ff (144 / 144 B)
-  - CAVE_D2 (.data1 post-MLT) : 0x047d4f60..0x047d4f7f (32 / 160 B, RWX)
+  - CAVE_D2 (.data1 post-MLT) : 0x047d4f60..0x047d4f87 (40 / 160 B, RWX)
   - CAVE_ET (.reloc page)     : 0x047d5040..0x047d5fff (<= 4032 B)
   - CAVE_PK (.link page)      : 0x047d6030..0x047d6fff (<= 4048 B)
   - CAVE_C  (.trace tail)     : 0x047b0060..0x047b01fd (<= 414 B)
@@ -108,6 +116,9 @@ PLAYER_SET = 0x038281b0     # __thiscall(ecx=player_ptr, attr, val)
 PLAYER_OVR = 0x03838c18     # __cdecl(&player_id, &pos, arrow) -> ovr
 PLAYER_ELIG = 0x0385b771    # __cdecl(&player_id, &fix_id) -> bool
 TEAM_STRENGTH = 0x03865b0a  # __cdecl(&team_id, &kind, arg3) -> ovr
+TEAM_TACTICS_ID = 0x03117d98  # __thiscall(ecx=team_ptr, &out_8b) -> out_8b
+TACTICS_REC = 0x03822a29      # __thiscall(ecx=mode_data, id_lo, id_hi) -> tactics_ptr
+TACTICS_SENTINEL_OFF = 0x5fea64  # fallback sentinel returned by TACTICS_REC
 MODE_RANDOM = 0x03855998    # __cdecl(&n, &flag) -> 0..n-1
 STAT_REC_BY_ID = 0x037035c3 # __thiscall(ecx=match_ptr, &player_id) -> stat_rec
 SKIP_FLAG_OFF = 0xdcb61c    # byte [mode_data + 0xdcb61c] != 0 during Skip Match
@@ -122,6 +133,9 @@ SCORE_FALLBACK = 0x03706071
 SCORE_DONE_H = 0x03706110       # home win / draw epilogue
 SCORE_DONE_A = 0x03706159       # away win epilogue
 
+SMART_SUBS_SITE = 0x037080d9    # 15 bytes: mov dword [ebp-0x14c], 0x64; call MODE_RANDOM
+SMART_SUBS_RET = 0x037080e8     # mov byte [ebp-0x19c], al; add esp, 8
+GK_PROTECT_SITE = 0x0370818d    # 2 bytes: xor edi, edi (31 ff) -> nop nop (90 90)
 SKIP_SUBS_SITE = 0x03708230     # 2 bytes: 74 17 -> eb 17
 
 RATINGS_SITE = 0x03708d39       # 6 bytes: mov ecx, [ebp+8]; cmp ecx, 2
@@ -215,7 +229,7 @@ CARD_POS_W = CAVE_D + 0x86          # 10 bytes (pos 0..9)
 CAVE_D_SIZE = 0x90                  # 144 bytes
 
 # =====================================================================
-# CAVE_D2 (.data1 post-MLTransfers RWX) layout: 32 bytes
+# CAVE_D2 (.data1 post-MLTransfers RWX) layout: 40 bytes
 # =====================================================================
 CFG_V5_COND_STRENGTH = CAVE_D2 + 0x00   # u32 (0/1)
 CFG_V5_FATIGUE_THRESH = CAVE_D2 + 0x04  # u32 (40..100)
@@ -227,7 +241,9 @@ CFG_V5_INJURY_MIN = CAVE_D2 + 0x15      # u8  (1..60)
 CFG_V5_INJURY_SPAN = CAVE_D2 + 0x16     # u8  (1..60)
 CFG_C_CARDS_ON = CAVE_D2 + 0x17         # u8  (0/1)
 CFG_V5_COND_OVR = CAVE_D2 + 0x18        # int8[5] (arrows 0..4)
-CAVE_D2_SIZE = 0x20                     # 32 bytes
+CFG_V6_SMART_SUBS = CAVE_D2 + 0x20      # u32 (0/1)
+CFG_V6_LINEUP_STRENGTH = CAVE_D2 + 0x24 # u32 (0/1)
+CAVE_D2_SIZE = 0x28                     # 40 bytes
 
 # Shootout scoreline table placed inside CAVE_PK (16 bytes: 8 CDF + 8 Nibbles)
 PK_TABLE_SIZE = 16
@@ -237,16 +253,18 @@ PK_PAIRS = ((5, 4), (4, 3), (4, 2), (5, 3), (6, 5), (3, 1), (4, 1), (7, 6))
 # Card positional weights (pos 0..9: GK, CB, FB, DMF, CMF, WMF, AMF, SS, WF, CF)
 DEFAULT_CARD_POS_W = (2, 18, 16, 20, 14, 10, 8, 7, 7, 8)
 
-# Default settings (matching MLSimMatch.lua v5)
+# Default settings (matching MLSimMatch.lua v6)
 DEFAULT_SETTINGS = {
     "SCOPE": "all",
-    "HOME_ADVANTAGE": 3.0,
-    "ELO_SCALE": 7.5,
-    "BASE_DRAW": 0.28,
+    "HOME_ADVANTAGE": 2.4,
+    "ELO_SCALE": 6.2,
+    "BASE_DRAW": 0.27,
     "CAPTAIN_WEIGHT": 0.2,
     "GOAL_SCALE": 1.0,
     "DRAW_WEIGHTS": (28.0, 46.0, 21.0, 4.5, 0.5),
     "SKIP_SUBS": True,
+    "GK_PROTECT": True,
+    "SMART_SUBS": True,
     "RATINGS": True,
     "RATING_BASE": (6.4, 6.1, 5.7),
     "RATING_GD": 1.5,
@@ -270,9 +288,10 @@ DEFAULT_SETTINGS = {
     "YELLOW_AVG": 1.7,
     "RED_PCT": 4,
     "CONDITION_STRENGTH": True,
-    "CONDITION_OVR": (-4, -2, 0, 2, 4),
-    "FATIGUE_THRESHOLD": 80,
-    "FATIGUE_PENALTY": 8,
+    "LINEUP_STRENGTH": True,
+    "CONDITION_OVR": (-3, -1, 0, 1, 3),
+    "FATIGUE_THRESHOLD": 72,
+    "FATIGUE_PENALTY": 5,
     "STAMINA_FATIGUE": True,
     "STAMINA_WEIGHT": 1.0,
     "AI_FATIGUE": True,
@@ -284,7 +303,15 @@ DEFAULT_SETTINGS = {
 # Reference mathematical models
 # =====================================================================
 
-def outcome_probs(diff_raw, cap_home=0, *, home_adv=3.0, elo_scale=7.5, base_draw=0.28, cap_weight=0.2):
+def outcome_probs(
+    diff_raw,
+    cap_home=0,
+    *,
+    home_adv=DEFAULT_SETTINGS["HOME_ADVANTAGE"],
+    elo_scale=DEFAULT_SETTINGS["ELO_SCALE"],
+    base_draw=DEFAULT_SETTINGS["BASE_DRAW"],
+    cap_weight=DEFAULT_SETTINGS["CAPTAIN_WEIGHT"],
+):
     cap_ovr = int(cap_home * cap_weight) if cap_weight > 0 else 0
     clamped = max(DIFF_MIN, min(DIFF_MAX, diff_raw + cap_ovr))
     eff = clamped + home_adv
@@ -295,7 +322,12 @@ def outcome_probs(diff_raw, cap_home=0, *, home_adv=3.0, elo_scale=7.5, base_dra
     return a / z, d / z, 1.0 / z
 
 
-def build_outcome_table(*, home_adv=3.0, elo_scale=7.5, base_draw=0.28):
+def build_outcome_table(
+    *,
+    home_adv=DEFAULT_SETTINGS["HOME_ADVANTAGE"],
+    elo_scale=DEFAULT_SETTINGS["ELO_SCALE"],
+    base_draw=DEFAULT_SETTINGS["BASE_DRAW"],
+):
     rows = []
     nu = 2.0 * base_draw / (1.0 - base_draw)
     for diff in range(DIFF_MIN, DIFF_MAX + 1):
@@ -327,13 +359,29 @@ def _poisson_pmf(lam, k):
     return (lam ** k) * math.exp(-lam) / math.factorial(k)
 
 
+BAND_LAMBDAS = (
+    (0.76, 1.58),  # Band 0 (d <= -6, Big Upset)
+    (1.02, 1.32),  # Band 1 (d -5..-1, Slight Upset)
+    (1.35, 1.00),  # Band 2 (d  0..3, Equal)
+    (1.55, 0.85),  # Band 3 (d  4..7, Slight Fav)
+    (1.76, 0.72),  # Band 4 (d  8..11, Clear Fav)
+    (1.98, 0.60),  # Band 5 (d 12..15, Strong Fav)
+    (2.22, 0.50),  # Band 6 (d >= 16, Huge Fav)
+)
+
+
 def build_win_cdf(*, goal_scale=1.0):
-    band_centers = (-9.0, -3.0, 1.5, 5.5, 9.5, 13.5, 19.0)
     bands = []
-    for dc in band_centers:
-        lam_w = 1.52 * goal_scale * math.exp(0.026 * dc)
-        lam_l = 0.92 * goal_scale * math.exp(-0.026 * dc)
-        weights = [_poisson_pmf(lam_w, gw) * _poisson_pmf(lam_l, gl) for gw, gl in PAIRS]
+    for bi, (lw_base, ll_base) in enumerate(BAND_LAMBDAS):
+        lam_w = lw_base * goal_scale
+        lam_l = ll_base * goal_scale
+        damp = max(0.20, 0.58 - 0.065 * bi)
+        weights = []
+        for gw, gl in PAIRS:
+            w = _poisson_pmf(lam_w, gw) * _poisson_pmf(lam_l, gl)
+            if gw - gl >= 4:
+                w *= math.exp(-damp * (gw - gl - 3))
+            weights.append(w)
         total = sum(weights)
         cdf = []
         acc = 0.0
@@ -487,7 +535,7 @@ def pack_data_d(settings=None):
 
 
 def pack_data_d2(settings=None):
-    """Pack CAVE_D2 (32 bytes)."""
+    """Pack CAVE_D2 (40 bytes)."""
     s = dict(DEFAULT_SETTINGS)
     if settings:
         s.update(settings)
@@ -495,7 +543,7 @@ def pack_data_d2(settings=None):
     inj_max = int(round(s["INJURY_DAYS"][1]))
     cond_ovr = [int(round(x)) for x in s["CONDITION_OVR"]]
     out = struct.pack(
-        "<5I4B5b3x",
+        "<5I4B5b3x2I",
         1 if s["CONDITION_STRENGTH"] else 0,
         int(round(s["FATIGUE_THRESHOLD"])),
         int(round(s["FATIGUE_PENALTY"])),
@@ -506,6 +554,8 @@ def pack_data_d2(settings=None):
         inj_max - inj_min + 1,
         1 if s["CARDS"] else 0,
         *cond_ovr,
+        1 if s["SMART_SUBS"] else 0,
+        1 if s["LINEUP_STRENGTH"] else 0,
     )
     assert len(out) == CAVE_D2_SIZE
     return out
@@ -653,12 +703,16 @@ def assemble():
     """
     rand_bytes = asm(rand_src, rand_addr)
 
-    # ---- CAVE_ET (.reloc page): eff_strength, et, outcome ----
+    # ---- CAVE_ET (.reloc page): eff_strength, player_eff_ovr, smart_subs, et, outcome ----
+    # Note: eff_strength stays at CAVE_ET (0x047d5040). Assemble eff_strength in 2 passes
+    # so it can call player_eff_ovr placed immediately after it.
     eff_addr = CAVE_ET
-    eff_src = f"""
+
+    def make_eff_src(peo_target):
+        return f"""
         push ebp
         mov ebp, esp
-        sub esp, 88
+        sub esp, 104
         push ebx
         push esi
         push edi
@@ -666,7 +720,6 @@ def assemble():
         mov dword ptr [ebp - 8], edx
         movzx eax, word ptr [ecx]
         mov dword ptr [ebp - 12], eax
-        mov dword ptr [ebp - 36], 13
         push 0
         lea eax, [ebp - 4]
         push eax
@@ -675,8 +728,9 @@ def assemble():
         call 0x{TEAM_STRENGTH:08x}
         add esp, 12
         movzx ebx, al
-        cmp dword ptr [0x{CFG_V5_COND_STRENGTH:08x}], 0
-        je eff_ret_base
+        mov eax, dword ptr [0x{CFG_V5_COND_STRENGTH:08x}]
+        or eax, dword ptr [0x{CFG_V6_LINEUP_STRENGTH:08x}]
+        jz eff_ret_base
         call 0x{MODE_OBJ:08x}
         mov eax, dword ptr [eax + 0x30]
         mov dword ptr [ebp - 16], eax
@@ -694,23 +748,200 @@ def assemble():
         mov edx, 32
     n_ok:
         mov dword ptr [ebp - 20], edx
+        mov dword ptr [ebp - 36], eax
         add eax, 0xf8
         mov dword ptr [ebp - 40], eax
-        lea edi, [ebp - 88]
+        mov dword ptr [ebp - 44], ebx
+
+        cmp dword ptr [0x{CFG_V6_LINEUP_STRENGTH:08x}], 0
+        je squad_top11
+        cmp edx, 11
+        jb squad_top11
+
+        lea eax, [ebp - 32]
+        push eax
+        mov ecx, dword ptr [ebp - 36]
+        call 0x{TEAM_TACTICS_ID:08x}
+        push dword ptr [ebp - 28]
+        push dword ptr [ebp - 32]
+        mov ecx, dword ptr [ebp - 16]
+        call 0x{TACTICS_REC:08x}
+        test eax, eax
+        jz squad_top11
+        mov edx, dword ptr [ebp - 16]
+        add edx, 0x{TACTICS_SENTINEL_OFF:08x}
+        cmp eax, edx
+        je squad_top11
+
+        xor edx, edx
+        xor ecx, ecx
+    xi_val_loop:
+        movzx edi, byte ptr [eax + ecx + 0x248]
+        cmp edi, dword ptr [ebp - 20]
+        jae squad_top11
+        bt edx, edi
+        jc squad_top11
+        bts edx, edi
+        inc ecx
+        cmp ecx, 11
+        jb xi_val_loop
+
+        mov dword ptr [ebp - 48], eax
+        mov dword ptr [ebp - 52], edx
+        xor eax, eax
+        mov dword ptr [ebp - 24], eax
+        mov dword ptr [ebp - 56], eax
+        mov dword ptr [ebp - 60], eax
+        xor esi, esi
+    xi_start_loop:
+        mov eax, dword ptr [ebp - 48]
+        movzx ecx, byte ptr [eax + esi + 0x248]
+        mov eax, dword ptr [ebp - 40]
+        lea eax, [eax + ecx*8]
+        mov ecx, dword ptr [eax]
+        mov edx, dword ptr [eax + 4]
+        mov dword ptr [ebp - 32], ecx
+        mov dword ptr [ebp - 28], edx
+        push edx
+        push ecx
+        mov ecx, dword ptr [ebp - 16]
+        call 0x{RECORD_BY_ID:08x}
+        test eax, eax
+        jz xi_missing
+        mov edi, eax
+        lea eax, [ebp - 12]
+        push eax
+        lea eax, [ebp - 32]
+        push eax
+        call 0x{PLAYER_ELIG:08x}
+        add esp, 8
+        test al, al
+        jz xi_missing
+        mov eax, dword ptr [ebp - 48]
+        movzx eax, byte ptr [eax + esi + 0x68]
+        cmp eax, 12
+        ja xi_pos_nat
+        test esi, esi
+        jz xi_pos_ok
+        test eax, eax
+        jnz xi_pos_ok
+    xi_pos_nat:
+        mov eax, 13
+    xi_pos_ok:
+        mov ecx, edi
+        lea edx, [ebp - 32]
+        call 0x{peo_target:08x}
+        add dword ptr [ebp - 56], eax
+        inc dword ptr [ebp - 24]
+        jmp xi_start_next
+    xi_missing:
+        inc dword ptr [ebp - 60]
+    xi_start_next:
+        inc esi
+        cmp esi, 11
+        jb xi_start_loop
+
+        cmp dword ptr [ebp - 60], 0
+        je xi_finish
+        lea edi, [ebp - 104]
+        xor eax, eax
+        mov ecx, dword ptr [ebp - 60]
+        rep stosd
+        xor esi, esi
+    xi_bench_loop:
+        cmp esi, dword ptr [ebp - 20]
+        jae xi_bench_collect
+        bt dword ptr [ebp - 52], esi
+        jc xi_bench_next
+        mov eax, dword ptr [ebp - 40]
+        lea eax, [eax + esi*8]
+        mov ecx, dword ptr [eax]
+        mov edx, dword ptr [eax + 4]
+        mov dword ptr [ebp - 32], ecx
+        mov dword ptr [ebp - 28], edx
+        push edx
+        push ecx
+        mov ecx, dword ptr [ebp - 16]
+        call 0x{RECORD_BY_ID:08x}
+        test eax, eax
+        jz xi_bench_next
+        mov edi, eax
+        lea eax, [ebp - 12]
+        push eax
+        lea eax, [ebp - 32]
+        push eax
+        call 0x{PLAYER_ELIG:08x}
+        add esp, 8
+        test al, al
+        jz xi_bench_next
+        mov ecx, edi
+        lea edx, [ebp - 32]
+        mov eax, 13
+        call 0x{peo_target:08x}
+        mov ebx, eax
+        xor ecx, ecx
+        xor edi, edi
+        mov edx, dword ptr [ebp - 104]
+    xi_min_scan:
+        inc ecx
+        cmp ecx, dword ptr [ebp - 60]
+        jae xi_min_done
+        mov eax, dword ptr [ebp + ecx*4 - 104]
+        cmp eax, edx
+        jge xi_min_scan
+        mov edx, eax
+        mov edi, ecx
+        jmp xi_min_scan
+    xi_min_done:
+        cmp ebx, edx
+        jle xi_bench_next
+        mov dword ptr [ebp + edi*4 - 104], ebx
+    xi_bench_next:
+        inc esi
+        jmp xi_bench_loop
+    xi_bench_collect:
+        xor ecx, ecx
+    xi_coll_loop:
+        cmp ecx, dword ptr [ebp - 60]
+        jae xi_finish
+        mov eax, dword ptr [ebp + ecx*4 - 104]
+        test eax, eax
+        jz xi_coll_next
+        add dword ptr [ebp - 56], eax
+        inc dword ptr [ebp - 24]
+    xi_coll_next:
+        inc ecx
+        jmp xi_coll_loop
+    xi_finish:
+        mov edx, dword ptr [ebp - 24]
+        test edx, edx
+        jnz xi_has_avail
+        mov eax, dword ptr [ebp - 44]
+        jmp eff_ret
+    xi_has_avail:
+        mov eax, dword ptr [ebp - 56]
+        cmp edx, 11
+        jae sum_ready
+        mov ecx, 11
+        sub ecx, edx
+        imul ecx, ecx, 40
+        add eax, ecx
+        jmp sum_ready
+
+    squad_top11:
+        lea edi, [ebp - 104]
         xor eax, eax
         mov ecx, 11
         rep stosd
         mov dword ptr [ebp - 24], eax
-        mov dword ptr [ebp - 44], ebx
-        xor esi, esi
+        mov esi, dword ptr [ebp - 40]
+        xor ebx, ebx
     eff_loop:
-        cmp esi, dword ptr [ebp - 20]
+        cmp ebx, dword ptr [ebp - 20]
         jae eff_sum
-        mov eax, dword ptr [ebp - 40]
-        mov ecx, dword ptr [eax]
-        mov edx, dword ptr [eax + 4]
-        add eax, 8
-        mov dword ptr [ebp - 40], eax
+        mov ecx, dword ptr [esi]
+        mov edx, dword ptr [esi + 4]
+        add esi, 8
         mov dword ptr [ebp - 32], ecx
         mov dword ptr [ebp - 28], edx
         push edx
@@ -728,53 +959,20 @@ def assemble():
         add esp, 8
         test al, al
         jz eff_next
-        push 2
-        lea eax, [ebp - 36]
-        push eax
-        lea eax, [ebp - 32]
-        push eax
-        call 0x{PLAYER_OVR:08x}
-        add esp, 12
-        movzx ebx, al
-        mov eax, dword ptr [edi + 0x1c]
-        mov ecx, eax
-        shr ecx, 21
-        and ecx, 7
-        cmp ecx, 4
-        ja no_cond
-        movsx edx, byte ptr [ecx + 0x{CFG_V5_COND_OVR:08x}]
-        add ebx, edx
-    no_cond:
-        and eax, 0x7f
-        mov ecx, dword ptr [0x{CFG_V5_FATIGUE_THRESH:08x}]
-        cmp eax, ecx
-        jae no_fat
-        mov edx, ecx
-        sub edx, eax
-        imul edx, dword ptr [0x{CFG_V5_FATIGUE_PEN:08x}]
-        mov eax, ecx
-        shr eax, 1
-        add eax, edx
-        xor edx, edx
-        div ecx
-        sub ebx, eax
-    no_fat:
-        cmp ebx, 30
-        jge p_lo_ok
-        mov ebx, 30
-    p_lo_ok:
-        cmp ebx, 109
-        jle p_hi_ok
-        mov ebx, 109
-    p_hi_ok:
+        mov ecx, edi
+        lea edx, [ebp - 32]
+        mov eax, 13
+        call 0x{peo_target:08x}
+        push ebx
+        mov ebx, eax
         xor ecx, ecx
         xor edi, edi
-        mov edx, dword ptr [ebp - 88]
+        mov edx, dword ptr [ebp - 104]
     min_scan:
         inc ecx
         cmp ecx, 11
         jae min_done
-        mov eax, dword ptr [ebp + ecx*4 - 88]
+        mov eax, dword ptr [ebp + ecx*4 - 104]
         cmp eax, edx
         jge min_scan
         mov edx, eax
@@ -783,11 +981,12 @@ def assemble():
     min_done:
         cmp ebx, edx
         jle eff_cnt
-        mov dword ptr [ebp + edi*4 - 88], ebx
+        mov dword ptr [ebp + edi*4 - 104], ebx
     eff_cnt:
+        pop ebx
         inc dword ptr [ebp - 24]
     eff_next:
-        inc esi
+        inc ebx
         jmp eff_loop
 
     eff_sum:
@@ -800,7 +999,7 @@ def assemble():
         xor eax, eax
         xor ecx, ecx
     sum_loop:
-        add eax, dword ptr [ebp + ecx*4 - 88]
+        add eax, dword ptr [ebp + ecx*4 - 104]
         inc ecx
         cmp ecx, 11
         jb sum_loop
@@ -833,7 +1032,107 @@ def assemble():
         pop ebp
         ret
     """
-    eff_bytes = asm(eff_src, eff_addr)
+
+    eff_pass1 = asm(make_eff_src(CAVE_ET + 0x300), eff_addr)
+    peo_addr = (eff_addr + len(eff_pass1) + 3) & ~3
+    eff_bytes = asm(make_eff_src(peo_addr), eff_addr)
+    assert len(eff_bytes) == len(eff_pass1)
+
+    # player_eff_ovr(ecx=player_ptr, edx=&player_id, eax=pos) -> eax in [30, 109]
+    peo_src = f"""
+        push ebx
+        push esi
+        push edi
+        push eax
+        mov esi, ecx
+        mov eax, esp
+        push 2
+        push eax
+        push edx
+        call 0x{PLAYER_OVR:08x}
+        add esp, 12
+        movzx ebx, al
+        cmp dword ptr [0x{CFG_V5_COND_STRENGTH:08x}], 0
+        je peo_clamp
+        mov eax, dword ptr [esi + 0x1c]
+        mov ecx, eax
+        shr ecx, 21
+        and ecx, 7
+        cmp ecx, 4
+        ja peo_no_cond
+        movsx edx, byte ptr [ecx + 0x{CFG_V5_COND_OVR:08x}]
+        add ebx, edx
+    peo_no_cond:
+        and eax, 0x7f
+        mov ecx, dword ptr [0x{CFG_V5_FATIGUE_THRESH:08x}]
+        test ecx, ecx
+        jz peo_clamp
+        cmp eax, ecx
+        jae peo_clamp
+        mov edx, ecx
+        sub edx, eax
+        imul edx, dword ptr [0x{CFG_V5_FATIGUE_PEN:08x}]
+        mov eax, ecx
+        shr eax, 1
+        add eax, edx
+        xor edx, edx
+        div ecx
+        sub ebx, eax
+    peo_clamp:
+        cmp ebx, 30
+        jge peo_lo
+        mov ebx, 30
+    peo_lo:
+        cmp ebx, 109
+        jle peo_hi
+        mov ebx, 109
+    peo_hi:
+        mov eax, ebx
+        add esp, 4
+        pop edi
+        pop esi
+        pop ebx
+        ret
+    """
+    peo_bytes = asm(peo_src, peo_addr)
+
+    # ---- SMART_SUBS_HOOK (in CAVE_ET, hooked at 0x037080d9 -> returns to 0x037080e8) ----
+    # Entry: [esp]=&[ebp-0x14c], [esp+4]=&[ebp-0x145], [ebp-0x14c]=player_ptr,
+    #        [ebp-0x1a4]=player_id, [ebp+8]=match_ptr, [ebp-0x160]=mode_data, ebx=squad_count
+    smart_subs_addr = (peo_addr + len(peo_bytes) + 3) & ~3
+    smart_subs_src = f"""
+        cmp dword ptr [0x{CFG_V6_SMART_SUBS:08x}], 0
+        je ss_vanilla
+        mov ecx, dword ptr [ebp + 8]
+        mov edx, dword ptr [ebp - 0x160]
+        call 0x{chk_addr:08x}
+        test al, al
+        jz ss_vanilla
+        mov ecx, dword ptr [ebp - 0x14c]
+        lea edx, [ebp - 0x1a4]
+        mov eax, 13
+        call 0x{peo_addr:08x}
+        push eax
+        mov dword ptr [ebp - 0x14c], 4
+        lea eax, [ebp - 0x145]
+        push eax
+        lea eax, [ebp - 0x14c]
+        push eax
+        call 0x{MODE_RANDOM:08x}
+        add esp, 8
+        pop ecx
+        add eax, ecx
+        cmp eax, 255
+        jbe ss_ret
+        mov eax, 255
+        jmp ss_ret
+    ss_vanilla:
+        mov dword ptr [ebp - 0x14c], 0x64
+        call 0x{MODE_RANDOM:08x}
+    ss_ret:
+        jmp 0x{SMART_SUBS_RET:08x}
+    """
+    smart_subs_bytes = asm(smart_subs_src, smart_subs_addr)
 
     # ---- SCORE_HOOK (in CAVE .xcode) ----
     score_addr = (rand_addr + len(rand_bytes) + 3) & ~3
@@ -855,8 +1154,9 @@ def assemble():
         cmp edx, 2
         je is_draw
 
-        cmp dword ptr [0x{CFG_V5_COND_STRENGTH:08x}], 0
-        je score_ovr_ok
+        mov eax, dword ptr [0x{CFG_V5_COND_STRENGTH:08x}]
+        or eax, dword ptr [0x{CFG_V6_LINEUP_STRENGTH:08x}]
+        jz score_ovr_ok
         push edx
         mov ecx, ebx
         mov edx, dword ptr [ebx + 0xc]
@@ -1202,7 +1502,7 @@ def assemble():
 
     # ---- CAVE_ET (.reloc page): ET_HOOK & OUTCOME_HOOK ----
     # Entry from 0x037062ed: ebx, esi, edi pushed; edi = [ebp-0xc] = match+0x15; [ebp+0xc] = match_ptr
-    et_addr = (eff_addr + len(eff_bytes) + 3) & ~3
+    et_addr = (smart_subs_addr + len(smart_subs_bytes) + 3) & ~3
     et_src = f"""
         call 0x{MODE_OBJ:08x}
         mov edx, dword ptr [eax + 0x30]
@@ -1290,8 +1590,9 @@ def assemble():
         jmp eax
 
     do_outcome:
-        cmp dword ptr [0x{CFG_V5_COND_STRENGTH:08x}], 0
-        je use_base_diff
+        mov eax, dword ptr [0x{CFG_V5_COND_STRENGTH:08x}]
+        or eax, dword ptr [0x{CFG_V6_LINEUP_STRENGTH:08x}]
+        jz use_base_diff
         mov ecx, esi
         mov edx, dword ptr [esi + 0xc]
         call 0x{eff_addr:08x}
@@ -1854,6 +2155,7 @@ def assemble():
 
     outcome_patch = asm(f"jmp 0x{outcome_addr:08x}; nop; nop", OUTCOME_SITE)
     score_patch = asm(f"jmp 0x{score_addr:08x}", SCORE_SITE)
+    smart_subs_patch = asm(f"jmp 0x{smart_subs_addr:08x}; " + "; ".join(["nop"] * 10), SMART_SUBS_SITE)
     ratings_patch = asm(f"jmp 0x{ratings_addr:08x}; nop", RATINGS_SITE)
     scorer_patch = asm(f"jmp 0x{scorer_addr:08x}; nop; nop; nop", SCORER_SITE)
     et_patch = asm(f"jmp 0x{et_addr:08x}", ET_SITE)
@@ -1869,6 +2171,8 @@ def assemble():
         "ratings": (ratings_addr, ratings_bytes),
         "scorer": (scorer_addr, scorer_bytes),
         "eff_strength": (eff_addr, eff_bytes),
+        "player_eff_ovr": (peo_addr, peo_bytes),
+        "smart_subs": (smart_subs_addr, smart_subs_bytes),
         "et": (et_addr, et_bytes),
         "outcome": (outcome_addr, outcome_bytes),
         "pk": (pk_addr, pk_bytes),
@@ -1882,6 +2186,7 @@ def assemble():
         "cave_c_end": cave_c_end,
         "outcome_patch": outcome_patch,
         "score_patch": score_patch,
+        "smart_subs_patch": smart_subs_patch,
         "ratings_patch": ratings_patch,
         "scorer_patch": scorer_patch,
         "et_patch": et_patch,
@@ -1908,75 +2213,102 @@ CODE_PARTS = {
     "score": (
         0x047d3c78,
         "89d98b5030b8dc3b7d04ffd084c0750c8b45088b00b971607003ffe18b4508"
-        "8b1083fa020f84a0000000833d604f7d0400741a5289d98b530ce88a13000089"
-        "c689d98b5310e87e13000089c75a5289f00305543a7d0429f885d27402f7d831"
-        "f683f8fa7e1f4683f8ff7e194683f8037e134683f8077e0d4683f80b7e074683"
-        "f80f7e01466bf61581c6463b7d04b9ff000000b8603c7d04ffd031c90fb6140e"
-        "39d072064183f91472f20fb681313b7d0488c1c0e904240f5a85d27407ba5961"
-        "7003ffe2ba10617003ffe2b9ff000000b8603c7d04ffd031c90fb6912c3b7d04"
-        "39d072064183f90472ef88c8ba10617003ffe2",
+        "8b1083fa020f84a4000000a1604f7d040b05844f7d04741a5289d98b530ce886"
+        "13000089c689d98b5310e87a13000089c75a5289f00305543a7d0429f885d274"
+        "02f7d831f683f8fa7e1f4683f8ff7e194683f8037e134683f8077e0d4683f80b"
+        "7e074683f80f7e01466bf61581c6463b7d04b9ff000000b8603c7d04ffd031c9"
+        "0fb6140e39d072064183f91472f20fb681313b7d0488c1c0e904240f5a85d274"
+        "07ba59617003ffe2ba10617003ffe2b9ff000000b8603c7d04ffd031c90fb691"
+        "2c3b7d0439d072064183f90472ef88c8ba10617003ffe2",
     ),
     "ratings": (
-        0x047d3d6c,
+        0x047d3d70,
         "5053b8e5c08103ffd08b50308b4d10b8dc3b7d04ffd084c0750d5b588b4d08"
-        "83f902e9ac4ff3febb70417d048b7424048b55100fb642140fb64a17837d0c"
+        "83f902e9a84ff3febb70417d048b7424048b55100fb642140fb64a17837d0c"
         "0074019189c229ca83fafc7d05bafcffffff83fa047e05ba040000000faf53"
         "0c89d09929d0d1f8518b4d0883f902740a3b4d0c740a034308eb07034304eb"
         "020303598b560cc1ea0e83e20f85c9750f83fa037605034314eb1c034310eb"
         "1783f903721283fa02770d83e9023b4b2c76038b4b2c29c80fb64e080faf4b"
-        "1801c80fb64e090faf4b1c01c8e8e8220000508b4b208d0c4d01000000b860"
+        "1801c80fb64e090faf4b1c01c8e8e4220000508b4b208d0c4d01000000b860"
         "3c7d04ffd05a2b432001c23b53247d038b53243b53287e038b532888d189f0"
-        "5b83c404e9064ff3fe",
+        "5b83c404e9024ff3fe",
     ),
     "scorer": (
-        0x047d3e70,
+        0x047d3e74,
         "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d0400752c"
-        "31c9894de4e9a430f3fe833da4417d040074edb964000000b8603c7d04ffd0"
-        "3b05a8417d047305e92a34f3fe8b45108b308b400439c67205e91934f3fe0f"
+        "31c9894de4e9a030f3fe833da4417d040074edb964000000b8603c7d04ffd0"
+        "3b05a8417d047305e92634f3fe8b45108b308b400439c67205e91534f3fe0f"
         "b65608525083ec1831db31ff89f13b4c2418736483fb0b735f0fb6410884c0"
         "7449807d080075168b5514668b12663b11750b8b55148b52043b5104742d8b"
         "54241c29c2790231d28d05ac417d04d1ea807d08007505d1ea83c01883fa17"
         "7605ba170000000fb60410eb0231c001c766893c5c4383c10ceb9685ff7508"
-        "83c420e99433f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972"
-        "f3496bc90c01ce8b7e048b368975d8897ddc83c420e9c232f3fe",
+        "83c420e99033f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972"
+        "f3496bc90c01ce8b7e048b368975d8897ddc83c420e9be32f3fe",
     ),
     "eff_strength": (
         0x047d5040,
-        "5589e583ec58535657c745fc060000008955f80fb7018945f4c745dc0d0000"
-        "006a008d45fc508d45f850e89b0a09ff83c40c0fb6d8833d604f7d04000f84"
-        "80010000e85e7004ff8b40308945f0ff75f889c1e8d2d804ff85c00f846301"
-        "00008b9028030000c1ea0983e27f0f845101000083fa207605ba2000000089"
-        "55ec05f80000008945d88d7da831c0b90b000000f3ab8945e8895dd431f63b"
-        "75ec0f83d20000008b45d88b088b500483c0088945d8894de08955e452518b"
-        "4df0e862d504ff85c00f84a600000089c78d45f4508d45e050e8596608ff83"
-        "c40884c00f848c0000006a028d45dc508d45e050e8e63a06ff83c40c0fb6d8"
-        "8b471c89c1c1e91583e10783f90477090fbe91784f7d0401d383e07f8b0d64"
-        "4f7d0439c8731789ca29c20faf15684f7d0489c8d1e801d031d2f7f129c383"
-        "fb1e7d05bb1e00000083fb6d7e05bb6d00000031c931ff8b55a84183f90b73"
-        "0e8b448da839d07df289c289cfebec39d37e04895cbda8ff45e846e925ffff"
-        "ff8b55e885d275058b45d4eb4331c031c903448da84183f90b72f683fa0b73"
-        "0cb90b00000029d16bc92801c883c00531d2b90b000000f7f183f8287d05b8"
-        "2800000083f8637e09b863000000eb0289d85f5e5b89ec5dc3",
+        "5589e583ec68535657c745fc060000008955f80fb7018945f46a008d45fc50"
+        "8d45f850e8a20a09ff83c40c0fb6d8a1604f7d040b05844f7d040f84e70200"
+        "00e8617004ff8b40308945f0ff75f889c1e8d5d804ff85c00f84ca0200008b"
+        "9028030000c1ea0983e27f0f84b802000083fa207605ba200000008955ec89"
+        "45dc05f80000008945d8895dd4833d844f7d04000f84bc01000083fa0b0f82"
+        "b30100008d45e0508b4ddce8ad2c94feff75e4ff75e08b4df0e830d904ff85"
+        "c00f84910100008b55f081c264ea5f0039d00f848001000031d231c90fb6bc"
+        "08480200003b7dec0f836b0100000fa3fa0f82620100000fabfa4183f90b72"
+        "dd8945d08955cc31c08945e88945c88945c431f68b45d00fb68c3048020000"
+        "8b45d88d04c88b088b5004894de08955e452518b4df0e8f1d404ff85c07442"
+        "89c78d45f4508d45e050e8ec6508ff83c40884c0742c8b45d00fb644306883"
+        "f80c770885f6740985c07505b80d00000089f98d55e0e8c00100000145c8ff"
+        "45e8eb03ff45c44683fe0b728b837dc4000f849b0000008d7d9831c08b4dc4"
+        "f3ab31f63b75ec73720fa375cc72698b45d88d04f08b088b5004894de08955"
+        "e452518b4df0e866d404ff85c0744a89c78d45f4508d45e050e8616508ff83"
+        "c40884c0743489f98d55e0b80d000000e84a01000089c331c931ff8b559841"
+        "3b4dc4730e8b448d9839d07df289c289cfebec39d37e04895cbd9846eb8931"
+        "c93b4dc473118b448d9885c074060145c8ff45e841ebea8b55e885d275088b"
+        "45d4e9f30000008b45c883fa0b0f83c3000000b90b00000029d16bc92801c8"
+        "e9b20000008d7d9831c0b90b000000f3ab8945e88b75d831db3b5dec736e8b"
+        "0e8b560483c608894de08955e452518b4df0e8a0d304ff85c0744f89c78d45"
+        "f4508d45e050e89b6408ff83c40884c0743989f98d55e0b80d000000e88400"
+        "00005389c331c931ff8b55984183f90b730e8b448d9839d07df289c289cfeb"
+        "ec39d37e04895cbd985bff45e843eb8d8b55e885d275058b45d4eb4331c031"
+        "c903448d984183f90b72f683fa0b730cb90b00000029d16bc92801c883c005"
+        "31d2b90b000000f7f183f8287d05b82800000083f8637e09b863000000eb02"
+        "89d85f5e5b89ec5dc3",
+    ),
+    "player_eff_ovr": (
+        0x047d5370,
+        "5356575089ce89e06a025052e8973806ff83c40c0fb6d8833d604f7d040074"
+        "418b461c89c1c1e91583e10783f90477090fbe91784f7d0401d383e07f8b0d"
+        "644f7d0485c9741b39c8731789ca29c20faf15684f7d0489c8d1e801d031d2"
+        "f7f129c383fb1e7d05bb1e00000083fb6d7e05bb6d00000089d883c4045f5e"
+        "5bc3",
+    ),
+    "smart_subs": (
+        0x047d53f0,
+        "833d804f7d0400745a8b4d088b95a0feffffe8d5e7ffff84c074488b8db4fe"
+        "ffff8d955cfeffffb80d000000e84fffffff50c785b4feffff040000008d85"
+        "bbfeffff508d85b4feffff50e8590508ff83c4085901c83dff0000007616b8"
+        "ff000000eb0fc785b4feffff64000000e8360508ffe9812cf3fe",
     ),
     "et": (
-        0x047d520c,
-        "e8d46e04ff8b50308b4d0ce8c0e9ffff84c0750abb03000000e9c810f3fe8b"
-        "450c89c18b500ce809feffff89c38b450c89c18b5010e8fafdffff29c3031d"
+        0x047d5468,
+        "e8786c04ff8b50308b4d0ce864e7ffff84c0750abb03000000e96c0ef3fe8b"
+        "450c89c18b500ce8adfbffff89c38b450c89c18b5010e89efbffff29c3031d"
         "543a7d0483fbec7d05bbecffffff83fb147e05bb1400000031f66bc30305e6"
         "0000000faf05e4417d0499b964000000f7f983f83c7d05b83c0000003de001"
-        "00007e05b8e001000050b9e8030000e8c4e9ffff5989cac1ea0339d0720839"
+        "00007e05b8e001000050b9e8030000e868e7ffff5989cac1ea0339d0720839"
         "c819c0f7d8eb05b8020000008944b5ec880783c703f7db4683fe0272a08b5d"
-        "ec8b75f0e95a10f3fe",
+        "ec8b75f0e9fe0df3fe",
     ),
     "outcome": (
-        0x047d52d0,
-        "89f189fab8dc3b7d04ffd084c0750b0fb67df3b85d7d7003ffe0833d604f7d"
-        "0400741a89f18b560ce843fdffff89c389f18b5610e837fdffff29c3eb0e0f"
-        "b645f3837de8007402f7d889c38b45ec837de8007402f7d88b0d583a7d0485"
-        "c9740599f7f901c383fbe77d05bbe7ffffff83fb197e05bb1900000083c319"
-        "0fb7349d603a7d040fb73c9d623a7d04b9e8030000b8603c7d04ffd039f073"
-        "0931c0b9107e7003ffe139f8730cb802000000b9107e7003ffe1b801000000"
-        "b9107e7003ffe1",
+        0x047d552c,
+        "89f189fab8dc3b7d04ffd084c0750b0fb67df3b85d7d7003ffe0a1604f7d04"
+        "0b05844f7d04741a89f18b560ce8e3faffff89c389f18b5610e8d7faffff29"
+        "c3eb0e0fb645f3837de8007402f7d889c38b45ec837de8007402f7d88b0d58"
+        "3a7d0485c9740599f7f901c383fbe77d05bbe7ffffff83fb197e05bb190000"
+        "0083c3190fb7349d603a7d040fb73c9d623a7d04b9e8030000b8603c7d04ff"
+        "d039f0730931c0b9107e7003ffe139f8730cb802000000b9107e7003ffe1b8"
+        "01000000b9107e7003ffe1",
     ),
     "pk": (
         0x047d6030,
@@ -2053,8 +2385,8 @@ def build_image(settings=None):
 
 
 def build_et_image():
-    """Return full CAVE_ET bytes (eff_strength + ET_HOOK + OUTCOME_HOOK) for writing at CAVE_ET."""
-    keys = ("eff_strength", "et", "outcome")
+    """Return full CAVE_ET bytes (eff_strength + player_eff_ovr + smart_subs + ET_HOOK + OUTCOME_HOOK) for writing at CAVE_ET."""
+    keys = ("eff_strength", "player_eff_ovr", "smart_subs", "et", "outcome")
     end = max(CODE_PARTS[k][0] + len(bytes.fromhex(CODE_PARTS[k][1])) for k in keys)
     buf = bytearray(end - CAVE_ET)
     for k in keys:
@@ -2104,6 +2436,7 @@ def lua_block(exe_path):
 
     out_addr = CODE_PARTS["outcome"][0]
     scr_addr = CODE_PARTS["score"][0]
+    ss_addr = CODE_PARTS["smart_subs"][0]
     rat_addr = CODE_PARTS["ratings"][0]
     sco_addr = CODE_PARTS["scorer"][0]
     et_addr = CODE_PARTS["et"][0]
@@ -2111,6 +2444,7 @@ def lua_block(exe_path):
 
     out_patch = "e9" + struct.pack("<I", (out_addr - (OUTCOME_SITE + 5)) & 0xffffffff).hex() + "9090"
     scr_patch = "e9" + struct.pack("<I", (scr_addr - (SCORE_SITE + 5)) & 0xffffffff).hex()
+    ss_patch = "e9" + struct.pack("<I", (ss_addr - (SMART_SUBS_SITE + 5)) & 0xffffffff).hex() + "90" * 10
     rat_patch = "e9" + struct.pack("<I", (rat_addr - (RATINGS_SITE + 5)) & 0xffffffff).hex() + "90"
     sco_patch = "e9" + struct.pack("<I", (sco_addr - (SCORER_SITE + 5)) & 0xffffffff).hex() + "909090"
     et_patch = "e9" + struct.pack("<I", (et_addr - (ET_SITE + 5)) & 0xffffffff).hex()
@@ -2152,6 +2486,8 @@ def lua_block(exe_path):
         "local SITES = {",
         f'    outcome    = {{ "outcome probability", 0x{OUTCOME_SITE:08x}, "{read_hex(OUTCOME_SITE, 7)}", "{out_patch}" }},',
         f'    score      = {{ "scoreline model",     0x{SCORE_SITE:08x}, "{read_hex(SCORE_SITE, 5)}", "{scr_patch}" }},',
+        f'    smart_subs = {{ "smart CPU subs",      0x{SMART_SUBS_SITE:08x}, "{read_hex(SMART_SUBS_SITE, 15)}", "{ss_patch}" }},',
+        f'    gk_protect = {{ "GK sub protection",   0x{GK_PROTECT_SITE:08x}, "{read_hex(GK_PROTECT_SITE, 2)}", "9090" }},',
         f'    skip_subs  = {{ "skip-match subs",     0x{SKIP_SUBS_SITE:08x}, "{read_hex(SKIP_SUBS_SITE, 2)}", "eb17" }},',
         f'    ratings    = {{ "match ratings",       0x{RATINGS_SITE:08x}, "{read_hex(RATINGS_SITE, 6)}", "{rat_patch}" }},',
         f'    scorer     = {{ "scorers & assists",   0x{SCORER_SITE:08x}, "{read_hex(SCORER_SITE, 8)}", "{sco_patch}" }},',
@@ -2170,6 +2506,9 @@ def lua_block(exe_path):
         f'    {{ "score fallback",   0x03706071, "{read_hex(0x03706071, 10)}" }},',
         f'    {{ "score done H",     0x03706110, "{read_hex(0x03706110, 13)}" }},',
         f'    {{ "score done A",     0x03706159, "{read_hex(0x03706159, 13)}" }},',
+        f'    {{ "sub candidate",    0x037080ac, "{read_hex(0x037080ac, 9)}" }},',
+        f'    {{ "sub return",       0x037080e8, "{read_hex(0x037080e8, 9)}" }},',
+        f'    {{ "gk sub check",     0x03708189, "{read_hex(0x03708189, 4)}" }},',
         f'    {{ "ratings entry",    0x03708cc4, "{read_hex(0x03708cc4, 7)}" }},',
         f'    {{ "ratings fallback", 0x03708d3f, "{read_hex(0x03708d3f, 6)}" }},',
         f'    {{ "ratings done",     0x03708d73, "{read_hex(0x03708d73, 9)}" }},',
@@ -2188,6 +2527,8 @@ def lua_block(exe_path):
         f'    {{ "mode obj",         0x{MODE_OBJ:08x}, "{read_hex(MODE_OBJ, 6)}" }},',
         f'    {{ "menu status",      0x{MENU_STATUS:08x}, "{read_hex(MENU_STATUS, 6)}" }},',
         f'    {{ "team record",      0x{TEAM_RECORD:08x}, "{read_hex(TEAM_RECORD, 6)}" }},',
+        f'    {{ "team tactics",     0x{TEAM_TACTICS_ID:08x}, "{read_hex(TEAM_TACTICS_ID, 9)}" }},',
+        f'    {{ "tactics rec",      0x{TACTICS_REC:08x}, "{read_hex(TACTICS_REC, 8)}" }},',
         f'    {{ "player rec",       0x{RECORD_BY_ID:08x}, "{read_hex(RECORD_BY_ID, 6)}" }},',
         f'    {{ "fix rec",          0x{FIX_RECORD:08x}, "{read_hex(FIX_RECORD, 6)}" }},',
         f'    {{ "player set",       0x{PLAYER_SET:08x}, "{read_hex(PLAYER_SET, 6)}" }},',
@@ -2209,7 +2550,7 @@ def main():
         print(f"CAVE_ET end: 0x{built['cave_et_end']:08x} ({built['cave_et_end'] - CAVE_ET} / {CAVE_ET_MAX} bytes)")
         print(f"CAVE_C  end: 0x{built['cave_c_end']:08x} ({built['cave_c_end'] - CAVE_C} / {CAVE_C_MAX} bytes)")
         print(f"CAVE_PK end: 0x{built['cave_pk_end']:08x} ({built['cave_pk_end'] - CAVE_PK} / {CAVE_PK_MAX} bytes)")
-        keys = ("chk", "rand", "score", "ratings", "scorer", "eff_strength", "et", "outcome", "pk", "card_adj", "fatigue", "injury", "cards")
+        keys = ("chk", "rand", "score", "ratings", "scorer", "eff_strength", "player_eff_ovr", "smart_subs", "et", "outcome", "pk", "card_adj", "fatigue", "injury", "cards")
         for name in keys:
             addr, b = built[name]
             print(f'    "{name}": (0x{addr:08x}, "{b.hex()}"),')
