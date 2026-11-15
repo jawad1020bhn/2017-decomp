@@ -94,6 +94,7 @@ ALLOWED_SITES = (
     (sc.SKIP_SUBS_SITE, 2),
     (sc.RATINGS_SITE, 6),
     (sc.SCORER_SITE, 8),
+    (sc.SIM_VEC_SITE, 6),
     (sc.ET_SITE, 5),
     (sc.PK_SITE, 6),
     (sc.CARDS_SITE, 6),
@@ -307,10 +308,43 @@ class SimHarness:
         yellows = (bits >> 19) & 3
         return yellows, red
 
-    def alloc_player(self, id_lo, id_hi, *, team_id=100, ovr=80, pos=9, stamina=75, inj_res=1, inj_days=0, fitness=100, arrow=2):
+    def alloc_player(
+        self,
+        id_lo,
+        id_hi,
+        *,
+        team_id=100,
+        ovr=80,
+        pos=9,
+        stamina=75,
+        inj_res=1,
+        inj_days=0,
+        fitness=100,
+        arrow=2,
+        atk_prow=75,
+        dribbling=75,
+        ball_ctrl=75,
+        finishing=75,
+        low_pass=75,
+        lofted_pass=75,
+        header=75,
+    ):
         p = self.g.alloc(size=0xe0)
-        self.g.write(p + 0x02, bytes([inj_days & 0xff]))
-        self.g.write(p + 0x04, struct.pack("<I", (pos & 0xf) << 28))
+        self.g.write(p + 0x02, bytes([inj_days & 0xff, atk_prow & 0x7f]))
+        self.g.write(
+            p + 0x04,
+            struct.pack("<I", ((dribbling & 0x7f) << 14) | ((ball_ctrl & 0x7f) << 21) | ((pos & 0xf) << 28)),
+        )
+        self.g.write(
+            p + 0x08,
+            struct.pack(
+                "<I",
+                (finishing & 0x7f)
+                | ((low_pass & 0x7f) << 7)
+                | ((lofted_pass & 0x7f) << 14)
+                | ((header & 0x7f) << 21),
+            ),
+        )
         self.g.write(p + 0x18, struct.pack("<I", (stamina & 0x7f) << 7))
         self.g.write(p + 0x1c, struct.pack("<I", (fitness & 0x7f) | ((arrow & 7) << 21)))
         self.g.write(p + 0x23, bytes([inj_res & 3]))
@@ -371,9 +405,9 @@ def main(exe):
     # 2. Check Keystone assembly matches CODE_PARTS if keystone is installed
     if tm.KEYSTONE:
         built = sc.assemble()
-        for name in ("chk", "rand", "score", "ratings", "scorer", "eff_strength", "player_eff_ovr", "smart_subs", "et", "outcome", "pk", "card_adj", "fatigue", "injury", "cards"):
+        for name in ("chk", "rand", "score", "ratings", "scorer", "sim_vec", "eff_strength", "player_eff_ovr", "smart_subs", "et", "outcome", "pk", "card_adj", "fatigue", "injury", "cards"):
             assert (built[name][0], built[name][1].hex()) == sc.CODE_PARTS[name], name
-    print("ok 2: Keystone assembly matches pre-assembled CODE_PARTS byte-for-byte (all 15 routines)")
+    print("ok 2: Keystone assembly matches pre-assembled CODE_PARTS byte-for-byte (all 16 routines)")
 
     h = SimHarness(exe)
     g = h.g
@@ -412,6 +446,10 @@ def main(exe):
         ("DRAW_WEIGHTS", "{ 1, 2, 3 }"),
         ("DRAW_WEIGHTS", "{ 0, 0, 0, 0, 0 }"),
         ("DRAW_WEIGHTS", "{ 10, -1, 5, 1, 1 }"),
+        ("ATTACK_DEFENSE_SPLIT", "1"),
+        ("GK_SCORE_MOD", "1"),
+        ("GK_CONDITION_OVR", "{ -6, -3, 0, 3 }"),
+        ("GK_CONDITION_OVR", "{ -11, -3, 0, 3, 6 }"),
         ("SKIP_SUBS", '"true"'),
         ("GK_PROTECT", '"yes"'),
         ("SMART_SUBS", "1"),
@@ -508,7 +546,9 @@ def main(exe):
     h.restore()
     assists_only = set_lua(all_off, "ASSISTS", "true")
     l2, _, w2 = run(g, assists_only)
-    assert "assists (unassisted 28%)" in l2[-1] and set(w2) == {ALLOWED_CAVE, ALLOWED_DATA_D, (sc.SCORER_SITE, 8)}, (l2, w2)
+    assert "assists (unassisted 28%)" in l2[-1] and set(w2) == {
+        ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, ALLOWED_CAVE_ET, (sc.SCORER_SITE, 8), (sc.SIM_VEC_SITE, 6)
+    }, (l2, w2)
 
     h.restore()
     etpk_only = set_lua(all_off, "EXTRA_TIME_PK", "true")
@@ -538,7 +578,7 @@ def main(exe):
         ALLOWED_CAVE, ALLOWED_DATA_D2, ALLOWED_CAVE_PK, ALLOWED_CAVE_C, (sc.CARDS_SITE, 6)
     }, (l2, w2)
     h.restore()
-    print("ok 4: 72 faulty settings refused; WRITE=false, all-off, and 9 partial modes verified")
+    print("ok 4: 76 faulty settings refused; WRITE=false, all-off, and 9 partial modes verified")
 
     # 5. Tamper & sticky checks
     for name, addr, expected_hex in [
@@ -549,6 +589,7 @@ def main(exe):
         ("skip_subs site", sc.SKIP_SUBS_SITE, "7417"),
         ("ratings site", sc.RATINGS_SITE, "8b4d0883f902"),
         ("scorer site", sc.SCORER_SITE, "31c9898de4ffffff"),
+        ("sim_vec site", sc.SIM_VEC_SITE, "8d95d8ffffff"),
         ("et site", sc.ET_SITE, "bb03000000"),
         ("pk site", sc.PK_SITE, "5589e583ec08"),
         ("cards site", sc.CARDS_SITE, "8d95d4ffffff"),
@@ -575,7 +616,7 @@ def main(exe):
     h.restore()
     l2, _, _ = run(g, source, sticky=lambda a: a != sc.FATIGUE_SITE)
     assert l2[-1].startswith("RESULT: a change did not go in."), l2
-    print("ok 5: tamper detection across all 12 sites & all 6 caves, e9 check, and sticky failure verified")
+    print("ok 5: tamper detection across all 13 sites & all 6 caves, e9 check, and sticky failure verified")
 
     # 6. Install and run REAL PES2017.exe machine code (`fcn_03707a1f` + `fcn_03705feb`)
     h.restore()
@@ -1472,6 +1513,263 @@ def main(exe):
     assert eval_sub_key(p_star, 77) == 77
     h.clear_squads()
     print("ok 19: GK_PROTECT (never sub1==0) & SMART_SUBS (eff_ovr + rand(4), descending fcn_03705ef2, scope/toggle fallbacks) verified")
+
+    # 21. v7 Feature: ATTACK_DEFENSE_SPLIT (eff_strength ATK/DEF + 7x7 WIN_CDF_2D + 5-band DRAW_CDF_BANDS)
+    from unicorn.x86_const import UC_X86_REG_EDX
+    h.restore()
+    l2, _, _ = run(g, source)
+    assert l2[-1].startswith("RESULT: installed."), l2
+    h.clear_squads()
+    h.set_match(comp_id=1, team0_id=100, team1_id=200, tie_kind=0)
+
+    # Verify parity between WIN_CDF diagonal and WIN_CDF_2D diagonal, and DRAW_CDF vs DRAW_CDF_BANDS[2]
+    wc1d = sc.build_win_cdf()
+    wc2d = sc.build_win_cdf_2d()
+    for b in range(7):
+        assert wc2d[b * 7 + b] == wc1d[b], b
+    assert sc.build_draw_cdf_bands()[2] == sc.build_draw_cdf()
+
+    # Build asymmetric squads: Home = high ATK (90), low DEF (68) (with CMF=80); Away = low ATK (68), high DEF (90)
+    # Default tactics pos_ids = [0, 1, 2, 2, 3, 6, 7, 8, 9, 9, 10] -> 5 DEF (pos<=4), 6 ATK (pos>=6)
+    h_as_ids = [(10 + i, 9200 + i) for i in range(11)]
+    a_as_ids = [(30 + i, 9300 + i) for i in range(11)]
+    for i, pid in enumerate(h_as_ids):
+        h.alloc_player(*pid, team_id=100, ovr=68 if i < 5 else 90, pos=1 if i < 5 else 9, arrow=2, fitness=100)
+    for i, pid in enumerate(a_as_ids):
+        h.alloc_player(*pid, team_id=200, ovr=90 if i < 5 else 68, pos=1 if i < 5 else 9, arrow=2, fitness=100)
+    h.set_team_squad(0, h_as_ids)
+    h.set_team_squad(1, a_as_ids)
+    h.set_team_tactics(0, list(range(11)), [0, 1, 2, 2, 4, 5, 6, 7, 9, 9, 12])  # 5 DEF, 1 CMF (slot 5), 5 ATK
+    h.set_team_tactics(1, list(range(11)), [0, 1, 2, 2, 4, 5, 6, 7, 9, 9, 12])
+
+    exp_h_ovr, exp_h_atk, exp_h_def = sc.compute_eff_atk_def(
+        [(68 if i < 5 else 90, [0, 1, 2, 2, 4, 5, 6, 7, 9, 9, 12][i]) for i in range(11)]
+    )
+    exp_a_ovr, exp_a_atk, exp_a_def = sc.compute_eff_atk_def(
+        [(90 if i < 5 else 68, [0, 1, 2, 2, 4, 5, 6, 7, 9, 9, 12][i]) for i in range(11)]
+    )
+    ovr_h = g.call(sc.CAVE_ET, [], ecx=h.match, edx=100)
+    edx_h = g.mu.reg_read(UC_X86_REG_EDX)
+    assert (ovr_h, edx_h & 0xff, (edx_h >> 8) & 0xff) == (exp_h_ovr, exp_h_atk, exp_h_def), (ovr_h, edx_h, exp_h_ovr, exp_h_atk, exp_h_def)
+    ovr_a = g.call(sc.CAVE_ET, [], ecx=h.match, edx=200)
+    edx_a = g.mu.reg_read(UC_X86_REG_EDX)
+    assert (ovr_a, edx_a & 0xff, (edx_a >> 8) & 0xff) == (exp_a_ovr, exp_a_atk, exp_a_def), (ovr_a, edx_a, exp_a_ovr, exp_a_atk, exp_a_def)
+
+    # Also test no-tactics reg_pos fallback (without setting tactics)
+    h.tactics_map.clear()
+    h.g.write(h.team0 + 0x1f8, b"\x00" * 8)
+    h.alloc_player(*h_as_ids[5], team_id=100, ovr=90, pos=5, arrow=2, fitness=100)
+    exp_nt = sc.compute_eff_atk_def(
+        [(68 if i < 5 else 90, 1 if i < 5 else (5 if i == 5 else 9)) for i in range(11)]
+    )
+    ovr_nt = g.call(sc.CAVE_ET, [], ecx=h.match, edx=100)
+    edx_nt = g.mu.reg_read(UC_X86_REG_EDX)
+    assert (ovr_nt, edx_nt & 0xff, (edx_nt >> 8) & 0xff) == exp_nt, (ovr_nt, edx_nt, exp_nt)
+
+    # Scoreline test: high-ATK vs low-DEF (both 90 ATK / 68 DEF) vs low-ATK vs high-DEF (both 68 ATK / 90 DEF)
+    for i, pid in enumerate(h_as_ids):
+        h.alloc_player(*pid, team_id=100, ovr=68 if i < 5 else 90, pos=1 if i < 5 else 9, arrow=2, fitness=100)
+    for i, pid in enumerate(a_as_ids):
+        h.alloc_player(*pid, team_id=200, ovr=68 if i < 5 else 90, pos=1 if i < 5 else 9, arrow=2, fitness=100)
+    h.set_team_tactics(0, list(range(11)), [0, 1, 2, 2, 4, 6, 7, 8, 9, 9, 12])
+    h.set_team_tactics(1, list(range(11)), [0, 1, 2, 2, 4, 6, 7, 8, 9, 9, 12])
+    h.state["rand_fn"] = lambda n: rng.randrange(n)
+
+    hi_win_goals = sum(sum(h.run_score(0, 80, 80)) for _ in range(1000))
+    hi_draw_goals = sum(sum(h.run_score(2, 80, 80)) for _ in range(1000))
+
+    for i, pid in enumerate(h_as_ids):
+        h.alloc_player(*pid, team_id=100, ovr=90 if i < 5 else 68, pos=1 if i < 5 else 9, arrow=2, fitness=100)
+    for i, pid in enumerate(a_as_ids):
+        h.alloc_player(*pid, team_id=200, ovr=90 if i < 5 else 68, pos=1 if i < 5 else 9, arrow=2, fitness=100)
+    lo_win_goals = sum(sum(h.run_score(0, 80, 80)) for _ in range(1000))
+    lo_draw_goals = sum(sum(h.run_score(2, 80, 80)) for _ in range(1000))
+    assert hi_win_goals > lo_win_goals + 300, (hi_win_goals, lo_win_goals)
+    assert hi_draw_goals > lo_draw_goals + 300, (hi_draw_goals, lo_draw_goals)
+
+    # ATTACK_DEFENSE_SPLIT=false -> eff_strength returns atk == def == overall_ovr
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "ATTACK_DEFENSE_SPLIT", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    ovr_off = g.call(sc.CAVE_ET, [], ecx=h.match, edx=100)
+    edx_off = g.mu.reg_read(UC_X86_REG_EDX)
+    assert (edx_off & 0xff) == ovr_off and ((edx_off >> 8) & 0xff) == ovr_off, (ovr_off, edx_off)
+    h.clear_squads()
+    print(f"ok 21: ATTACK_DEFENSE_SPLIT (eff_strength ATK/DEF + 7x7 WIN_CDF_2D + 5-band DRAW_CDF_BANDS: high {hi_win_goals/1000:.2f}/{hi_draw_goals/1000:.2f} vs low {lo_win_goals/1000:.2f}/{lo_draw_goals/1000:.2f} GPG) verified")
+
+    # 22. v7 Feature: sim_vec_hook at 0x0370875c (fcn_037085b5 scorer/assist weights, pos, arrow & fatigue)
+    from unicorn.x86_const import UC_X86_REG_EDI
+    h.restore()
+    l2, _, _ = run(g, source)
+    assert l2[-1].startswith("RESULT: installed."), l2
+    saved_sv_stub = g.replaced.pop(0x037085b5)
+    g.replace(0x03853d91, lambda gm, a: 0)
+    frame_sv = g.alloc(size=0x400) + 0x300
+    g.write(frame_sv + 0x0c, struct.pack("<I", h.match))
+    g.write(frame_sv - 0x1c, struct.pack("<I", h.mode_data))
+
+    def eval_sim_vec(p_ptr):
+        g.mu.reg_write(UC_X86_REG_ESP, STACK + STACK_SIZE - 0x1000)
+        g.mu.reg_write(UC_X86_REG_EBP, frame_sv)
+        g.mu.reg_write(UC_X86_REG_ESI, p_ptr)
+        g.mu.reg_write(UC_X86_REG_EDI, 5)
+        g.mu.emu_start(0x037086b6, 0x037087e1)
+        assert g.mu.reg_read(UC_X86_REG_ESI) == p_ptr, "esi clobbered by sim_vec!"
+        assert g.mu.reg_read(UC_X86_REG_EDI) == 5, "edi clobbered by sim_vec!"
+        sw = struct.unpack("<i", g.read(frame_sv - 0x14, 4))[0]
+        aw = g.mu.reg_read(UC_X86_REG_EBX)
+        return sw, aw
+
+    h.set_match(comp_id=1, team0_id=100, team1_id=200, tie_kind=0)
+    sv_cases = [
+        # (pos, fin, atk_prow, header, low_pass, lofted_pass, arrow, fitness)
+        (0,  99, 99, 99, 99, 99, 4, 100),  # GK -> always (0, 0)
+        (1,  50, 50, 75, 65, 65, 2, 100),  # CB -> scorer -14, assist -20
+        (2,  55, 60, 60, 75, 78, 2, 100),  # LB -> scorer -12, assist -10
+        (4,  65, 65, 70, 82, 80, 3, 100),  # DMF -> scorer -12, assist -8, green arrow +2
+        (5,  72, 74, 65, 86, 84, 2, 100),  # CMF -> scorer -7, assist +0
+        (8,  80, 84, 60, 90, 88, 4, 100),  # AMF -> scorer +0, assist +6, blue arrow +6
+        (9,  88, 90, 65, 85, 82, 2, 100),  # LWF -> scorer +4, assist +4
+        (12, 95, 96, 92, 72, 65, 4, 100),  # CF -> scorer +8, assist +0, blue arrow +6
+        (12, 99, 99, 99, 99, 99, 4, 100),  # Clamp high -> 113 -> 113; assists 198+6=204
+        (1,  40, 40, 40, 40, 40, 0, 36),   # Clamp low -> 40-14-6-6=14; assist 80-20-6-6=48
+        (1,  10, 10, 10, 10, 10, 0, 36),   # Clamp floor to 1!
+    ]
+    for idx_c, (pos, fin, ap, hdr, lp, loft, arr, fit) in enumerate(sv_cases):
+        p = h.alloc_player(
+            idx_c + 1, 9500 + idx_c, pos=pos, finishing=fin, atk_prow=ap,
+            header=hdr, low_pass=lp, lofted_pass=loft, arrow=arr, fitness=fit,
+        )
+        got = eval_sim_vec(p)
+        exp = sc.compute_sim_vec_weights(pos, fin, ap, hdr, lp, loft, arr, fit)
+        assert got == exp, (idx_c, pos, got, exp)
+
+    # CONDITION_STRENGTH=false disables arrow & fatigue adjustment in sim_vec
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "CONDITION_STRENGTH", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    p_cf = h.alloc_player(20, 9520, pos=12, finishing=85, atk_prow=85, header=80, low_pass=70, lofted_pass=70, arrow=4, fitness=36)
+    assert eval_sim_vec(p_cf) == sc.compute_sim_vec_weights(
+        12, 85, 85, 80, 70, 70, 4, 36, settings={"CONDITION_STRENGTH": False}
+    )
+
+    # SCORERS=false + ASSISTS=true: vanilla CB(-10)/FB(-5) scorer, v7 assist
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "SCORERS", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    p_cb = h.alloc_player(21, 9521, pos=1, finishing=50, atk_prow=90, header=90, low_pass=75, lofted_pass=75, arrow=4, fitness=100)
+    assert eval_sim_vec(p_cb) == (40, 136)  # vanilla CB scorer 50-10=40, v7 assist 150-20+6=136
+
+    # SCORERS=true + ASSISTS=false: v7 scorer, vanilla CB(-20)/FB(-10) assist
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "ASSISTS", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    assert eval_sim_vec(p_cb) == (66, 130)  # v7 scorer 74-14+6=66, vanilla CB assist 150-20=130
+
+    # SCOPE="skip_only" when not skip-match falls back to vanilla for both
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "SCOPE", '"skip_only"'))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    h.set_skip_flag(False)
+    h.set_team_user(0, False)
+    assert eval_sim_vec(p_cb) == (40, 130)
+    h.set_skip_flag(True)
+    h.set_team_user(0, True)
+    assert eval_sim_vec(p_cb) == sc.compute_sim_vec_weights(1, 50, 90, 90, 75, 75, 4, 100)
+    h.set_skip_flag(False)
+    h.set_team_user(0, False)
+
+    g.replaced[0x037085b5] = saved_sv_stub
+    del g.replaced[0x03853d91]
+    h.clear_squads()
+    print("ok 22: real fcn_037085b5 sim_vec_hook (scorer/assist formulas, pos, GK=0, [1,255] clamp, arrow/fatigue, toggles) verified")
+
+    # 23. Dedicated GK OVR & 1.5x condition arrow modifier on goals conceded (eff_strength -> score_hook)
+    h.restore()
+    l2, _, _ = run(g, source)
+    assert l2[-1].startswith("RESULT: installed."), l2
+    h.set_match(comp_id=1, team0_id=100, team1_id=200, tie_kind=0)
+    h_gk_ids = [(10 + i, 9600 + i) for i in range(12)]  # 11 starters + 1 backup GK
+    a_gk_ids = [(30 + i, 9700 + i) for i in range(11)]
+    for i, pid in enumerate(h_gk_ids):
+        if i == 0:
+            h.alloc_player(*pid, team_id=100, ovr=86, pos=0, arrow=4, fitness=100)  # 86 + 6 = 92
+        elif i == 11:
+            h.alloc_player(*pid, team_id=100, ovr=78, pos=0, arrow=1, fitness=100)  # backup GK: 78 - 3 = 75
+        else:
+            h.alloc_player(*pid, team_id=100, ovr=78, pos=1 if i <= 4 else 9, arrow=2, fitness=100)
+    for i, pid in enumerate(a_gk_ids):
+        h.alloc_player(*pid, team_id=200, ovr=68 if i == 0 else 78, pos=0 if i == 0 else (1 if i <= 4 else 9),
+                       arrow=0 if i == 0 else 2, fitness=100)  # Away GK: 68 - 6 = 62
+    h.set_team_squad(0, h_gk_ids)
+    h.set_team_squad(1, a_gk_ids)
+    t_pos = [0, 1, 2, 2, 4, 5, 6, 7, 9, 9, 12]
+    h.set_team_tactics(0, list(range(11)), t_pos)
+    h.set_team_tactics(1, list(range(11)), t_pos)
+
+    # Check eff_strength packs gk_eff in edx[16..23] and excludes GK from def_ovr (78)
+    g.call(sc.CAVE_ET, [], ecx=h.match, edx=100)
+    edx_h_gk = g.mu.reg_read(UC_X86_REG_EDX)
+    assert (edx_h_gk & 0xff) == 78 and ((edx_h_gk >> 8) & 0xff) == 78, hex(edx_h_gk)
+    assert ((edx_h_gk >> 16) & 0xff) == sc.compute_gk_eff_ovr(86, 4, 100) == 92, hex(edx_h_gk)
+
+    g.call(sc.CAVE_ET, [], ecx=h.match, edx=200)
+    edx_a_gk = g.mu.reg_read(UC_X86_REG_EDX)
+    assert (edx_a_gk & 0xff) == 78 and ((edx_a_gk >> 8) & 0xff) == 78, hex(edx_a_gk)
+    assert ((edx_a_gk >> 16) & 0xff) == sc.compute_gk_eff_ovr(68, 0, 100) == 62, hex(edx_a_gk)
+
+    # Injured starter GK replaced by backup GK (slot 11: 78 - 3 = 75)
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=86, pos=0, arrow=4, fitness=100, inj_days=5)
+    g.call(sc.CAVE_ET, [], ecx=h.match, edx=100)
+    edx_bk = g.mu.reg_read(UC_X86_REG_EDX)
+    assert ((edx_bk >> 16) & 0xff) == 75, hex(edx_bk)
+    # Restore elite starter GK (92)
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=86, pos=0, arrow=4, fitness=100, inj_days=0)
+
+    # Scoreline impact: Home win (Home GK 92 vs Away GK 62) vs Away win (Home GK 92 vs Away GK 62)
+    # In Home wins, Winner=Home(GK=92 -> high CS, low gl); in Away wins, Winner=Away(GK=62) vs Loser=Home(GK=92 -> low gw)
+    idx = [0]
+    h.state["rand_fn"] = lambda n: (idx.__setitem__(0, idx[0] + 1), idx[0] - 1)[1] % n
+    elite_conceded = 0
+    elite_cs = 0
+    for _ in range(1000):
+        gh, ga = h.run_score(0, 78, 78)  # Home wins, Home GK=92
+        elite_conceded += ga
+        if ga == 0:
+            elite_cs += 1
+
+    # Flip Home GK to weak red-arrow (62)
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=68, pos=0, arrow=0, fitness=100)
+    weak_conceded = 0
+    weak_cs = 0
+    for _ in range(1000):
+        gh, ga = h.run_score(0, 78, 78)  # Home wins, Home GK=62
+        weak_conceded += ga
+        if ga == 0:
+            weak_cs += 1
+    assert elite_conceded + 200 < weak_conceded, (elite_conceded, weak_conceded)
+    assert elite_cs > weak_cs + 120, (elite_cs, weak_cs)
+
+    # Also test draws: both GKs=92 produces lower-scoring draws than both GKs=62
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=86, pos=0, arrow=4, fitness=100)
+    h.alloc_player(*a_gk_ids[0], team_id=200, ovr=86, pos=0, arrow=4, fitness=100)
+    gk_hi_draw = sum(sum(h.run_score(2, 78, 78)) for _ in range(1000))
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=68, pos=0, arrow=0, fitness=100)
+    h.alloc_player(*a_gk_ids[0], team_id=200, ovr=68, pos=0, arrow=0, fitness=100)
+    gk_lo_draw = sum(sum(h.run_score(2, 78, 78)) for _ in range(1000))
+    assert gk_hi_draw + 300 < gk_lo_draw, (gk_hi_draw, gk_lo_draw)
+
+    # GK_SCORE_MOD=false disables GK delta & clean-sheet boost
+    h.restore()
+    l2, _, _ = run(g, set_lua(source, "GK_SCORE_MOD", "false"))
+    assert l2[-1].startswith("RESULT: installed."), l2
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=86, pos=0, arrow=4, fitness=100)
+    off_hi = sum(h.run_score(0, 78, 78)[1] for _ in range(500))
+    h.alloc_player(*h_gk_ids[0], team_id=100, ovr=68, pos=0, arrow=0, fitness=100)
+    off_lo = sum(h.run_score(0, 78, 78)[1] for _ in range(500))
+    assert abs(off_hi - off_lo) <= 25, (off_hi, off_lo)
+    h.clear_squads()
+    print(f"ok 23: GK_SCORE_MOD (1.5x GK arrow, GK_delta, CS boost: elite {elite_conceded/1000:.2f} GA / {elite_cs/10:.1f}% CS vs weak {weak_conceded/1000:.2f} GA / {weak_cs/10:.1f}% CS) verified")
 
     # 20. Coexistence with MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order
     del h
