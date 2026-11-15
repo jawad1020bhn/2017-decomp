@@ -194,10 +194,14 @@ the same way on the same day.
 "Does not buy" stands for a club that fills a place from its own academy: the module
 cannot make a youth player, it can only keep the club from buying.
 
-**Which club has which persona.** 73 clubs are named in `CLUBS` (the game's id of the
-club and the name of a persona; at most 96). The choice is mine, from what the real
+**Which club has which persona.** 180 clubs are named in `CLUBS` (the game's id of the
+club and the name of a persona; at most 192). The choice is mine, from what the real
 clubs are known for on the market; no source was looked up for it, and each line can be
-changed. In brackets the place in the game's club ranking of the career above:
+changed. It is surest for the big clubs and gets weaker further down: for a small or
+newly promoted club "Mid-table" or "Survival churner" is often all that can be said.
+In brackets the place in the game's club ranking of the career above.
+
+The 73 named first (the biggest clubs of the data):
 
 - Galactico: Real Madrid (2), Arsenal (4), Manchester United (10)
 - State-backed: Paris Saint-Germain (1), Manchester City (6)
@@ -218,11 +222,43 @@ changed. In brackets the place in the game's club ranking of the career above:
 - Selling farm: Ajax (42), Sporting CP (50), Feyenoord (86), Braga (89), Anderlecht
   (142), AZ (143), Dinamo Zagreb (145), Genk (150), Salzburg (208), Nordsjælland (272)
 
+The rest of the five big leagues (50 clubs; the leagues as they stand in 2025/26, which
+is what the data looks like: Sunderland, Leeds, Burnley, Paris FC, Hamburg, Köln, Pisa
+and Oviedo are in it as top-flight clubs by their ranking. The league of a club was
+not read from the data):
+
+| league | personas |
+|---|---|
+| England | New-money: Nottingham Forest (23). Moneyball: Crystal Palace (24). Mid-table: Everton (34), Leeds (40), Fulham (45). Old-money: West Ham (65). Elite trader: Wolverhampton (78). Survival churner: Burnley (93) |
+| Spain | Moneyball: Villarreal (29). Mid-table: Mallorca (119). Survival churner: Espanyol (75), Alavés (101), Levante (118), Elche (120), Oviedo (165) |
+| Italy | Mid-table: Lazio (46), Torino (71). Moneyball: Bologna (56), Lecce (157). Old-money: Fiorentina (61). Elite trader: Sassuolo (88), Udinese (97), Genoa (108), Parma (128), Verona (174). Survival churner: Cagliari (127), Cremonese (185), Pisa (221) |
+| Germany | Elite trader: Hoffenheim (47), Wolfsburg (110). Moneyball: Mainz (74), Heidenheim (227). Mid-table: Augsburg (85), Mönchengladbach (87), Hamburg (98), Köln (100), Werder Bremen (102), St. Pauli (222). Survival churner: Union Berlin (94) |
+| France | Mid-table: Nice (79). New-money: Paris FC (80). Elite trader: Strasbourg (105). Moneyball: Toulouse (141). Survival churner: Brest (135), Angers (160). Academy purist: Auxerre (159), Le Havre (171). Selling farm: Lorient (162), Metz (282). Crisis: Nantes (183) |
+
+22 clubs of the second divisions that were in those leagues lately, or are big:
+Mid-table: Ipswich (73), Deportivo La Coruña (77), Palermo (121). Elite trader:
+Southampton (115), Watford (172), Reims (321). Crisis: Monza (125), Sampdoria (137),
+Leicester (254), Sheffield Wednesday (274), Montpellier (365). Survival churner:
+Leganés (192), Valladolid (319). Academy purist: Las Palmas (164), Málaga (169),
+Sporting Gijón (236). New-money: Almería (131), Wrexham (146), Birmingham (147).
+Selling farm: Venezia (116), Empoli (333). Moneyball: Saint-Étienne (216).
+
+35 other clubs with a known way of buying: Old-money: Olympiacos (59), Trabzonspor
+(68), Fluminense (81), Atlético Mineiro (92), Rangers (123), Racing Club (132),
+København (168). Elite trader: Botafogo (107), Slavia Praha (109), Bragantino (156),
+Young Boys (161), Talleres (167), Crvena zvezda (170), Athletico Paranaense (193), Sturm
+Graz (307), New York Red Bulls (369). Moneyball: Midtjylland (148), Union
+Saint-Gilloise (149), Bodø/Glimt (151). Selling farm: Santos (83), Lanús (136), Vélez
+(154), Argentinos Juniors (217), Basel (285), Philadelphia (288), Brøndby (299). Crisis:
+São Paulo (82), Corinthians (113), Independiente (163). New-money: Cruzeiro (84), Al
+Sadd (90), Bahia (124), Los Angeles FC (152), Los Angeles Galaxy (179), Atlanta (240).
+
 Every other club draws one of up to eight personas of its group in the club ranking
 (`PERSONA_GROUPS`, the ten groups of `CEILING`); which one is fixed by the club's id.
-With the file as it is, the 499 clubs of that career come out as: Survival churner 147,
-Mid-table 102, Crisis 61, Academy purist 60, Selling farm 55, Moneyball 23, Old-money
-20, Elite trader 15, New-money 11, Galactico 3, State-backed 2. `club_ids.tsv` lists
+Naming the 107 clubs changed the persona of 90 of them; 17 had drawn the same one.
+With the file as it is, the 499 clubs of that career come out as: Survival churner 140,
+Mid-table 90, Crisis 60, Academy purist 52, Selling farm 49, Elite trader 36, Old-money
+24, Moneyball 24, New-money 19, Galactico 3, State-backed 2. `club_ids.tsv` lists
 every one of them with its id, place, persona and the rating its first eleven is taken
 to have. The ids are those of the data that career was played with; with other data a
 club that is not found simply has no entry of its own. Your own club is never asked:
@@ -242,7 +278,7 @@ the module acts only where a computer club chooses.
 | `SQUAD_NEED` (0 to 32) | 23: with fewer players a club is in need |
 | `ARCHETYPES` | the eleven personas above |
 | `PERSONA_GROUPS` | ten lists of 1 to 8 persona names, best clubs first |
-| `CLUBS` | the 73 named clubs; `{ }` names none |
+| `CLUBS` | the 180 named clubs (at most 192); `{ }` names none |
 
 A faulty setting is named in `sider.log` and nothing is written, as before.
 
@@ -267,11 +303,11 @@ check: free memory   at 047d4200  empty
 written: transfers at 0365fb0d  ok
 ```
 
-then the ceilings, `selling side: ...`, `club personas: 11 personas, 73 clubs named,
+then the ceilings, `selling side: ...`, `club personas: 11 personas, 180 clubs named,
 ...` with one line per persona, and `RESULT: installed. Changed: price ceiling of the
 computer clubs, selling side, club personas, scouting.`
 
-**The line that matters most is `free memory at 047d4200`.** Version 2 needs 2,352
+**The line that matters most is `free memory at 047d4200`.** Version 2 needs 2,832
 bytes and version 1's place (`0x047d3c40`, 384 bytes) is too small, so it uses another
 piece of memory that has never been used in the running game: the rest of the page of
 the small code section `.data1`. In the file that page holds 368 bytes of code and
@@ -803,7 +839,7 @@ filled (`money_cave.py` has the layout and the source of the 14 routines):
 | `0x038aa43a`, `...446`, `...452`, `...45e`, `...46a`, `...476`, 4 bytes each, `cup_prize` | the six amounts for a cup without a row: 20000, 10000, 5000, 1000, 500, 300 (the numbers in six `mov edi`) | the six amounts of `CUP_NATIONAL` | `CUP_NATIONAL` |
 | `0x047b0200`, 3,568 bytes | zero | the tables (value, salary, two by age, position, talent), the cup table, two league lists, 12 lists by league, the single numbers, 13 routines of 226, 53, 26, 22, 53, 24, 21, 31, 8, 19, 18, 50 and 13 bytes | always |
 | `0x0365fb0d`, 9 bytes, `ai_candidates` | `mov ecx, [ebp + 0x24]; push esi; call 0x041293c0`: the player who passed every test is added to the list of candidates | call to the routine of `MLTransfers.lua`, which goes on to that function or to the game's "next player" at `0x0365fb28` | `CEILING`, `SELL_SIDE` or `PERSONA` |
-| `0x047d4200`, 2,352 bytes (version 1: `0x047d3c40`, 384 bytes) | zero | ten ceilings, ten highest ratings for the second search, twelve single numbers, the two rating ranges by level, the personas by level (10 x 8), 16 personas of 20 bytes, 96 named clubs (persona and id), the routine of 1345 bytes | the same |
+| `0x047d4200`, 2,832 bytes (version 1: `0x047d3c40`, 384 bytes) | zero | ten ceilings, ten highest ratings for the second search, twelve single numbers, the two rating ranges by level, the personas by level (10 x 8), 16 personas of 20 bytes, 192 named clubs (persona and id), the routine of 1345 bytes | the same |
 
 **The routine of `MLTransfers.lua`** (this part: as in version 1; the steps of version 2 and all it reads are written out at the top of `money_cave.py`). `ai_candidates` is not handed the club's level. Its only
 caller, `ai_pick_candidate`, has it as an argument, so the routine reads it from that
@@ -884,7 +920,7 @@ python3 test_money.py ~/pes-work/game/PES2017.exe
 ok 0: without the module the emulated game gives the amounts of ../tools/money.py (salary with role, age band and award bonuses at every place of the club ranking; fee); its budget function adds twice the mean of the 16 highest fees and the wage bill plus twice the mean of the 16 highest salaries; cup_prize and league_prize give the game's lists (2626 and 6720 cases); a prize goes to the balance only; the contract limit is 3 years up to age 23; the three amounts of yearly income are 25 x popularity - 670 x the club's number - 3,451,330 (whatever the wage bill), (403 - rank) x 5,000 and 15,000 + 165,000 x club level; on 28 and on 30 June the yearly budget step gives the two grants of money_cave.june_grants for 2,000 cases each (to within 2); ai_candidates, the code that lists the players a computer club may sign, run whole through its two calls in ai_pick_candidate and, for three cases in eight, with ai_pick_candidate itself run from its first instruction to the end of its two searches, lists the first three players of the lists from the highest overall down who pass its tests (in a deal, on loan, the status band a slot asks for), whatever their value; ai_pick_candidate searches the first set of lists and then the second, a plan of kind 1 or 4 the second only, in the rating range of the club level, or from 99 down to 41 when the lowest overall handed in is 0
 ok 1: MLMoney.lua and then MLTransfers.lua pass their checks, write only their own memory and the places they report, and what they wrote is what money_cave.py builds from the same settings
 ok 2: with the changes in, the game's code gives the amounts of money_cave.py: salary and fee for 3000 + 3000 random players (ratings 40 to 255, ages 0 to 63, every position, with and without awards and the random change) and for every place of the club ranking; the budgets of 150 squads of 0 to 40 players; cup_prize for 2626 cases (competitions 0 to 100, stages 0 to 12, two game modes; mode 0x28 keeps its own table); league_prize for 11648 cases (every list, place and half); the two places that pay a prize, in Master League and four other modes: balance, transfer budget, account line, registers and stack; the two bonus routines leave every other register as it was; the contract limit for every age; the three amounts of yearly income for 600 cases each, with wage bills from 0 to the largest number; ai_candidates run whole for 750 random sets of lists (club levels 0 to 9 and six numbers that are no level, both searches, both sets of lists, plans of every kind, any day, slots that ask for a status band; players without a contract, listed, in a deal and on loan, of any status band, of clubs with 0 to 40 counted players and of no club; buying and selling clubs anywhere in a made-up club ranking, named in CLUBS or not, some missing from the ranking, which the game's own search of the ranking answers as the routine does; the ceiling put where one player is just within the club's limit for him and 1 below that; three cases in eight with ai_pick_candidate itself run up to the end of its two searches, so that level, range, the mark of the second search and the place each search returns to are where the game puts them): it lists the players of money_cave.candidates (selling side, scouting, the persona of the buying club and of the selling club, the price), passes over the others and goes on, leaves stack, registers, player records and plan as the game does, and entered from anywhere else it lists as the game
-ok 3: with every optional part switched off only the fee place is written and salary, prizes and contract limit are the game's own; each of the 19 optional parts switched on alone changes its own places and nothing else; BUDGET_SALARY changes the salary budget; with spread, position and salary age switched off the value is VALUE x AGE plus popularity; PAY_GAP = 1, 1.5, 2, 2.75, 7.3, 10 give the club factor of money_cave.py at every place of the ranking; with every setting at its limit the code and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the four alone, and all four at their limits; MLTransfers.lua with the personas alone, with the selling side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH and SQUAD_NEED at their limits; 1, 7 and 15 personas with numbers anywhere inside their limits, groups of 1 to 8 names, 0, 1, 40 (each id twice) and 96 named clubs: 500 to 700 sets of lists each
+ok 3: with every optional part switched off only the fee place is written and salary, prizes and contract limit are the game's own; each of the 19 optional parts switched on alone changes its own places and nothing else; BUDGET_SALARY changes the salary budget; with spread, position and salary age switched off the value is VALUE x AGE plus popularity; PAY_GAP = 1, 1.5, 2, 2.75, 7.3, 10 give the club factor of money_cave.py at every place of the ranking; with every setting at its limit the code and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the four alone, and all four at their limits; MLTransfers.lua with the personas alone, with the selling side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH and SQUAD_NEED at their limits; 1, 7 and 15 personas with numbers anywhere inside their limits, groups of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each
 ok 4: WRITE = false, one changed byte at 60 places of the checked code and data, memory not empty, 57 kinds of faulty settings: MLMoney.lua writes nothing, and MLTransfers.lua after it writes nothing either; a write to its memory that does not stick: the code is not touched. MLTransfers.lua: WRITE = false, one changed byte at 30 places of the transfer code, its memory not empty, 43 kinds of faulty settings, a write that does not stick: it writes no place of the code and MLMoney.lua is installed as without it; run without MLMoney.lua, before it, with a mark that is not MLMoney.lua's, with a changed byte at 6 places of the value routine and the two numbers it uses, or a second time: it writes nothing; with another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE and PERSONA off it does not look at the game at all
 ok 5: Bruno Fernandes as the user saw him without a module (rating 89, salary 7,259,700, value 36,743,200): the game's formula gives exactly that value from that salary with popularity 955, and with no other rating from 60 to 99
       as the user saw him with version 2 and SPREAD = 0 in a new career (age 32, value 52,973,200): the module's formula gives exactly that for an AMF of rating 89 with popularity 910, and with no other popularity
@@ -1039,6 +1075,21 @@ So the test notices a fault in about 19 of 20 places it was tried, and what it m
 is mostly not a fault. That says how sharp the test is, not that the routine is right
 in the game: that is still to be seen.
 
+**After the table of named clubs grew from 96 to 192** the routine sits 480 bytes higher
+(`0x047d47c8`). Its length and its instructions are the same; 13 bytes differ: the
+distances of the six calls and jumps to code outside it, and the address of the club
+ids. The numbers above are from before that move and were **not run again in full**.
+Run again: the whole test; the eight planted file faults that touch the memory, its
+size or `CLUBS` (numbers 11, 12, 16, 17, 23, 32, 33, 87: all noticed); and every bit of
+the seven instructions that hold those 13 bytes (296 flips: 294 noticed). The two not
+noticed are bits the first run did not try. One turns `cmp [ids + n×4], eax` around
+before a "not equal" jump, which is the same thing. The other makes the call to the
+value routine land four bytes before it, on two zero bytes, which a processor reads as
+"add the low byte of `eax` to the byte `eax` points at", twice, and then runs into the
+routine: a stray write the test does not look for. The byte numbers in
+`bitflips_v2.tsv` still hold; the jump targets in it were moved by hand to the new
+addresses.
+
 The price ceiling of version 1 (`python3 planted_faults.py <exe> routine` and `files`; run again
 after the ceiling moved to `MLTransfers.lua`, with the same counts for the routine):
 every one of the 2,504 bits of the ceiling routine was flipped in turn. 2,497 flips
@@ -1132,7 +1183,7 @@ Read from the DLL's code and strings, not run:
   `0x047d3a43`-`0x047d3dff` (used by version 6 of `MLMoney.lua` and version 1 of
   `MLTransfers.lua` at `0x047d3c40`-`0x047d3dbc`; free again). The page of `.data1`
   behind its code, `0x047d4170`-`0x047d4fff`: `MLTransfers.lua` version 2 uses
-  `0x047d4200`-`0x047d4b2f`; about 1,200 bytes above it are free, and whether the running
+  `0x047d4200`-`0x047d4d0f`; about 750 bytes above it are free, and whether the running
   game leaves that page alone is not seen yet. A module must see zeros there before it
   writes.
 - A routine that is called from inside a game function can read the arguments of that

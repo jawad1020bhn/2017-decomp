@@ -55,7 +55,7 @@ FAULTS = (
      'local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 85, 99 }'),
     ('MLTransfers.lua', 'local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }',
      'local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 82 }'),
-    ('MLTransfers.lua', 'local CAVE_SIZE = 0x930', 'local CAVE_SIZE = 0x92c'),
+    ('MLTransfers.lua', 'local CAVE_SIZE = 0xb10', 'local CAVE_SIZE = 0xb0c'),
     ('MLTransfers.lua', 'local CAVE = 0x047d4200 ', 'local CAVE = 0x047d41f8 '),
     # the numbers of the limit: the two discounts swapped, a negative number let through
     ('MLTransfers.lua', 'ceiling and round(CEILING_FREE) or 100, ceiling and round(CEILING_LISTED) or 100',
@@ -191,7 +191,7 @@ def routine(exe):
     groups = '{\n%s\n}' % '\n'.join('    { %s },' % ', '.join('"P%d"' % random.randint(1, 15) for _ in range(random.randint(1, 8)))
                                     for _ in range(10))
     named = '{\n%s\n}' % '\n'.join('    { 0x%08x, "P%d" },' % (random.getrandbits(18) << 14 | random.randint(1, mc.POOL_CLUBS - 1),
-                                                               random.randint(1, 15)) for _ in range(96))
+                                                               random.randint(1, 15)) for _ in range(192))
     sets = ((t, 500),
             (changed(('CEILING', 'false'), ('PERSONA', 'false')), 300),
             (changed(('SELL_SIDE', 'false'), ('PERSONA', 'false')), 200),

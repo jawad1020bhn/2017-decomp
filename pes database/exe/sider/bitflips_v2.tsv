@@ -8,16 +8,16 @@ byte	bit	instruction	with the bit flipped
 183	7	and ecx, 0xffffff	and ecx, 0xff7fff
 240	0	cmp dword ptr [ebp - 0x30], 2	cmp byte ptr [ebp - 0x30], 2
 291	3	cmp dword ptr [0x47d425c], 0	xor dword ptr [0x47d425c], 0
-297	1	je 0x47d4778	jbe 0x47d4778
+297	1	je 0x47d4958	jbe 0x47d4958
 315	3	cmp eax, 0x28d	cmp eax, 0xa8d
-320	0	jae 0x47d47ac	jae 0x47d47ad
-321	1	jae 0x47d47ac	jae 0x47d49ac
-361	1	jb 0x47d4758	jb 0x47d4756
+320	0	jae 0x47d498c	jae 0x47d498d
+321	1	jae 0x47d498c	jae 0x47d4b8c
+361	1	jb 0x47d4938	jb 0x47d4936
 363	3	cmp dword ptr [ebp - 0x48], 0	xor dword ptr [ebp - 0x48], 0
 368	0	cmp dword ptr [ebp - 0x44], 1	cmp byte ptr [ebp - 0x44], 1
 380	4	cmp dword ptr [ebp - 0x44], 4	sub dword ptr [ebp - 0x44], 4
-387	3	ja 0x47d4778	jg 0x47d4778
-399	7	jae 0x47d47ac	jae 0x47d472c
+387	3	ja 0x47d4958	jg 0x47d4958
+399	7	jae 0x47d498c	jae 0x47d490c
 452	4	pop eax	dec eax
 479	7	shr ecx, 8	shr ecx, 0x88
 480	0	cmp ecx, dword ptr [ebp - 0x80]	cmp cl, byte ptr [ebp - 0x80]
@@ -27,7 +27,7 @@ byte	bit	instruction	with the bit flipped
 636	4	or edx, 1	or edx, 0x11
 640	0	cmp dword ptr [ebp - 0x48], 0	cmp byte ptr [ebp - 0x48], 0
 678	6	shr ecx, 8	shr ecx, 0x48
-690	2	jb 0x47d48c2	jb 0x47d48be
+690	2	jb 0x47d4aa2	jb 0x47d4a9e
 692	4	add edx, dword ptr [ebp - 0x8c]	adc edx, dword ptr [ebp - 0x8c]
 709	5	cmp ecx, edx	sbb ecx, edx
 731	3	cmp dword ptr [ebp - 0x1c], 0	xor dword ptr [ebp - 0x1c], 0
@@ -41,12 +41,12 @@ byte	bit	instruction	with the bit flipped
 854	6	shr ecx, 8	shr ecx, 0x48
 923	3	cmp dword ptr [ebp - 0x10], 0	xor dword ptr [ebp - 0x10], 0
 952	0	cmp eax, -1	cmp eax, -2
-954	2	je 0x47d4a51	jo 0x47d4a51
+954	2	je 0x47d4c31	jo 0x47d4c31
 1061	5	shr ecx, 0xb	ror ecx, 0xb
 1062	6	shr ecx, 0xb	shr ecx, 0x4b
 1068	4	and ecx, 0xfff	and ecx, 0x10000fff
 1124	4	cmp edi, dword ptr [ebp - 4]	sub edi, dword ptr [ebp - 4]
-1162	2	jae 0x47d4a77	ja 0x47d4a77
+1162	2	jae 0x47d4c57	ja 0x47d4c57
 1166	6	ret	add dword ptr [ebx + 0x1c3ffc8], 0x45
 1167	7	or eax, 0xffffffff	add ecx, eax
 1168	0	or eax, 0xffffffff	or ecx, 0xffffffff
@@ -56,7 +56,7 @@ byte	bit	instruction	with the bit flipped
 1179	3	or dword ptr [ebp - 4], 0xffffffff	or dword ptr [ebp - 4], 0xfffffff7
 1207	7	shr ecx, 0x18	shr ecx, 0x98
 1227	3	div dword ptr [0x47b0658]	idiv dword ptr [0x47b0658]
-1258	2	ja 0x47d4ae0	jae 0x47d4ae0
+1258	2	ja 0x47d4cc0	jae 0x47d4cc0
 1276	4	add esp, 4	adc esp, 4
 1318	6	mov ecx, 9	mov ecx, 0x40000009
 1327	7	shr eax, 0x1d	shr eax, 0x9d

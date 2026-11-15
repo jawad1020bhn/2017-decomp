@@ -254,10 +254,13 @@ local PERSONA_GROUPS = {
 }
 
 -- The clubs with a persona of their own: the game's id of the club, the persona. At most
--- 96. The ids are those of the career the module was set against (the name behind each is
+-- 192. The ids are those of the career the module was set against (the name behind each is
 -- what that career calls the club); a club your data does not have is simply never found.
 -- If an id stands twice, the last entry counts. { } : no club is named.
 -- How each was chosen: from what the real club does on the market (README.md).
+-- First the biggest clubs, then the rest of the five big leagues (as they stand in
+-- 2025/26, which is what the data looks like), then other clubs. For a small or newly
+-- promoted club the choice is a weak one: change any line you see differently.
 local CLUBS = {
     { 0x001c804a, "State-backed" },      -- Paris Saint-Germain
     { 0x001b4036, "Galactico" },         -- Real Madrid CF
@@ -332,20 +335,134 @@ local CLUBS = {
     { 0x012ac14a, "Selling farm" },      -- KRC Genk
     { 0x018c8193, "Selling farm" },      -- FC Salzburg
     { 0x012e0159, "Selling farm" },      -- FC Nordsjælland
+    -- England, Premier League
+    { 0x0061400f, "New-money" },         -- Nottingham Forest FC
+    { 0x005f8007, "Moneyball" },         -- Crystal Palace FC
+    { 0x002c4008, "Mid-table" },         -- Everton FC
+    { 0x001a000a, "Mid-table" },         -- Leeds United FC
+    { 0x002c8009, "Mid-table" },         -- Fulham FC
+    { 0x001a40f2, "Old-money" },         -- West Ham United FC
+    { 0x003400f3, "Elite trader" },      -- Wolverhampton Wanderers FC
+    { 0x005e80f0, "Survival churner" },  -- Burnley FC
+    -- Spain, La Liga
+    { 0x0042c03b, "Moneyball" },         -- Villarreal CF
+    { 0x0040c02e, "Survival churner" },  -- RCD Espanyol
+    { 0x040c4028, "Survival churner" },  -- Deportivo Alavés
+    { 0x005b8031, "Survival churner" },  -- Levante UD
+    { 0x00414115, "Mid-table" },         -- RCD Mallorca
+    { 0x005a402d, "Survival churner" },  -- Elche CF
+    { 0x04290113, "Survival churner" },  -- Real Oviedo
+    -- Italy, Serie A
+    { 0x001e801e, "Mid-table" },         -- S.S. Lazio
+    { 0x002e8015, "Moneyball" },         -- Bologna FC 1909
+    { 0x001f0019, "Old-money" },         -- ACF Fiorentina
+    { 0x00534026, "Mid-table" },         -- Torino FC
+    { 0x01dfc025, "Elite trader" },      -- US Sassuolo Calcio
+    { 0x002f8027, "Elite trader" },      -- Udinese Calcio
+    { 0x0050c01a, "Elite trader" },      -- Genoa CFC
+    { 0x00500016, "Survival churner" },  -- Cagliari Calcio
+    { 0x001ec022, "Elite trader" },      -- Parma Calcio 1913
+    { 0x0423401f, "Moneyball" },         -- US Lecce
+    { 0x00540136, "Elite trader" },      -- Hellas Verona FC
+    { 0x041f0018, "Survival churner" },  -- US Cremonese
+    { 0x0424413a, "Survival churner" },  -- Pisa Sporting Club
+    -- Germany, Bundesliga
+    { 0x04078080, "Elite trader" },      -- TSG 1899 Hoffenheim
+    { 0x006d007d, "Moneyball" },         -- 1. FSV Mainz 05
+    { 0x04070072, "Mid-table" },         -- FC Augsburg
+    { 0x00384076, "Mid-table" },         -- VfL Borussia M’gladbach
+    { 0x040b0081, "Survival churner" },  -- 1. FC Union Berlin
+    { 0x0020407a, "Mid-table" },         -- Hamburger SV
+    { 0x040a407c, "Mid-table" },         -- 1. FC Köln
+    { 0x002e4082, "Mid-table" },         -- SV Werder Bremen
+    { 0x003a0083, "Elite trader" },      -- VfL Wolfsburg
+    { 0x040ac078, "Mid-table" },         -- FC St. Pauli
+    { 0x04e4407b, "Moneyball" },         -- 1. FC Heidenheim
+    -- France, Ligue 1
+    { 0x00364048, "Mid-table" },         -- OGC Nice
+    { 0x041cc049, "New-money" },         -- Paris FC
+    { 0x041d404c, "Elite trader" },      -- RC Strasbourg Alsace
+    { 0x014c403e, "Survival churner" },  -- Stade Brestois 29
+    { 0x0037404d, "Moneyball" },         -- Toulouse FC
+    { 0x002d003d, "Academy purist" },    -- AJ Auxerre
+    { 0x0064c03c, "Survival churner" },  -- Angers SCO
+    { 0x00678042, "Selling farm" },      -- FC Lorient
+    { 0x0067403f, "Academy purist" },    -- Havre AC
+    { 0x00360123, "Crisis" },            -- FC Nantes
+    { 0x0406c12b, "Selling farm" },      -- FC Metz
+    -- clubs of the second divisions that were in those leagues lately, or are big
+    { 0x00608013, "Mid-table" },         -- Ipswich Town FC
+    { 0x0033c0fe, "Elite trader" },      -- Southampton FC
+    { 0x003300f4, "Crisis" },            -- Leicester City FC
+    { 0x042c0112, "Survival churner" },  -- CD Leganés
+    { 0x005b0111, "Academy purist" },    -- UD Las Palmas
+    { 0x00428118, "Survival churner" },  -- Real Valladolid CF
+    { 0x001bc030, "Mid-table" },         -- Deportivo La Coruña
+    { 0x00594105, "New-money" },         -- UD Almería
+    { 0x00410037, "Academy purist" },    -- Málaga CF
+    { 0x005ac117, "Academy purist" },    -- Real Sporting de Gijón
+    { 0x04214142, "Selling farm" },      -- Venezia FC
+    { 0x04cc8023, "Crisis" },            -- AC Monza
+    { 0x003ac135, "Selling farm" },      -- Empoli FC
+    { 0x003c013f, "Crisis" },            -- UC Sampdoria
+    { 0x003b813c, "Mid-table" },         -- Palermo FC
+    { 0x014c8128, "Elite trader" },      -- Stade de Reims
+    { 0x0068812a, "Moneyball" },         -- AS Saint-Étienne
+    { 0x0035c124, "Crisis" },            -- Montpellier Hérault SC
+    { 0x05ed4103, "New-money" },         -- Wrexham AFC
+    { 0x003240ec, "New-money" },         -- Birmingham City FC
+    { 0x00638101, "Elite trader" },      -- Watford FC
+    { 0x006280fd, "Crisis" },            -- Sheffield Wednesday FC
+    -- other clubs with a known way of buying
+    { 0x0021418c, "Old-money" },         -- Olympiacos FC
+    { 0x01e64189, "Old-money" },         -- Trabzonspor
+    { 0x0021016a, "Old-money" },         -- Rangers FC
+    { 0x0511418f, "Elite trader" },      -- SK Slavia Praha
+    { 0x05190151, "Moneyball" },         -- R. Union Saint-Gilloise
+    { 0x02054158, "Moneyball" },         -- FC Midtjylland
+    { 0x0521418a, "Moneyball" },         -- FK Bodø/Glimt
+    { 0x012dc157, "Old-money" },         -- F.C. København
+    { 0x01e78176, "Elite trader" },      -- BSC Young Boys
+    { 0x0131c190, "Elite trader" },      -- FK Crvena zvezda
+    { 0x01aa816c, "Selling farm" },      -- FC Basel 1893
+    { 0x02084194, "Elite trader" },      -- SK Sturm Graz
+    { 0x01ca0155, "Selling farm" },      -- Brøndby IF
+    { 0x0138408d, "Old-money" },         -- Fluminense FC
+    { 0x0139c095, "Crisis" },            -- São Paulo F.C.
+    { 0x01398094, "Selling farm" },      -- Santos FC
+    { 0x0044808b, "New-money" },         -- Cruzeiro EC
+    { 0x01374085, "Old-money" },         -- Atlético Mineiro
+    { 0x01378087, "Elite trader" },      -- Botafogo FR
+    { 0x0137c089, "Crisis" },            -- SC Corinthians Paulista
+    { 0x02654086, "New-money" },         -- EC Bahia
+    { 0x0266c092, "Elite trader" },      -- Red Bull Bragantino
+    { 0x01e28084, "Elite trader" },      -- Athletico Paranaense
+    { 0x013540ad, "Old-money" },         -- Racing Club Avellaneda
+    { 0x013600a7, "Crisis" },            -- CA Independiente
+    { 0x013700b5, "Selling farm" },      -- CA Vélez Sarsfield
+    { 0x01e240aa, "Selling farm" },      -- CA Lanús
+    { 0x01350099, "Selling farm" },      -- Argentinos Juniors
+    { 0x04ed80b2, "Elite trader" },      -- CA Talleres de Córdoba
+    { 0x059b40ce, "New-money" },         -- Los Angeles FC
+    { 0x040ec0cd, "New-money" },         -- Los Angeles Galaxy
+    { 0x059a01aa, "New-money" },         -- Atlanta United FC
+    { 0x040fc0d4, "Selling farm" },      -- Philadelphia Union
+    { 0x040f80d2, "Elite trader" },      -- New York Red Bulls
+    { 0x041341ce, "New-money" },         -- Al Sadd SC
 }
 
 -- ========================= end of settings =========================
 
 local CAVE = 0x047d4200         -- unused end of a page of the game's code: the tables and the routine
-local CAVE_SIZE = 0x930
+local CAVE_SIZE = 0xb10
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
 -- the rating range a computer club searches first, smallest clubs first (the game's numbers)
 local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
 local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 86, 99 }
 -- offsets in that memory: the twelve numbers, the two ranges, the personas by group, the
 -- personas, the personas of the named clubs, their ids (money_cave.py has the list)
-local NUMBERS_AT, RANGES_AT, GROUPS_AT, PERSONAS_AT, CLUB_TYPES_AT, CLUB_IDS_AT = 0x34, 0x64, 0x78, 0xc8, 0x208, 0x268
-local MOST_PERSONAS, MOST_CLUBS, PER_GROUP = 15, 96, 8
+local NUMBERS_AT, RANGES_AT, GROUPS_AT, PERSONAS_AT, CLUB_TYPES_AT, CLUB_IDS_AT = 0x34, 0x64, 0x78, 0xc8, 0x208, 0x2c8
+local MOST_PERSONAS, MOST_CLUBS, PER_GROUP = 15, 192, 8
 -- the numbers of a persona in the order of the memory, with the lowest and highest of each
 local GENES = { { "free", 0, 100 }, { "listed", 0, 100 }, { "clubs", 0, 100 }, { "winter", 0, 100 },
                 { "knows", 1, 100 }, { "fog", 0, 10 }, { "wealth", 10, 250 }, { "premium", 0, 250 },
@@ -355,18 +472,18 @@ local PLACE = { free = 0, listed = 1, clubs = 2 }
 -- persona 0: a club as in version 1 (what every club is with PERSONA = false)
 local NEUTRAL = "64000064ff0064646400ffff0000003fffff0000"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
-local ROUTINE = { 0x3e8, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
+local ROUTINE = { 0x5c8, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
       .. "0c81f9b90d66030f853e040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
       .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87fc0300008945e031c98b93b400"
       .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
       .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e803040000"
       .. "8945ec8955b031c9518b45ec8b55e8e8bb0300005989848d70ffffff4183f90e72e6837dd0020f85d0000000"
-      .. "8365f8008d45f8508d45c45089d9e8926905ff8b45c43b0534eb4f020f84ae000000e8b003000050833d5c42"
+      .. "8365f8008d45f8508d45c45089d9e8b26705ff8b45c43b0534eb4f020f84ae000000e8b003000050833d5c42"
       .. "7d040074658b4dc88b49f48b45c425ff3f00003d8d0200000f838000000083bc81ac070000177676817dc0b9"
-      .. "0d660375395253e8c8f807ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc"
+      .. "0d660375395253e8e8f607ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc"
       .. "04750439c1770b83f807733a807a0e08733458b90c0000008b55c4e8ff020000694dc4b179379e334dd8334d"
       .. "ac69c92febd427c1e9186bc964c1e90839c10f82b7020000eb0658e9af020000837dd0017419694dd4b16756"
-      .. "16c1e9186bc964c1e9083b4d800f8390020000c745f80d0000006a028d45f85053e85ef307ff83c40c0fb6c0"
+      .. "16c1e9186bc964c1e9083b4d800f8390020000c745f80d0000006a028d45f85053e87ef107ff83c40c0fb6c0"
       .. "8945dc8b55b00fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d04c1e8100fb69164"
       .. "427d0439d0730289d00fb6916e427d0439d0760289d08945cc03459c3945dc0f87260200008b55b88b4dc88b"
       .. "49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85"
@@ -380,15 +497,15 @@ local ROUTINE = { 0x3e8, "53575589e581ec900000008b45008945c88b58d88b480481f9580d
       .. "84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c"
       .. "388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf0064"
       .. "0000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000"
-      .. "e8500000008b45dce85dc2fdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089"
-      .. "ec5d5f5b588b4d245650e95f4995ff89ec5d5f5b83c404e9bab0e8fef7e139fa7303f7f7c383c8ffc30145fc"
+      .. "e8500000008b45dce87dc0fdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089"
+      .. "ec5d5f5b588b4d245650e97f4795ff89ec5d5f5b83c404e9daaee8fef7e139fa7303f7f7c383c8ffc30145fc"
       .. "7304834dfcffc30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908"
       .. "030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978"
-      .. "093902740883c210ebf48b142483c4048b0d60427d0449781239048d68447d0475f40fb68108447d04eb1f0f"
+      .. "093902740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0f"
       .. "b64a0e83f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
-local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8d64a170190909090" }
+local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8b64c170190909090" }
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {

@@ -1109,11 +1109,11 @@ def main(exe):
         t, lines = install(text, 'values, ' + CEILING_LABEL if case % 2 else 'values')
         assert (t.has_ceiling, t.sell, t.has_persona, t.scouting) == (bool(case % 2), bool(case % 3), True, scouting == 'true')
         assert (t.persona_range, t.winter, t.squad) == (20 * int(float(spread) + 0.5), int(winter), int(squad))
-        assert len(t.genes) == 12 and len(t.hand) == 73 and t.genes[0] == mc.NEUTRAL
+        assert len(t.genes) == 12 and len(t.hand) == 180 and t.genes[0] == mc.NEUTRAL
         assert all(record[mc.GENE_NAMES.index('knows')] == 255 for record in t.genes) == (scouting == 'false')
         assert h.choose_cases(500, t)[0] > 0
-    # 1 to 15 personas with any numbers, lists of 1 to 8 names for the ten groups, 0 to 96 named clubs
-    for count, clubs in ((15, 96), (1, 0), (7, 1), (15, 40)):
+    # 1 to 15 personas with any numbers, lists of 1 to 8 names for the ten groups, 0 to 192 named clubs
+    for count, clubs in ((15, 192), (1, 0), (7, 1), (15, 40)):
         kinds = some_archetypes(count)
         groups = '{\n%s\n}' % '\n'.join('    { %s },' % ', '.join(
             '"P%d"' % random.randint(1, count) for _ in range(random.choice([1, 8, random.randint(1, 8)]))) for _ in range(10))
@@ -1132,7 +1132,7 @@ def main(exe):
         assert h.choose_cases(700, t)[0] > 0
     t, lines = install(source, everything)
     assert [l for l in lines if l.startswith('club personas')] == [
-        'club personas: 11 personas, 73 clubs named, the others by their place in the club ranking; each number up to 20 '
+        'club personas: 11 personas, 180 clubs named, the others by their place in the club ranking; each number up to 20 '
         'percent lower or higher from club to club']
     assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 11
     assert 'selling side: a player whose club does not let him go takes no place on a buyer\'s list' in lines
@@ -1203,7 +1203,7 @@ def main(exe):
           'four alone, and all four at their limits; MLTransfers.lua with the personas alone, with the selling '
           'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH and '
           'SQUAD_NEED at their limits; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
-          'of 1 to 8 names, 0, 1, 40 (each id twice) and 96 named clubs: 500 to 700 sets of lists each' % (
+          'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each' % (
               len(alone), ', '.join(gaps)))
 
     # 4. cases in which nothing may be written
@@ -1389,9 +1389,9 @@ def main(exe):
                '    { %s },' % ', '.join(['"Mid-table"'] * (9 if i == 2 else 2)) for i in range(10)))),
            ('PERSONA_GROUPS: entry 10 is not a list of 1 to 8 names', setting(source, 'PERSONA_GROUPS', '{\n%s\n}' % '\n'.join(
                '    { %s },' % ', '.join(['"Mid-table"'] * (0 if i == 9 else 2)) for i in range(10)))),
-           ('CLUBS is not a list of at most 96 clubs', setting(source, 'CLUBS', '{\n%s\n}' % '\n'.join(
-               '    { %d, "Crisis" },' % i for i in range(97)))),
-           ('CLUBS is not a list of at most 96 clubs', setting(source, 'CLUBS', 'true')),
+           ('CLUBS is not a list of at most 192 clubs', setting(source, 'CLUBS', '{\n%s\n}' % '\n'.join(
+               '    { %d, "Crisis" },' % i for i in range(193)))),
+           ('CLUBS is not a list of at most 192 clubs', setting(source, 'CLUBS', 'true')),
            ('CLUBS: entry 2 names a persona', source.replace('{ 0x001b4036, "Galactico" }', '{ 0x001b4036, "Galactic" }')),
            ('CLUBS: entry 1 does not start with a club id', source.replace('{ 0x001c804a, "State-backed" }', '{ "x", "State-backed" }')),
            ('CLUBS: entry 3 does not start with a club id', source.replace('{ 0x001b002b, "Old-money" }', '{ 0.5, "Old-money" }')))

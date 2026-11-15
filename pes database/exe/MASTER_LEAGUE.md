@@ -1328,7 +1328,7 @@ The reading of 9.5 and 9.6 gives two causes; neither is the price ceiling:
   the three may go, nobody is signed for the slot.
 
 Version 2 of `MLTransfers.lua` works at the same place as 9.10 (`0x0365fb0d`) with a
-longer routine (1,345 bytes at `0x047d45e8`, tables from `0x047d4200`, in the unused
+longer routine (1,345 bytes at `0x047d47c8`, tables from `0x047d4200`, in the unused
 rest of the page of section `.data1`). Before the ceiling it
 
 1. asks the question above, and the pool's count of more than 23, before the player is
