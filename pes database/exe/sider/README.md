@@ -9,6 +9,8 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas and scouting. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Has run in the emulator only |
+| `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
+| `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
 | `money_cave.py` | what the two modules write (13 small routines, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
@@ -74,6 +76,88 @@ What else the same `sider.log` shows:
   `memory.search_process`, which this Sider does not have) and `GrowthBridge.lua` (asks
   for events this Sider does not know: `key_down`, `overlay_on`, `set_teams`,
   `gamepad_input`).
+
+## `MLYear.lua`, version 1: a new career starts in 2026/27
+
+Emulator only: it has not run in the game yet.
+
+### What it changes
+
+This exe starts every new career on 1 July 2024. The year is a constant in the game's
+set-up of a new career, at eight places (`../MASTER_LEAGUE.md`, section 2.5): the year of
+the first day, the first day itself for both kinds of season, and the start and end of
+every player's contract. The module writes `START_YEAR` into the eight, in the running
+game only. With `START_YEAR = 2026`:
+
+- a new Master League starts on **1 July 2026**, season 2026/27;
+- every contract starts on 1 July 2026 and ends on 31 August of 2026 plus the years the
+  game gives the player (it was 2024 plus the years);
+- Become a Legend and League mode start in 2026 as well: they use the same set-up.
+
+**It needs a new career.** The year and all dates of a career are in its save, so the
+career of the saves in `../ML saves` stays in 2024, with or without the module.
+
+### What it does not change
+
+- **The players.** An age is a number in the player's record, there is no year of birth.
+  The players are as old as the edit file says, in 2024 and in 2026.
+- **The calendar.** The year plan is made of fixed days of fixed months, and the date of
+  a day comes from a table of months without a leap day. Whether the game shows a
+  weekday anywhere was not looked for.
+- **The places where the exe still says 2016.** The game as it came here was moved to
+  2024 at the same eight places only. Some thirty other places in fifteen functions
+  still hold 2016 or 2017:
+  questions "is this the year 2016" (taken to be the exceptions of the first season),
+  a date taken to be the end of the loans the set-up makes (2017), a date in 72 records
+  of the mode data.
+  The module leaves all of them alone, so a career that starts in 2026 behaves like one
+  that starts in 2024. The list is in section 2.5.
+- One thing does move: a part of the staff report runs in July only when the year minus
+  2017 is a multiple of four (2017, 2021, 2025, 2029). From 2024 that is the second
+  summer, from 2026 the fourth. What the part does is not read.
+
+### Install
+
+1. Copy `MLYear.lua` into the `modules` folder next to `sider.exe`.
+2. Add one line to `sider.ini`, above or below the other `lua.module` lines:
+   ```
+   lua.module = "MLYear.lua"
+   ```
+3. Start the game and look at `sider.log`:
+   ```
+   MLYear 1: the year in which a new career starts, from the setting in MLYear.lua
+   check: year of the first day               at 035f44b4  as expected
+   ... (eight check lines)
+   RESULT: installed. A new career starts in 2026 (season 2026/27). A saved career keeps its year.
+   ```
+4. Start a **new** Master League. The first day must read 1 July 2026, and a player's
+   contract must end in 2027 or later.
+
+`RESULT: nothing written. ...` with a `DIFFERENT` line: the game does not hold the
+expected code at that place; send the log. To undo, remove the line from `sider.ini`: the
+next new career starts in 2024 again. A career started in 2026 stays in 2026.
+
+For another year change `START_YEAR` at the top of the file (2000 to 2100).
+
+### What the test shows
+
+`python3 test_year.py <PES2017.exe>` (one second):
+
+```
+ok 1: with START_YEAR 2026, 2016, 2031 and 2100 the module writes the eight places and nothing else; only the bytes of the year differ
+ok 2: the game's own code then gives that year: the year of the first day, the stored first day of both season kinds, the date of a day number, and the start and end of a contract (32 contract runs a year; without the module the same code gives 2024)
+ok 3: seven faulty settings are refused before anything is read; with START_YEAR = 2024 nothing is written
+ok 4: with one byte of a place changed (63 cases, a game that starts in 2026 already among them) nothing is written and the place is named; a write that does not go in is reported
+ok 5: with MLMoney.lua and MLTransfers.lua in the same game, above or below them, all three are installed and the year is 2026
+```
+
+Sixteen faults were planted in the module one at a time (a wrong address, a wrong year
+at one place, the bytes of the year in the wrong order, a check taken out, and so on);
+the test failed on each of the sixteen.
+
+Not shown: the set-up of a career as a whole was not run, only its eight instructions,
+so a ninth place that takes the year in another way would not be seen. The search for
+2024 and 2025 in the code found no other. Nothing ran in the game.
 
 ## `MLTransfers.lua`, version 2: the selling side, club personas, scouting, rivals
 

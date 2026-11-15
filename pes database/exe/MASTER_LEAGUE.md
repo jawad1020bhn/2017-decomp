@@ -92,12 +92,12 @@ negotiations, scouts and club accounts, and kind 13 reads one player id at
 | `0x6f154c` | 9,000 × `0x24c` | match records (every fixture of the season) |
 | `0xbfd52c` | 365 × `0x214` | **calendar**: one record per day of the year (section 4) |
 | `0xc2cbb0` | u16 | today, as day number of the year, 0 to 364 |
-| `0xc2cbb2` | u16 | the year |
+| `0xc2cbb2` | u16 | the year (the first one comes from the set-up, section 2.5) |
 | `0xcc84cc` | | club ranking: rows of `0x10` bytes, count at `+0x28a0`; `fcn_03138333(club)` returns the number stored for the club (taken to be its place) |
 | `0xccb80c` | 851 × `0x118` | squad plan of each club (section 9); count at `0xd06434` |
 | `0xd06438` | 70 × `0x1dc` | **deal records** of the user's club (section 7) |
 | `0xd0f154` | 3 × `0x1e4` | three search slots with 16 results each; taken to be the scouts (section 8) |
-| `0xdcb68c` | date | a stored date compared with today in many steps (meaning ?) |
+| `0xdcb68c` | date | the first day of the career, written by the set-up (section 2.5); compared with today in many steps (what for ?) |
 | `0xddce6d` | byte | when set, most Master League steps of the day are skipped (meaning ?) |
 | `0xddcf02` | u16 | **seed of the mode's random numbers** |
 | `0xddcf04` | u32 | when not 0, the transfer and report steps are skipped (meaning ?) |
@@ -163,6 +163,60 @@ numbers. (Read; whether the seed is saved with the career is not checked.)
 
 The 141 callers are a map of where chance enters the mode; the large ones are listed
 in appendix A.
+
+### 2.5 The year of a new career
+
+The set-up of a new career (`career_setup`, `fcn_035f445b`; the same function for League
+mode, Master League and Become a Legend, mode kinds 11, 12, 13) writes the year as a
+constant, and the function it calls for the contracts (`career_contracts`,
+`fcn_036651d4`) does the same. In this exe the constant is **2024**. Eight
+instructions hold it:
+
+| address | instruction | what |
+|---|---|---|
+| `0x035f44b4` | `mov eax, 2024`, then stored as the year at `+0xc2cbb2` | year of the first day |
+| `0x035f452e` | `mov [mode + 0xdcb68c], 1 January 2024` | first day, season from January |
+| `0x035f458f` | `mov [mode + 0xdcb68c], 1 July 2024` | first day, season from July |
+| `0x036653b3` | `lea ecx, [ebx + 2024]`, then 31 August of it | contract end, season from July (`ebx` = years) |
+| `0x036653bf` | `mov [player + 0xd8], 1 July 2024` | contract start, season from July |
+| `0x036653f2` | `lea ecx, [ebx + 2025]`, then 31 January of it | contract end, season from January |
+| `0x036653fa` | `lea ecx, [ebx + 2024]` | the same, when the flag at `[ebp-0xa4c]` is set |
+| `0x0366540c` | `mov [player + 0xd8], 1 January 2024` | contract start, season from January |
+
+`sider/MLYear.lua` writes another year into these eight (`sider/test_year.py` runs the
+eight instructions after the change). The eight were found by a search of the whole code
+for the number 2024 and 2025 as a value or as the year of a date; every other hit is an
+offset into a record or a jump distance.
+
+The exe still holds **2016** (and 2017) at other places, so 2024 is taken to be a change
+made to the exe before it came here, and these were left out of it. `MLYear.lua` leaves
+them as they are too, so a career behaves as it does now, in another year:
+
+- `0x036655f1`, `0x03665616`: the date 1 January or 1 August 2016, given to
+  `fcn_0388b857`, which writes a date at player `+0xdc`: 1 July or 1 January of the
+  year after, so 2017. It is taken to be the end of a loan the set-up makes:
+  `fcn_036df464` looks for players with the loan mark (bit 28 of `+0xb8`) whose date is
+  today. Three more functions give the date to `fcn_03135cea`, taken to be the days
+  between two dates (`fcn_0389ec18`, `fcn_038a2b31`, `fcn_03649f1f`). What a date years
+  back does to them is not worked out.
+- `0x03665455`: contract end 31 August 2017 (31 January 2018) for the Become a Legend
+  player.
+- `0x03637c9c` (`fcn_03637bf2`, Master League, season from July): 1 July 2016 at `+0x18`
+  of the 72 records at `0xd62a90` (meaning ?). The two saves hold 32 and 31 dates in 2016.
+- `fcn_036cc580`: gives a date and 1 July 2016, then 1 January 2016, to `fcn_03121acc`
+  (not read).
+- "Is the year 2016?" in `fcn_035d8f79`, `fcn_0362579a`, `fcn_03629931`, `fcn_0363e8bb`,
+  `fcn_036696e1`, `fcn_036960cc`, `fcn_036d0c58`, `fcn_03862262`, `fcn_0386285a`,
+  `day_state` (`fcn_03877938`) and `fcn_038af05f`. Taken to be the exceptions of the
+  first season; they were not read one by one. In a career that starts in 2024 or later
+  none of them answers yes.
+- `fcn_03635675` (called by the staff report at day end): in July a part of it runs only
+  when the year minus 2017 is a multiple of four, so in 2017, 2021, 2025, 2029. What the
+  part does is not read. It is the only place found where the year counts in fours.
+
+What does not hang on the year: the age of a player is a 6-bit number in his record
+(section 6.5), there is no year of birth. The date of a day (`date_of_day`,
+`fcn_038ae3cc`) is the year and the month table; there is no leap day.
 
 ## 3 How a day is processed
 
