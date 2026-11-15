@@ -228,7 +228,8 @@ Four task classes (names from the exe's own type records) drive the career day:
 |---|---|---|
 | `process::CmnUpdateDayBegin` | `process::UpdateDayBeginThread` | `day_begin` `fcn_0360a350` (531 lines) |
 | `process::CmnUpdateDayEnd` | `process::UpdateDayEndThread` | `day_loop` `fcn_0360dbf0` → `day_end` `fcn_0360bf0c` (1,032 lines) |
-| `process::CmnUpdatePostMatch` | `process::UpdatePostMatchThread` | `fcn_03611162` → `fcn_03611277`, `fcn_036101d9` |
+| `process::CmnUpdatePreMatch` | | `fcn_03611910` → `fcn_03611277` (the matches of the day), then "skip" or "proceed" |
+| `process::CmnUpdatePostMatch` | `process::UpdatePostMatchThread` | `fcn_03611162` → `fcn_036101d9` |
 | `process::CmnUpdateSeasonEnd` | | `fcn_035feb08` (not read) |
 
 The day-end worker also advances the days on which the user has nothing to do:
@@ -243,8 +244,10 @@ while not day_loop_stop():        # fcn_0360b713: stops when day_state() == 2
 ```
 
 `day_state` (`fcn_03877938`, 525 lines, 17 callers) is asked by almost every step. The
-value 2 stops the loop, so it means "the user has to act today"; the other values are
-not worked out.
+value 2 stops the loop, so it means "the user has to act today"; 0 and 1 are in
+section 3.1. What makes a day a 2 is read in part only (a switch over 49 kinds of entry
+of the day; in Master League also the state of the 70 squad players and four kinds of
+news).
 
 Each step is an object that is created, run once and freed. The steps that run only in
 Master League (kind 12), in the order of the code:
@@ -292,6 +295,58 @@ Master League (kind 12), in the order of the code:
     its end the year plan is written again and `fcn_0387585e(1)` is called).
 
 Appendix A lists every step with its size, the events it asks for and what it uses.
+
+### 3.1 The two switches: "keep advancing" and "Skip Match"
+
+Level: **read**. Nothing of this was seen in the game. `sider/MLSimToDate.lua` is built on it.
+
+**The day end moves more than one day.** `day_end` asks `fcn_03879434` how many days to
+go on: it walks the coming days and stops at the first whose `day_state` is not 0. So
+0 = "nothing on this day" (the day is jumped over), 1 = "something to work off, no stop",
+2 = "the user has to act". Then it sets the date (day number at `+0xc2cbb0`, 0 = 1 January;
+the year at `+0xc2cbb2` goes up after day 364), and `fcn_038d5920` writes the user's match
+of the new day into the match object (`[0x026503e0] + 0x34`, then `+0x537b8`: match id,
+`0xffff` = none; competition at `+2`).
+
+**The byte at mode data `+0xdcb6a0`: keep advancing.** Set to 1 in the main menu of
+Master League (`fcn_031a502c`) and of Become a Legend (`fcn_03137118`) for menu item
+`0xd`, which neither menu builder creates: the game's own way in is not there. 28
+functions read it. While it is set:
+
+- `day_loop_stop` (`fcn_0360b713`) answers with `fcn_0387a831` instead of `day_state`;
+- `day_end` calls `fcn_0387a831` itself at its end, so the byte is normally 0 again
+  before `day_loop_stop` asks, and that day goes the normal way;
+- `fcn_0387a831` clears the byte and answers 1: on a day without a match of the user
+  (or one of competition `0x38`) if event 23, 6, 3, 5 or 8 is on the day (last day of the
+  season, a transfer window opens or closes); on a match day for certain kinds of
+  competition (`fcn_0345e2ea` gives 0, 6, `0x1d`, `0x22`, `0x35`; a list at `0x0216adf8`
+  and ids 7 and 14), for one of the three rival clubs (`fcn_03857dfb`), in some
+  competitions if the user's team strength is not more than 5 above the opponent's
+  (`fcn_03865b0a`), and by a table of club pairs (`fcn_0381e9c2`). Taken to be "an
+  important match"; not worked out further;
+- the pre-match step (`fcn_03611910`) and `CmnMatchInit` (`fcn_035fe39e`) answer "skip",
+  the day-begin task opens a loading screen (`fcn_033f027e`) and about 19 report checks
+  leave out their screen.
+
+**The byte at `+0xdcb61c`: Skip Match.** `CmnUpdateSkipMatch` (`fcn_035fe56d`) sets it
+to 1; the step before the main menu (`fcn_03612ef7`) clears it when it answers
+"mainmenu" (it answers "userskip", the next day without the menu, when `day_state` is
+not 2). `fcn_03611277` first calls `fcn_03708fd5`, which simulates every match of the
+day that is not played, **except a match of the user while this byte is 0**. A match
+goes through `fcn_03708de9`, or through `fcn_037064f5` when `fcn_0385cd11` says that a
+side cannot field seven players. So the first switch alone would pass a match of the
+user unplayed; with both set the match goes the Skip Match way. Nine functions read the
+byte and all but one only ask whether it is 0 (`fcn_03623a38` asks for 1, and only while
+the first switch is off).
+
+A day of the task chain and a day inside the loop of the day-end worker call the same
+four functions in the same order: `day_begin`, `fcn_03611277`, `fcn_036101d9`, `day_end`.
+The tasks add screens and, after a played match, `fcn_0360fcbc` (two bytes at
+`+0xe4c1da`).
+
+`after_matches_2` (`fcn_036101d9`) leaves out the bookkeeping of a played match when
+either switch is set and, in Master League with a match of the user, raises event `0x10`
+(Skip Match set), `0xf` and `0xe` (`fcn_038551f2`).
 
 ## 4 The year plan (calendar)
 

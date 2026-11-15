@@ -11,6 +11,8 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); version 3 has run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
+| `MLSimToDate.lua` | **changes the game.** "Sim to Date": a Master League whose date is before the date set in the file runs on to that date when you advance, and your own matches on the way are simulated the Skip Match way. Off as it comes (`SIM_YEAR = 0`). Needs no other module. Has run in the emulator only, on a small part of the game's code |
+| `test_simdate.py <PES2017.exe>` | runs `MLSimToDate.lua` on the exe in the emulator, then the game's stop test and day loop with the module's routine in, on made-up calendars (needs `pip install lupa unicorn keystone-engine capstone`) |
 | `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 6: smooth Davidson win/draw/loss probabilities with home advantage, realistic Poisson-derived scorelines, Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, realistic exponential-weighted goal scorers & assists across all 10 outfielders, strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
 | `sim_cave.py` | the tables and 15 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f85`, 1,334 B; `0x047d3fd8..0x047d3fff`, 40 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d55f0`, 1,457 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
@@ -162,6 +164,128 @@ the test failed on each of the sixteen.
 Not shown: the set-up of a career as a whole was not run, only its eight instructions,
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
+
+## `MLSimToDate.lua`, version 1: "Sim to Date"
+
+**Emulator only, and less than usual: it has not run in the game, and what a day does in
+the game could not be run in the emulator either.** Try it on a copy of your save first
+(steps below).
+
+### What it does
+
+Set a date in the file. Load a Master League whose date is before it and press the normal
+"advance" once. The game goes on day after day up to the date. Your own matches on the
+way are simulated the way Skip Match simulates them (with `MLSimMatch.lua`'s results if
+that module is installed), without a stop at each match.
+
+- It ends on the **first day, on or after the date, on which the game stops by itself**
+  (a match day of yours, or news). The match of that day is not played: it is yours. For
+  "sim to a fixture", set the date of the fixture.
+- **A match of today is not skipped for you.** If you are on a match day when you start,
+  play or skip that match; the run starts after it.
+- `STOP_FOR_NEWS = true` (as it comes): on a day without a match of yours the run stops
+  where a normal "advance" stops (a transfer offer, an injury, a report). Press
+  "advance" again and it goes on. `false`: no stop; the game leaves out those screens
+  and nobody answers an offer.
+- `STOP_AT_BIG_MATCHES = false` (as it comes): every match is simulated. `true`: the
+  game's own test decides which matches are worth a stop (finals, the three rivals, a
+  strong opponent in some competitions; `../MASTER_LEAGUE.md`, section 3.1). That list
+  is not fully read and may stop often.
+- Master League only. In every other mode the routine does nothing.
+- **The date stays in force for every Master League you load**, a new one too. Set
+  `SIM_YEAR = 0` when you are done.
+- The date is read when the game starts. For another date: change the file, start the
+  game again. (This Sider gives a module no key event; a way to set the date while the
+  game runs is the next step, once this one is seen to work.)
+- The game's year has no 29 February; the module refuses that date.
+
+### How
+
+The game has two switches of its own (`../MASTER_LEAGUE.md`, section 3.1): "keep
+advancing" (`+0xdcb6a0`), which no menu of this game sets, and "this match is skipped"
+(`+0xdcb61c`), which Skip Match sets. The module changes one call in the game's test
+"does the calendar stop today?" (`0x0360b786` in `fcn_0360b713`) into a call of a
+routine of 140 bytes at `0x047d6f60` (the end of the `.link` page). The routine:
+
+- not Master League, or the date is reached: it does what the replaced call did. If it
+  had set the switches itself, it clears them first;
+- before the date: sets both switches. On a day with a match of yours it answers "go
+  on" (or asks the game's own test, with `STOP_AT_BIG_MATCHES`). On a day without one
+  it stops if the game would and `STOP_FOR_NEWS` is set; else it asks the game's own
+  test, which ends the run for one day when a transfer window opens or closes and on
+  the last day of the season, and that day is worked off the normal way.
+
+It writes 2 into the Skip Match switch where the game writes 1, to know its own setting
+from yours. The game's code only asks whether the byte is 0 (one place asks for 1, and
+only while the other switch is off).
+
+### Try it (copy the save first)
+
+1. Copy your Master League save (`ML00000013` or the like) to another folder.
+2. Copy `MLSimToDate.lua` into the `modules` folder next to `sider.exe`, set a date two
+   or three weeks after the date of your career (`SIM_YEAR`, `SIM_MONTH`, `SIM_DAY`), and
+   add one line to `sider.ini`:
+   ```
+   lua.module = "MLSimToDate.lua"
+   ```
+3. Start the game and look at `sider.log`:
+   ```
+   MLSimToDate 1: simulate a Master League to the date set in MLSimToDate.lua
+   check: end of the stop test         at 0360b786  as expected
+   ... (five check lines and "free memory ... empty")
+   RESULT: installed. A Master League before 20.8.2024 runs on to that date when you advance; your matches on the way are simulated. It stops for news.
+   ```
+4. Load the career and advance. What to look at, and to tell me:
+   - does it pass your matches without the match menu, and stop on or after the date?
+   - the fixture list: do the passed matches have results, and is the league table right?
+   - the squad: fatigue, injuries, bookings as after a Skip Match?
+   - does the screen look stuck while it runs, and for how long?
+   - any crash or a menu that does not answer.
+5. Set `SIM_YEAR = 0` (or remove the line from `sider.ini`) when done.
+
+`RESULT: nothing written. ...` with a `DIFFERENT` or `NOT EMPTY` line: the game does not
+hold what the module expects; send the log.
+
+### What the test shows
+
+`python3 test_simdate.py <PES2017.exe>` (15 seconds):
+
+```
+ok 1: as it comes the module is off and touches nothing; with a date (20 settings) it writes the routine and one call, nothing else, and the routine is the source in this file
+ok 2: for each of the 365 days the game's own date code and the module agree on the day number
+ok 3: the game's stop test with the routine in: before the date it switches both on and goes on over a match, stops for news if asked to, lets the game's own test end the run (a transfer window opening, run for real); on the date both go off; other modes are as without the module
+ok 4: the game's day loop on 6 made-up calendars, 288 runs: every match of the user before the date is simulated (12562 in all) and none is passed unplayed, the stops before the date are the ones asked for, it arrives on the first day on or after the date on which the game stops, that day's match is left to the user, both switches are off at every main menu and after the date; without the module, in another mode or with a past date the loop stops at every match
+ok 5: 23 faulty settings (29 February among them) are refused before anything is read; with one byte of a checked place or of the free memory changed (208 cases) nothing is written and the place is named; if the routine does not go in the call is not changed; a second install is refused
+ok 6: with MLMoney.lua, MLTransfers.lua, MLYear.lua and MLSimMatch.lua in the same game, above, below or between them, all five are installed and the routine works
+```
+
+Faults were planted one at a time and the test run on each. 22 in the module (a wrong
+address, a wrong month table, the date off by one day, the two settings swapped, a check
+taken out, a changed byte of the routine, and so on): the test failed on all 22. Then 15
+in the logic of the routine, changed in the module and in the test's source together, so
+that comparing the two could not be what notices them (the date test turned, a switch not
+set or not cleared, the stop not lifted on a match day, the user's own Skip Match
+cleared, and so on): 14 failed at once; the fifteenth (the result of the replaced call
+lost) passed, two cases were added to part 3, and it fails now.
+
+### What is not shown
+
+- **The days themselves.** In the test the four steps of a day, the question "what is on
+  this day" and, on match days, the game's own stop test are small Python stand-ins
+  written from the reading of section 3.1. If that reading is wrong somewhere, the test
+  is wrong with it. Only the stop test, the loop around the days, the game's date code
+  and the game's own stop test on a day without a match ran as machine code.
+- **That a match passed this way is booked like a skipped match.** By the code it should
+  be: with Skip Match a day runs `day_begin`, `fcn_03611277` (which simulates the match),
+  `fcn_036101d9`, `day_end`, each from a task of its own; the day loop calls the same
+  four in the same order. What the tasks add around them is screens, and two bytes from a
+  played match (`fcn_0360fcbc`). But none of the four ran in the test, so look in the
+  game: results, table, fatigue, injuries, bookings, match income.
+- **A season end, a transfer window, a draw day passed in a run.** The game's own test
+  ends the run for the day at the windows and on the last day of the season; what the
+  game then shows was not seen.
+- With `STOP_FOR_NEWS = false`: what happens to an offer nobody answers.
+- Sider, Windows, the running game.
 
 ## `MLTransfers.lua`, version 4: the selling side, club personas, scouting, rivals
 
@@ -1722,7 +1846,7 @@ Read from the DLL's code and strings, not run:
   `0x047d4f60`-`0x047d4f7f`, inside what `MLTransfers.lua` version 3 uses; the two could
   not be installed together, so it was moved to the end of the `.xcode` page (`0x047d3fd8`-`0x047d3fff`, 40 bytes for v6).
   `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
-  `MLSimMatch.lua` version 6's `eff_strength` + `player_eff_ovr` + `smart_subs` + ET + outcome (`0x047d5040`-`0x047d55f0`, 1,457 bytes) and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks. A module must
+  `MLSimMatch.lua` version 6's `eff_strength` + `player_eff_ovr` + `smart_subs` + ET + outcome (`0x047d5040`-`0x047d55f0`, 1,457 bytes) and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks; `MLSimToDate.lua` uses the last 160 bytes of the `.link` page (`0x047d6f60`-`0x047d6feb`, 140 bytes). A module must
   see zeros there before it writes.
 - A routine that is called from inside a game function can read the arguments of that
   function's caller through the saved `ebp`, if it first checks the return address.
