@@ -1,0 +1,14 @@
+byte	bit	instruction	with the bit flipped	sorted as
+633	7	mov eax, dword ptr [ebx + 0xb4]	or eax, dword ptr [ebx + 0xb4]	same in effect: eax holds the rating (under 256), which lands below the 12 bits of the popularity
+640	4	shl eax, 9	sal eax, 9	same in effect: another code for the same instruction
+640	5	shl eax, 9	rol eax, 9	same in effect: the bits that come round land below the 12 bits of the popularity
+641	5	shl eax, 9	shl eax, 0x29	same in effect: the processor uses the low five bits of the count, 9
+641	6	shl eax, 9	shl eax, 0x49	same in effect: the processor uses the low five bits of the count, 9
+641	7	shl eax, 9	shl eax, 0x89	same in effect: the processor uses the low five bits of the count, 9
+642	4	cmp eax, dword ptr [0x47d4fe4]	sub eax, dword ptr [0x47d4fe4]	same in effect: the same flags, eax is loaded anew before it is read
+989	0	cmp dword ptr [ebp - 0x30], 0	cmp byte ptr [ebp - 0x30], 0	same in effect: the number is 0, 1 or 2
+990	3	cmp dword ptr [ebp - 0x30], 0	xor dword ptr [ebp - 0x30], 0	same in effect: the number stays, the zero flag is the same
+990	4	cmp dword ptr [ebp - 0x30], 0	sub dword ptr [ebp - 0x30], 0	same in effect: the number stays, the flags are the same
+993	1	jne 0x47d4dbd	ja 0x47d4dbd	same in effect: against 0, above is not equal
+1005	4	cmp ecx, eax	sub ecx, eax	same in effect: the same flags, ecx is loaded anew or the routine ends
+1005	5	cmp ecx, eax	sbb ecx, eax	same in effect: no carry comes from the instruction before on either path

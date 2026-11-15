@@ -122,9 +122,11 @@ def settings(source):
             kinds.append((name, entries))
         groups = [re.findall(r'"([^"]+)"', group) for group in re.findall(r'\{([^{}]*)\}', text('PERSONA_GROUPS')[1:])]
         clubs = [(int(c, 0), name) for c, name in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *"([^"]+)" *\}', text('CLUBS'))]
-        # a file of version 2 has none of the last three: the model then does what version 2 did
+        # a file of version 2 has none of these, one of version 3 not the last two: the model then
+        # does what that version did
         newer = {key: read(name) for key, name, read in (('keep', 'KEEP_BEST', numbers), ('known', 'KNOWN_FROM', number),
-                                                         ('shift', 'AGE_SHIFT', number))
+                                                         ('shift', 'AGE_SHIFT', number), ('fame', 'KNOWN_FAME', number),
+                                                         ('strict_free', 'STRICT_FREE', number))
                  if re.search(r'^local %s = ' % name, source, re.M)}
         return dict(archetypes=kinds, groups=groups, clubs=clubs, spread=number('PERSONA_SPREAD'),
                     strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'), **newer)
@@ -171,9 +173,13 @@ def some_archetypes(count):
 def ages_alone(shift):
     """Settings with which a club refuses a player for his age and little else: five personas
     that know, want and can pay everybody and always buy, with narrow and wide age ranges.
-    A wrong age shift shows in every such case. -> [(name of the setting, new text)]"""
+    A wrong age shift shows in nearly every such case. `strict` is 95 and STRICT_FREE 79: a
+    player without a contract is then refused up to the draw 75 (75 x 100 < 95 x 79 = 7505),
+    and a routine that multiplies the draw by another number than 100 (101: 7575) decides
+    differently at 75 or at 76, the two draws choose_cases puts players on.
+    -> [(name of the setting, new text)]"""
     wide = dict(dict.fromkeys(mc.GENE_NAMES, 0), free=34, listed=33, clubs=33, winter=100, knows=100, wealth=250,
-                premium=250, panic=250, ambition=99, prestige=99, strict=100)
+                premium=250, panic=250, ambition=99, prestige=99, strict=95)
     ages = ((20, 24), (28, 34), (17, 36), (31, 31), (40, 63))
     kinds = [('A%d' % (i + 1), dict(wide, age=age, second=mc.CHANNELS[i % 3:] + mc.CHANNELS[:i % 3]))
              for i, age in enumerate(ages)]
@@ -181,7 +187,7 @@ def ages_alone(shift):
     return [('ARCHETYPES', archetypes_text([(name, dict(e, second=e['second'][:2])) for name, e in kinds])),
             ('PERSONA_GROUPS', groups), ('CLUBS', '{ }'), ('PERSONA_SPREAD', '0'), ('SCOUTING', 'false'),
             ('KEEP_BEST', '{ 0, 0, 0 }'), ('KNOWN_FROM', '0'), ('SQUAD_NEED', '0'), ('WINTER_MONTH', '0'),
-            ('AGE_SHIFT', str(shift))]
+            ('AGE_SHIFT', str(shift)), ('STRICT_FREE', '79')]
 
 
 def setting(source, name, new, part=None):
@@ -598,7 +604,9 @@ class Harness:
                 self.by_id.clear()
                 bands.clear()
                 # one player in four is put on a limit that chance alone meets too seldom: an id whose
-                # draw for the age or for scouting is the buyer's number (`strict`, `knows`) or one less; a
+                # draw for the age or for scouting is the buyer's number (`strict`, `knows`) or one less
+                # (for a player without a contract: the first draw at which STRICT_FREE lets him pass, or
+                # one less); a
                 # rating at the line of his club's first team (KEEP_BEST) with an id whose draw is at
                 # one end of what the club keeps there; an age at one end of the ages the buyer wants
                 # (AGE_SHIFT). Own dice: the other players are those of every run
@@ -623,22 +631,43 @@ class Harness:
                     o, age, position, ident = self.some_player()
                     ident = (ident[0] & 0xffff0000 | keys[k], ident[1])
                     x = random.randint(0, 4095)
+                    # KNOWN_FAME: of eight players two get the popularity at which a player is known to
+                    # all or one less, three a lower one (chance alone gives few of those: the game's
+                    # numbers end near 1,100, the field at 4,095). Half of those at the number itself
+                    # are known for the name alone and have nothing else in that dword (on_fame): a
+                    # routine that asks "above" for "at or above" refuses only them
+                    on_fame = False
+                    if t is not None and t.transfers and 0 < t.known_fame < mc.MAX_KNOWN_FAME:
+                        roll = self.dice.randint(0, 7)
+                        x = (t.known_fame - roll if roll < 2 else self.dice.randint(0, t.known_fame - 1) if roll < 5 else x)
+                        on_fame = roll == 0 and self.dice.randint(0, 1) == 0
                     self.player(rec, o, age, x, position, ident)
                     # status 0, 1 or 2 (with or without a contract); one in four is listed by his club
                     # (mark 29, 30 or both); one in eight is already in a deal and one in eight on
                     # loan: the game's own tests refuse those
                     deal, loan = random.randint(0, 7) == 0, random.randint(0, 7) == 0
                     status, mark = random.choice([0, 0, 0, 1, 2] * 3 + [3, 5, 6, 9, 10, 15]), random.choice([0, 0, 0, 0, 0, 0, 1, 2, 3])
+                    if on_fame:                                  # a contract, no deal, not listed
+                        status, deal, mark = 0, False, 0
                     g.write(rec + 0xb4, struct.pack('<II', x << 11 | status | deal << 4 | random.getrandbits(9) << 23,
                                                     loan << 28 | mark << 29 | random.getrandbits(28)))
                     his = random.choice(sellers * 3 + [mc.NO_CLUB])
+                    if on_fame:                                  # and no club that could refuse to sell him
+                        his = mc.NO_CLUB
                     g.write(rec + 0xa8, struct.pack('<I', his))
-                    if limits and self.dice.randint(0, 3) == 0:
+                    if limits and (on_fame or self.dice.randint(0, 3) == 0):
                         factor, limit = self.dice.choice(limits)
+                        free_age = factor == mc.HASH_AGE and status in (1, 2)
+                        if free_age:
+                            limit = -(-limit * t.strict_free // 100)
                         limit -= self.dice.randint(0, 1)                 # the last draw on one side, the first on the other
                         other = mc.club_key(club)
                         edge = mine[self.dice.choice([mc.AGE_FROM, mc.AGE_TO])] + mc.age_shift(t, club) + self.dice.randint(-1, 1)
-                        if self.dice.randint(0, 2) == 0 and 0 <= edge <= 63:
+                        if on_fame:                              # the first scouting draw the club does not know
+                            factor, limit = limits[1]
+                        elif free_age:                           # always the draw: few players are of this kind
+                            pass
+                        elif self.dice.randint(0, 2) == 0 and 0 <= edge <= 63:
                             age, limit = edge, None              # with the id he has
                             word = struct.unpack('<I', g.read(rec + 0x1c, 4))[0]
                             g.write(rec + 0x1c, struct.pack('<I', word & ~(0x3f << 7) | age << 7))
@@ -1176,21 +1205,25 @@ def main(exe):
     assert mc.accepts(t, 0, cheap, dict(id=5, level=0, points=0, count=99)) and not mc.accepts(
         t, 0, dear, dict(id=5, level=0, points=0, count=99))
     # the other parts of MLTransfers.lua, alone and together, with their numbers at the limits
-    # (KEEP_BEST, KNOWN_FROM, AGE_SHIFT: as in the file, at their highest, off, and two more)
-    for case, (spread, strength, winter, squad, scouting, keep, known, shift) in enumerate((
-            ('0', '{ 0.0533, 9.45 }', '0', '0', 'true', (4, 12, 2), 80, 2),
-            ('50', '{ 0.5, 99 }', '12', '32', 'false', (99, 100, 99), 0, 5),
-            ('20', '{ 0, 0 }', '1', '23', 'true', (0, 0, 0), 100, 0),
-            ('33.4', '{ 0.02, 40 }', '9', '25', 'true', (10, 3, 0), 70, 1),
-            ('20', '{ 0.0533, 9.45 }', '9', '23', 'false', (0, 100, 99), 55, 5),
-            ('20', '{ 0.0533, 9.45 }', '9', '23', 'true', (6, 20, 5), 75, 3))):
+    # (KEEP_BEST, KNOWN_FROM, AGE_SHIFT, KNOWN_FAME, STRICT_FREE: as in the file, at their lowest,
+    # off (version 3 for the last two), and three more)
+    for case, (spread, strength, winter, squad, scouting, keep, known, shift, fame, strict_free) in enumerate((
+            ('0', '{ 0.0533, 9.45 }', '0', '0', 'true', (4, 12, 2), 80, 2, 700, 50),
+            ('50', '{ 0.5, 99 }', '12', '32', 'false', (99, 100, 99), 0, 5, 0, 0),
+            ('20', '{ 0, 0 }', '1', '23', 'true', (0, 0, 0), 100, 0, 4096, 100),
+            ('33.4', '{ 0.02, 40 }', '9', '25', 'true', (10, 3, 0), 70, 1, 300, 25),
+            ('20', '{ 0.0533, 9.45 }', '9', '23', 'false', (0, 100, 99), 55, 5, 4095, 99),
+            ('20', '{ 0.0533, 9.45 }', '9', '23', 'true', (6, 20, 5), 75, 3, 1000, 75))):
         text = only(PERSONA=None, **dict(([('CEILING', None)] if case % 2 else []) + ([('SELL_SIDE', None)] if case % 3 else [])
                                          + ([] if case % 2 else [('RIVALS', None)])))
         for name, new in (('PERSONA_SPREAD', spread), ('STRENGTH', strength), ('WINTER_MONTH', winter), ('SQUAD_NEED', squad),
                           ('SCOUTING', scouting), ('KEEP_BEST', '{ %d, %d, %d }' % keep), ('KNOWN_FROM', str(known)),
-                          ('AGE_SHIFT', str(shift))):
+                          ('AGE_SHIFT', str(shift)), ('KNOWN_FAME', str(fame)), ('STRICT_FREE', str(strict_free))):
             text = setting(text, name, new)
         t, lines = install(text, 'values, ' + CEILING_LABEL if case % 2 else 'values')
+        assert (t.known_fame, t.strict_free) == (fame, strict_free)
+        assert ('  players of a popularity of %d or more are known to every club; for a player without a contract '
+                '%d percent of `strict` count' % (fame, strict_free)) in lines
         assert (t.has_ceiling, t.sell, t.has_persona, t.scouting) == (bool(case % 2), bool(case % 3), True, scouting == 'true')
         assert len(t.rivals) == (0 if case % 2 else 61)
         assert (t.persona_range, t.winter, t.squad) == (20 * int(float(spread) + 0.5), int(winter), int(squad))
@@ -1244,7 +1277,9 @@ def main(exe):
                           ('KEEP_BEST', '{ %d, %d, %d }' % (random.randint(0, 20), random.choice([0, 100, random.randint(1, 30)]),
                                                             random.choice([0, 99, random.randint(0, 10)]))),
                           ('KNOWN_FROM', str(random.choice([0, 100, random.randint(40, 99)]))),
-                          ('AGE_SHIFT', str(random.randint(0, 5)))):
+                          ('AGE_SHIFT', str(random.randint(0, 5))),
+                          ('KNOWN_FAME', str(random.choice([4096, random.randint(1, 4095), random.randint(200, 1100)]))),
+                          ('STRICT_FREE', str(random.choice([0, 100, random.randint(1, 99)])))):
             text = setting(text, name, new)
         t, lines = install(text, everything)
         assert (len(t.genes), len(t.hand)) == (count + 1, clubs)
@@ -1259,6 +1294,7 @@ def main(exe):
     assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 13
     assert not any('name a club that a later entry names again' in l for l in lines)
     assert ((t.keep_from, t.keep_step, t.keep_bigger), t.known, t.age_shift) == ((4, 12, 2), 80, 2)
+    assert (t.known_fame, t.strict_free) == (700, 50)
     twice = settings(source).hand[7][0]
     _, lines = install(source.replace('local CLUBS = {', 'local CLUBS = {\n    { 0x%08x, "Crisis" },' % twice), everything)
     assert ('  note: 1 entries of CLUBS name a club that a later entry names again; the last entry of a club counts') in lines
@@ -1333,7 +1369,7 @@ def main(exe):
           'four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs '
           'among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling '
           'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, '
-          'SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
+          'SQUAD_NEED, KEEP_BEST, KNOWN_FROM, AGE_SHIFT, KNOWN_FAME and STRICT_FREE at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
           'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each' % (
               len(alone), ', '.join(gaps)))
 
@@ -1499,6 +1535,10 @@ def main(exe):
            ('KNOWN_FROM is not a number from 0 to 100', setting(source, 'KNOWN_FROM', '101')),
            ('KNOWN_FROM is not a number from 0 to 100', setting(source, 'KNOWN_FROM', 'true')),
            ('AGE_SHIFT is not a number from 0 to 5', setting(source, 'AGE_SHIFT', '6')),
+           ('KNOWN_FAME is not a number from 0 to 4096', setting(source, 'KNOWN_FAME', '4097')),
+           ('KNOWN_FAME is not a number from 0 to 4096', setting(source, 'KNOWN_FAME', '-1')),
+           ('STRICT_FREE is not a number from 0 to 100', setting(source, 'STRICT_FREE', '101')),
+           ('STRICT_FREE is not a number from 0 to 100', setting(source, 'STRICT_FREE', 'false')),
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 12 }')),
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 100, 12, 2 }')),
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 101, 2 }')),
