@@ -1,0 +1,60 @@
+byte	bit	instruction	with the bit flipped	sorted as
+0	0	push ebx	push edx	same in effect
+1	1	push edi	push ebp	same in effect
+8	0	sub esp, 0x90	sub esp, 0x190	same in effect
+9	1	sub esp, 0x90	sub esp, 0x20090	not settled
+112	0	xor ecx, ecx	xor cl, cl	same in effect
+125	5	cmp edx, 1	sbb edx, 1	not settled
+183	7	and ecx, 0xffffff	and ecx, 0xff7fff	same in effect
+240	0	cmp dword ptr [ebp - 0x30], 0	cmp byte ptr [ebp - 0x30], 0	same in effect
+305	1	cmp dword ptr [ecx*8 + 0x47d47d0], edx	cmp edx, dword ptr [ecx*8 + 0x47d47d0]	same in effect
+341	5	jmp 0x47d4af5	jmp 0x47d4b15	same in effect
+378	2	and eax, 0x3fff	and eax, 0x3bff	not settled
+382	6	cmp eax, 0x28d	cmp eax, 0x2cd	not settled
+392	0	cmp dword ptr [ecx + eax*4 + 0x7ac], 0x17	cmp byte ptr [ecx + eax*4 + 0x7ac], 0x17	same in effect
+403	3	cmp dword ptr [ebp - 0x40], 0x3660db9	xor dword ptr [ebp - 0x40], 0x3660db9	not settled
+433	1	cmp dword ptr [ebp - 0x48], 0	cmp dword ptr [ebp - 0x48], 2	same in effect
+453	5	cmp ecx, eax	sbb ecx, eax	not settled
+503	7	shr ecx, 0x18	shr ecx, 0x98	same in effect
+508	4	shr ecx, 8	sar ecx, 8	same in effect
+509	5	shr ecx, 8	shr ecx, 0x28	same in effect
+520	0	pop eax	pop ecx	not settled
+541	5	shr ecx, 0x18	shr ecx, 0x38	same in effect
+548	4	cmp ecx, dword ptr [ebp - 0x80]	sub ecx, dword ptr [ebp - 0x80]	not settled
+576	0	add esp, 0xc	add ah, 0xc	not settled
+578	2	add esp, 0xc	add esp, 8	not settled
+592	0	cmp ecx, 9	cmp cl, 9	same in effect
+595	3	jbe 0x47d4c2a	jle 0x47d4c2a	same in effect
+620	4	shr eax, 0x10	sar eax, 0x10	not settled
+621	5	shr eax, 0x10	shr eax, 0x30	same in effect
+709	5	cmp dword ptr [ebp - 0x48], 0	sbb dword ptr [ebp - 0x48], 0	not settled
+713	1	jne 0x47d4d74	ja 0x47d4d74	same in effect
+721	1	cmp byte ptr [edx + 0x10], 0xff	cmp byte ptr [edx + 0x10], 0xff	same in effect
+760	0	add edx, dword ptr [ebp - 0x8c]	add dl, byte ptr [ebp - 0x8c]	same in effect
+795	3	movzx eax, byte ptr [edx + 0x10]	movsx eax, byte ptr [edx + 0x10]	same in effect
+811	3	cmp ecx, dword ptr [0x47d4254]	xor ecx, dword ptr [0x47d4254]	not settled
+951	7	shr edx, 0x18	shr edx, 0x98	same in effect
+956	4	shr ecx, 8	sar ecx, 8	same in effect
+957	5	shr ecx, 8	shr ecx, 0x28	same in effect
+960	0	add dword ptr [ebp - 0x24], ecx	add byte ptr [ebp - 0x24], cl	same in effect
+964	4	cmp dword ptr [ebp - 0x1c], 0	sub dword ptr [ebp - 0x1c], 0	same in effect
+1020	4	cmp eax, -1	cmp eax, -0x11	not settled
+1049	1	je 0x47d4e06	jbe 0x47d4e06	same in effect
+1135	7	and ecx, 0xfff	and ecx, 0x800fff	same in effect
+1136	0	and ecx, 0xfff	and ecx, 0x1000fff	same in effect
+1145	1	mov edi, 0x186a0	mov edi, 0x186a2	not settled
+1201	1	pop ebx	pop ecx	same in effect
+1216	0	pop edi	pop esi	not settled
+1217	1	pop ebx	pop ecx	same in effect
+1227	3	mul ecx	imul ecx	not settled
+1235	3	or eax, 0xffffffff	mov ecx, eax	overflow path
+1236	4	or eax, 0xffffffff	sbb eax, -1	overflow path
+1237	5	or eax, 0xffffffff	or eax, 0xffffffdf	overflow path
+1245	5	or dword ptr [ebp - 4], 0xffffffff	sub dword ptr [ebp - 4], -1	overflow path
+1246	6	or dword ptr [ebp - 4], 0xffffffff	or dword ptr [ebp - 0x44], 0xffffffff	overflow path
+1247	7	or dword ptr [ebp - 4], 0xffffffff	or dword ptr [ebp - 4], 0x7f	overflow path
+1248	0	ret	ret 0xb60f	overflow path
+1284	4	shr ecx, 8	sar ecx, 8	same in effect
+1285	5	shr ecx, 8	shr ecx, 0x28	same in effect
+1308	4	add edx, 0xcc84cc	adc edx, 0xcc84cc	not settled
+1342	6	mov edx, dword ptr [esp]	mov edx, dword ptr [esp]	same in effect

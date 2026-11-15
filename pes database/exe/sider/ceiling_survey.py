@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""What the price ceilings of MLMoney.lua mean for the squads of an edit file.
+"""What the price ceilings of MLTransfers.lua mean for the squads of an edit file.
 
     python3 ceiling_survey.py <PES2017.exe> <edit file> [ten ceilings, best clubs first, with commas]
 
 Needs no game. The values are those of money_cave.py with the settings of MLMoney.lua and
-SPREAD off. Two things are guessed, because the edit file does not hold them:
+SPREAD off, the ceilings those of MLTransfers.lua for a club without a persona (wealth,
+premium and panic 100, fame 0, no fog): the other steps of its version 2 are not counted.
+Two things are guessed, because the edit file does not hold them:
   - the club ranking of a career: the clubs are ranked here by the mean overall of their
     best eleven, and cut into the game's ten groups of places (money_cave.LEVEL_PLACES);
   - a player's popularity: 10 points per overall point above 50, plus the club part the
@@ -14,7 +16,7 @@ valuable player of the middle club, and for all club players inside the group's 
 range the share above the ceiling. Then for the top three rating points of the range,
 where a club looks first: the share above the ceiling (all of them passed over with
 CEILING_STRETCH = 0), the share a club of the group passes over on average with the
-settings of MLMoney.lua, in its usual search and when it is in need (players with a
+settings of MLTransfers.lua, in its usual search and when it is in need (players with a
 contract who are not listed), the share no club of the group reaches even in need, and
 the mean age of all and of those under the ceiling.
 """
@@ -58,7 +60,7 @@ def players(exe, edit):
 
 
 def main(exe, edit, ceilings=None):
-    t = test_money.settings(open(test_money.MODULE, encoding='utf-8').read())
+    t = test_money.settings(test_money.two_modules())
     t.spread_low, t.spread_range = 1000, 0
     if ceilings is None:
         ceilings = [c / 10000.0 if c != mc.NO_CEILING else float('inf') for c in reversed(t.ceiling)]

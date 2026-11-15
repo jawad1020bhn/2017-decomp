@@ -92,12 +92,12 @@ negotiations, scouts and club accounts, and kind 13 reads one player id at
 | `0x6f154c` | 9,000 × `0x24c` | match records (every fixture of the season) |
 | `0xbfd52c` | 365 × `0x214` | **calendar**: one record per day of the year (section 4) |
 | `0xc2cbb0` | u16 | today, as day number of the year, 0 to 364 |
-| `0xc2cbb2` | u16 | the year |
+| `0xc2cbb2` | u16 | the year (the first one comes from the set-up, section 2.5) |
 | `0xcc84cc` | | club ranking: rows of `0x10` bytes, count at `+0x28a0`; `fcn_03138333(club)` returns the number stored for the club (taken to be its place) |
 | `0xccb80c` | 851 × `0x118` | squad plan of each club (section 9); count at `0xd06434` |
 | `0xd06438` | 70 × `0x1dc` | **deal records** of the user's club (section 7) |
 | `0xd0f154` | 3 × `0x1e4` | three search slots with 16 results each; taken to be the scouts (section 8) |
-| `0xdcb68c` | date | a stored date compared with today in many steps (meaning ?) |
+| `0xdcb68c` | date | the first day of the career, written by the set-up (section 2.5); compared with today in many steps (what for ?) |
 | `0xddce6d` | byte | when set, most Master League steps of the day are skipped (meaning ?) |
 | `0xddcf02` | u16 | **seed of the mode's random numbers** |
 | `0xddcf04` | u32 | when not 0, the transfer and report steps are skipped (meaning ?) |
@@ -163,6 +163,60 @@ numbers. (Read; whether the seed is saved with the career is not checked.)
 
 The 141 callers are a map of where chance enters the mode; the large ones are listed
 in appendix A.
+
+### 2.5 The year of a new career
+
+The set-up of a new career (`career_setup`, `fcn_035f445b`; the same function for League
+mode, Master League and Become a Legend, mode kinds 11, 12, 13) writes the year as a
+constant, and the function it calls for the contracts (`career_contracts`,
+`fcn_036651d4`) does the same. In this exe the constant is **2024**. Eight
+instructions hold it:
+
+| address | instruction | what |
+|---|---|---|
+| `0x035f44b4` | `mov eax, 2024`, then stored as the year at `+0xc2cbb2` | year of the first day |
+| `0x035f452e` | `mov [mode + 0xdcb68c], 1 January 2024` | first day, season from January |
+| `0x035f458f` | `mov [mode + 0xdcb68c], 1 July 2024` | first day, season from July |
+| `0x036653b3` | `lea ecx, [ebx + 2024]`, then 31 August of it | contract end, season from July (`ebx` = years) |
+| `0x036653bf` | `mov [player + 0xd8], 1 July 2024` | contract start, season from July |
+| `0x036653f2` | `lea ecx, [ebx + 2025]`, then 31 January of it | contract end, season from January |
+| `0x036653fa` | `lea ecx, [ebx + 2024]` | the same, when the flag at `[ebp-0xa4c]` is set |
+| `0x0366540c` | `mov [player + 0xd8], 1 January 2024` | contract start, season from January |
+
+`sider/MLYear.lua` writes another year into these eight (`sider/test_year.py` runs the
+eight instructions after the change). The eight were found by a search of the whole code
+for the number 2024 and 2025 as a value or as the year of a date; every other hit is an
+offset into a record or a jump distance.
+
+The exe still holds **2016** (and 2017) at other places, so 2024 is taken to be a change
+made to the exe before it came here, and these were left out of it. `MLYear.lua` leaves
+them as they are too, so a career behaves as it does now, in another year:
+
+- `0x036655f1`, `0x03665616`: the date 1 January or 1 August 2016, given to
+  `fcn_0388b857`, which writes a date at player `+0xdc`: 1 July or 1 January of the
+  year after, so 2017. It is taken to be the end of a loan the set-up makes:
+  `fcn_036df464` looks for players with the loan mark (bit 28 of `+0xb8`) whose date is
+  today. Three more functions give the date to `fcn_03135cea`, taken to be the days
+  between two dates (`fcn_0389ec18`, `fcn_038a2b31`, `fcn_03649f1f`). What a date years
+  back does to them is not worked out.
+- `0x03665455`: contract end 31 August 2017 (31 January 2018) for the Become a Legend
+  player.
+- `0x03637c9c` (`fcn_03637bf2`, Master League, season from July): 1 July 2016 at `+0x18`
+  of the 72 records at `0xd62a90` (meaning ?). The two saves hold 32 and 31 dates in 2016.
+- `fcn_036cc580`: gives a date and 1 July 2016, then 1 January 2016, to `fcn_03121acc`
+  (not read).
+- "Is the year 2016?" in `fcn_035d8f79`, `fcn_0362579a`, `fcn_03629931`, `fcn_0363e8bb`,
+  `fcn_036696e1`, `fcn_036960cc`, `fcn_036d0c58`, `fcn_03862262`, `fcn_0386285a`,
+  `day_state` (`fcn_03877938`) and `fcn_038af05f`. Taken to be the exceptions of the
+  first season; they were not read one by one. In a career that starts in 2024 or later
+  none of them answers yes.
+- `fcn_03635675` (called by the staff report at day end): in July a part of it runs only
+  when the year minus 2017 is a multiple of four, so in 2017, 2021, 2025, 2029. What the
+  part does is not read. It is the only place found where the year counts in fours.
+
+What does not hang on the year: the age of a player is a 6-bit number in his record
+(section 6.5), there is no year of birth. The date of a day (`date_of_day`,
+`fcn_038ae3cc`) is the year and the month table; there is no leap day.
 
 ## 3 How a day is processed
 
@@ -679,9 +733,10 @@ fields of the getter were mapped by running it on records with one bit set.
 ### 6.6 A Sider module that changes values, salaries, budgets and prize money
 
 Version 5 of the module adds a price ceiling to the transfers of the computer clubs
-and version 6 lets it give way; that part is described in 9.10.
+and version 6 lets it give way; since version 7 that part is a file of its own,
+`sider/MLTransfers.lua`. It is described in 9.10.
 
-`sider/MLMoney.lua` (version 6) replaces the rating part of the fee by `VALUE[rating] x
+`sider/MLMoney.lua` (version 7) replaces the rating part of the fee by `VALUE[rating] x
 AGE[age] x POSITION[registered position] x (the player's own fixed factor) x (1 +
 popularity bonus)`, the rating part of the salary by `SALARY[rating] x SALARY_AGE[age]`,
 and the 2 of the two budget sums of 6.4 by settings. Version 3 adds: other amounts in
@@ -1216,17 +1271,23 @@ part):
 ### 9.9 What this means in play
 
 - A computer club has no account that was found (9.7). It shops by **level**, not by money: a level-9 club looks at overall
-  83 to 99, a level-0 club at 47 to 74 (9.4). `sider/MLMoney.lua` (version 6) adds a
+  83 to 99, a level-0 club at 47 to 74 (9.4). `sider/MLTransfers.lua` adds a
   highest value per level, which gives way for a club in need (9.10).
 - It takes **the best three that fit** and prefers listed players and players
-  without a club among them (9.6).
+  without a club among them (9.6). In one window read from two saves 506 of 511
+  signings were players without a contract (9.11).
 - A player leaves a computer club on this way only if that club counts more than 23
   players; those more than 3 points above the top of their club's window are looked
   at first (9.5).
 - Deals are chosen at the start of the season and on the day after each window, and
   close when the next window is open (9.2, 9.7). Squads end between 23 and 32.
 
-### 9.10 A price ceiling by a module (`sider/MLMoney.lua`, versions 5 and 6)
+### 9.10 A price ceiling by a module (`sider/MLTransfers.lua`; in `sider/MLMoney.lua` in versions 5 and 6)
+
+The ceiling was written by `MLMoney.lua` in its versions 5 and 6. Since version 7 of
+`MLMoney.lua` it is written by `MLTransfers.lua` (version 1), with the same bytes at the
+same addresses as version 6; "version 6" below is that state. `MLTransfers.lua` runs
+after `MLMoney.lua` and uses its value routine.
 
 The module adds one test to `ai_candidates`, at `0x0365fb0d`, where a player who
 passed everything is added to the list (`mov ecx, [ebp + 0x24]; push esi; call
@@ -1292,6 +1353,62 @@ meets other players; with step 4 it starts at the top of the club's own window a
 and can meet the same three. `CEILING_RATING = false` switches step 4 off.
 
 The module books no money. A computer club still has no account (9.7).
+
+### 9.11 One window read from two saves, and version 2 of `sider/MLTransfers.lua`
+
+Level: the counts are **read from two save files** of one career (Athletic Club, first
+season, 1 July and 15 September 2024, `MLMoney.lua` 7 and `MLTransfers.lua` 1 in use;
+`ML saves/`). The player records were compared in the unpacked mode data; the fields
+are those of 13.
+
+| | |
+|---|---|
+| signings by the 498 computer clubs | 511 |
+| of them players without a contract | 506 |
+| of them from another club | 5 |
+| players with mark 29 or 30 before / after | 816 / 1,547 |
+| marked players who moved | 0 |
+
+So nearly every signing is a free agent and the lists of 9.3 grow without being used.
+The reading of 9.5 and 9.6 gives two causes; neither is the price ceiling:
+
+- `ai_pick_candidate` searches the set of players without a contract and of players
+  who outgrew their club first, and the other set only if the first gave nobody. After
+  the end of the contracts the first set is never empty.
+- For a player of the other set `ai_pick_candidate` asks after `ai_candidates` has
+  listed three whether he may go: the buyer's level is 9 and the slot asks for a band,
+  or the plan's kind is 1 and the level at least 8, or the kind is 4 and the level above
+  the player's band, or his band is below 7 and his club's level below 8. If none of
+  the three may go, nobody is signed for the slot.
+
+Version 2 of `MLTransfers.lua` works at the same place as 9.10 (`0x0365fb0d`) with a
+longer routine (1,413 bytes at `0x047d49d0`, tables from `0x047d4200`, in the unused
+rest of the page of section `.data1`). Before the ceiling it
+
+1. asks the question above, and the pool's count of more than 23, before the player is
+   listed (`SELL_SIDE`), and lets the selling club keep a share of its players;
+2. lets the buying club know only a share of the players (`SCOUTING`);
+3. gives each club a persona (`PERSONA`): a draw from position, club and date says in
+   which of three places it looks for that position on that day (no contract, marked
+   29 or 30, other players of clubs) or that it does not buy; the second search looks
+   in the next place; ages; a rating seen with an error; a lowest and a highest rating
+   against the rating of its first eleven, which is worked out from the points of its
+   ranking record (mean of the best eleven of the 499 ranked clubs of the save ≈
+   0.0533 x points + 9.45);
+4. before all of these, refuses a player with a contract whose club id and the buyer's
+   club id are one of up to 64 pairs (`RIVALS`).
+
+The persona is named per club id or drawn by level. All it needs beyond 9.10 is read
+from the frame of `ai_candidates` (date `[ebp - 0x24]`, pool `[ebp - 0xc]`, mode data
+`[ebp - 8]`, position `[ebp + 0x14]`) and with the game's own functions for a player's
+club (`fcn_0382b087`), his band (`fcn_0385400e`) and the ranking record
+(`fcn_031b1c34`, which returns the first record for a club that is not ranked). The
+steps and every address are written out at the top of `sider/money_cave.py`;
+`sider/README.md` has the settings.
+
+**Run in the emulator** as in 9.10, against `money_cave.accepts`. **Not run in the
+game.** Not established: how many signings the settings give in a window, and whether
+the running game leaves the memory at `0x047d4200` alone.
 
 ## 10 Team strength
 
@@ -1366,13 +1483,34 @@ read far enough to see that they are not the growth arithmetic (nor is
 
 ## 13 The Master League save file
 
-Level: **read** (table), the content **not seen**.
+Level: the table **read**; the content **seen in two saves of one career** (see below).
 
 The save-kind table at `0x0213d1a8` (see `NOTES.md`) has Master League in **row 10**:
 name `ML`, folder key `ml` (row 11 is `BL`, row 9 `LG`). The
 container is the one `savefile.py` reads: same header, same cipher, same hashes. What
-is inside (the mode data of section 2.2, in which order, packed or not) is not read,
-and no `ML…` file is in the repository to look at.
+is inside was looked at in the two files of `ML saves/` (the same career on 1 July
+and on 15 September of its first season). `python3 tools/savefile.py unpack <save>
+<folder>` gives a `data.dat` of 13,253,312 bytes. Found in it, each by its content:
+
+| file offset | what | how it was recognised |
+|---|---|---|
+| `0x50` | 626 team records of `0x520` bytes; the low 14 bits of a club id are the index in this table | names and ids |
+| `0x92262c` | the club ranking: 499 records of 16 bytes: club id, place, points (twice, 16 bits each), 0, level (16 bits) | places 1 to 499 in order, levels as in 9.4 |
+| `0x92596c` | 498 plan records of `0x118` bytes (9.1) | club ids in ranking order |
+
+The ranking stands at mode data `+0xcc84cc` in the code, so for this part of the file
+`file offset = mode-data offset - 0x3a5ea0`. That rule does **not** hold for the
+whole file: the player records (21,033 of `0xe0` bytes) are not at the offset it
+gives, which lies beyond the end of the file. They were compared between the two saves
+in an earlier pass, but the file offset used then was not written down and a later
+search did not find it again (player names are not stored as plain text; club ids are
+densest around `0x160000`, `0x750000` and `0x920000`). **The file offset of the player
+records is open.**
+
+Fields of a player record used in that pass, **from the saves, not from the code**:
+club id at `+0xa8`; `+0xb4`: status in bits 0-3, deal in bits 4-5, popularity taken to
+be bits 11-22; `+0xb8`: marks 29 and 30 (9.3), bit 28 loan. Ratings and ages worked
+out from the records can be off by 1 or 2.
 
 One consequence of section 2: a career keeps its own player and team records in the
 mode data. That is read from the look-up functions (they search tables inside the mode
