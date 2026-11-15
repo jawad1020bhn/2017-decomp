@@ -1,12 +1,29 @@
--- MLTransfers.lua, version 1: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 2: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
--- What it changes, in the running game only (no file is touched):
---   * a computer club looks at the price: up to the ceiling of its place in the club
---     ranking it signs as before, above it less and less often, and far above it never
---     (CEILING and the settings after it; the game looks at the rating only).
--- This was part of MLMoney.lua in its versions 5 and 6 and works as it did in version 6.
+-- What it changes, in the running game only (no file is touched). Each part has its own
+-- switch in the settings below:
+--   * price ceiling (CEILING): a computer club looks at the price. Up to the ceiling of
+--     its place in the club ranking it signs as before, above it less and less often, and
+--     far above it never. The game looks at the rating only.
+--   * selling side (SELL_SIDE): a player whose club will not let him go no longer takes
+--     one of the three places on a buyer's list. In the game he does, and the buyer then
+--     often ends with nobody or with a player without a contract.
+--   * club personas (PERSONA): every club gets a character: where it looks for players
+--     (without a contract, on the lists of other clubs, in other clubs' squads) and in
+--     which order, which ages it wants, how well it judges a player, how far it goes for
+--     him, how good a player must be for it, how good a player still comes to it, and how
+--     many of its own players it keeps. The big clubs are named one by one (CLUBS); the
+--     others draw a character that fits their place in the ranking. Two clubs of one
+--     character still differ a little (PERSONA_SPREAD).
+--   * scouting (SCOUTING): a club knows only a part of the players (how many is a number
+--     of its persona). Players a club has put on its list are known to all.
+-- With every switch off but CEILING the module works as its version 1 did.
+--
+-- What it cannot do: no money is booked for a computer club, there are no offers, wages
+-- or loans between computer clubs, and no club remembers anything. The module only
+-- answers, for one player a club is looking at: may he go on its list or not.
 --
 -- It first checks that MLMoney.lua is installed, that the game holds the expected code
 -- and that the memory it needs is empty. If anything differs it writes nothing and says
@@ -20,7 +37,8 @@
 -- the other to be in before it. Remove the second line to have the computer clubs choose
 -- as in the game again.
 --
--- It needs no new career: it works from the next time the computer clubs choose players.
+-- It needs no new career: it works from the next time the computer clubs choose players
+-- (the first day of a season, 1 September, 1 February).
 --
 -- Uses only: log, memory.read, memory.write, string, table, math, ipairs, tonumber, type.
 
@@ -42,8 +60,7 @@ local WRITE = true
 -- the next best is looked at. The ceilings, in the ten groups the game itself uses for
 -- the rating range: millions for the clubs at place
 --     1-10, 11-20, 21-50, 51-80, 81-120, 121-170, 171-220, 221-260, 261-300, all others.
--- 0.01 to 9999 each, or 0 for a group without a ceiling. false: computer clubs choose as
--- in the game.
+-- 0.01 to 9999 each, or 0 for a group without a ceiling. false: no club looks at a price.
 -- Your own club is not touched: what you can buy is a matter of your budget, and offers
 -- for your players go another way. No money is booked by this setting; a computer club
 -- still has no account, and between two computer clubs the game has no offer and no
@@ -52,6 +69,7 @@ local WRITE = true
 -- group in the squads this module was set against, with more room for the first twenty
 -- clubs (README.md has the table; ceiling_survey.py prints it for your edit file).
 -- If you change VALUE in MLMoney.lua much, change these with it.
+-- A persona moves the ceiling of its club up or down (wealth).
 local CEILING = { 200, 100, 50, 28, 18, 12, 8, 6, 4.5, 3 }
 
 -- How far a club goes above its ceiling, in percent of the ceiling. At the ceiling a
@@ -60,17 +78,20 @@ local CEILING = { 200, 100, 50, 28, 18, 12, 8, 6, 4.5, 3 }
 -- 4 clubs in 5 of that group, 25 percent above of every second club, 50 percent above of
 -- none. Which club goes how far for which player is fixed by the two of them (no dice
 -- are thrown), so the same club answers the same way while the player's value stays.
--- 0 to 300. 0: a hard ceiling, nothing above it.
+-- 0 to 300. 0: a hard ceiling, nothing above it. A persona changes it for its club
+-- (premium).
 local CEILING_STRETCH = 50
 
 -- Need. The ceiling of a club is this many percent higher
 --   * in its second search, when it found nobody for the position in its own rating
 --     range (it then looks at the dearer players of that range again before it goes
---     further down), and
+--     further down),
 --   * when it looks for a key player, which the ten or twenty best clubs do for one
---     position on the last day of a window.
+--     position on the last day of a window, and
+--   * with PERSONA on, while its squad is smaller than SQUAD_NEED.
 -- CEILING_STRETCH comes on top: with 30 and 50 a club in need never goes beyond 1.95
--- times its ceiling. 0 to 300. 0: need changes nothing.
+-- times its ceiling. 0 to 300. 0: need changes nothing. A persona changes it for its
+-- club (panic).
 local CEILING_NEED = 30
 
 -- A seller who wants to sell. For a player his club has put on its list of players to
@@ -79,9 +100,12 @@ local CEILING_NEED = 30
 local CEILING_LISTED = 70
 
 -- The same for a player the game signs without a transfer (as far as the code was read:
--- the players without a contract). No fee is due for him, so less of his value counts.
--- 0 to 100; 100: he counts like any other.
-local CEILING_FREE = 50
+-- the players without a contract). 0 to 100; 100: he counts like any other.
+-- Version 1 had 50 here. In a career played with it, 506 of 511 signings of one window
+-- were players without a contract, and the small clubs took the best of them: with the
+-- discount a player worth twice a club's ceiling was within its reach. 100 takes the
+-- discount away.
+local CEILING_FREE = 100
 
 -- The second search. A computer club looks for a player in a rating range that goes by
 -- its place in the ranking (the smallest clubs 47 to 74, the ten best 83 to 99). When it
@@ -97,26 +121,274 @@ local CEILING_FREE = 50
 -- CEILING_STRETCH and CEILING_NEED do not move this limit. Used only while CEILING is on.
 local CEILING_RATING = true
 
+-- The selling side. The game lists the first three players who fit a position and only
+-- then asks whether their club lets them go. It does for a listed player, and for another
+-- player only if his club counts more than 23 players and
+--   * he is one of those who have outgrown their club, or
+--   * his status band is below 7 and his club is not one of the first twenty, or
+--   * the buyer is one of the first ten or twenty and looks for a key player.
+-- If none of the three may go, the club signs nobody for that position, although more
+-- players stood further down the list.
+-- true: the same question is asked before a player takes one of the three places, so
+-- the list holds only players who can really move. false: as in the game.
+local SELL_SIDE = true
+
+-- Club personas. true: every computer club has a character (ARCHETYPES, PERSONA_GROUPS,
+-- CLUBS below). false: all clubs behave alike, as in version 1, and the settings from
+-- here to the end of the settings are not used.
+local PERSONA = true
+
+-- Scouting. true: a club knows only a part of the players without a contract and of the
+-- players of other clubs (the number `knows` of its persona); which ones is fixed by
+-- club and player. A player his club has listed is known to every club. false: every
+-- club knows every player. Needs PERSONA.
+local SCOUTING = true
+
+-- Two clubs of one persona are not the same: each number of a persona (but not the ages
+-- and the order of the places) is, for each club, up to this many percent lower or
+-- higher. Fixed by the club, so a club keeps its character for the whole career.
+-- 0 to 50. 0: all clubs of a persona are alike.
+local PERSONA_SPREAD = 20
+
+-- How good a club's first eleven is taken to be: rating = first number x the club's
+-- points in the game's club ranking + second number, kept inside the rating range of the
+-- club's group. `ambition` and `prestige` of a persona are measured from it. These two
+-- numbers fit the mean rating of the best eleven of the 499 clubs of the career the
+-- module was set against (PSG 1,464 points: 87; the last club 984 points: 62).
+-- First 0 to 0.5, second 0 to 99.
+local STRENGTH = { 0.0533, 9.45 }
+
+-- The month of the day on which the clubs choose the players they sign in the winter
+-- window (the game: 1 September, the day after the summer window closes). On that day a
+-- club buys for a position only as often as `winter` of its persona says. 1 to 12, or 0:
+-- winter is like summer.
+local WINTER_MONTH = 9
+
+-- A club that counts fewer players than this is in need: it buys for every position, in
+-- winter too, at any age and below its usual level, so that no squad runs empty. It
+-- still looks in the places of its persona. (A slot of a top club that asks for a key
+-- player looks everywhere.) 0 to 32. The game itself aims at 23 to 25 players.
+local SQUAD_NEED = 23
+
+-- The personas. Each has a name and these numbers:
+--   free, listed, clubs   where it looks first, in percent of the positions it buys for:
+--                         players without a contract / players another club has listed
+--                         / other players of other clubs. What is left to 100 is "does
+--                         not buy for this position this time" (the stand-in for a club
+--                         that fills the place from its own academy).
+--   second                the second search (when the first found nobody): the first of
+--                         these two places that the first search did not look in.
+--   winter                percent of the positions it still buys for in the winter window
+--   age, strict           the ages it wants (first, last), and how many percent of the
+--                         players outside them it refuses
+--   knows                 percent of the players it knows (SCOUTING)
+--   fog                   how far its judgement of a rating is off: up to this many
+--                         points too low or too high, fixed by club and player. 0 to 10
+--   wealth                its ceiling in percent of the CEILING of its group. 10 to 250
+--   premium               its CEILING_STRETCH in percent of that setting. 0 to 250
+--   panic                 its CEILING_NEED in percent of that setting. 0 to 250
+--   fame                  percent by which its limit rises for 1,000 points of a player's
+--                         popularity: what a famous name is worth to it. 0 to 250
+--   ambition              how many rating points below its first eleven a player may be
+--   prestige              how many rating points above its first eleven a player may be
+--                         and still join (he, too, has a say; players without a contract
+--                         included)
+--   keeps                 percent of its own players, not listed, that it never lets go
+-- At most 15 personas. Numbers without a range given: 0 to 100 (knows: 1 to 100; ambition
+-- and prestige: 0 to 99; ages 0 to 63).
+local ARCHETYPES = {
+    { "Galactico", free = 20, listed = 5, clubs = 75, second = { "clubs", "free" }, winter = 30,
+      age = { 24, 30 }, strict = 80, knows = 70, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
+      ambition = 4, prestige = 12, keeps = 70 },
+    { "State-backed", free = 20, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 40,
+      age = { 22, 29 }, strict = 80, knows = 75, fog = 2, wealth = 200, premium = 200, panic = 150, fame = 25,
+      ambition = 4, prestige = 10, keeps = 70 },
+    { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 30,
+      age = { 20, 24 }, strict = 85, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
+      ambition = 8, prestige = 6, keeps = 30 },
+    { "Elite trader", free = 15, listed = 20, clubs = 55, second = { "clubs", "listed" }, winter = 30,
+      age = { 19, 23 }, strict = 85, knows = 85, fog = 1, wealth = 100, premium = 60, panic = 60, fame = 0,
+      ambition = 9, prestige = 6, keeps = 15 },
+    { "Academy purist", free = 10, listed = 10, clubs = 30, second = { "clubs", "free" }, winter = 15,
+      age = { 18, 23 }, strict = 90, knows = 40, fog = 2, wealth = 70, premium = 50, panic = 50, fame = 0,
+      ambition = 12, prestige = 4, keeps = 50 },
+    { "Old-money", free = 30, listed = 20, clubs = 50, second = { "clubs", "free" }, winter = 40,
+      age = { 25, 30 }, strict = 75, knows = 60, fog = 2, wealth = 110, premium = 100, panic = 120, fame = 30,
+      ambition = 5, prestige = 8, keeps = 60 },
+    { "Mid-table", free = 20, listed = 25, clubs = 45, second = { "listed", "clubs" }, winter = 40,
+      age = { 24, 28 }, strict = 50, knows = 50, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
+      ambition = 8, prestige = 4, keeps = 40 },
+    { "Survival churner", free = 40, listed = 35, clubs = 25, second = { "free", "listed" }, winter = 80,
+      age = { 28, 34 }, strict = 70, knows = 40, fog = 3, wealth = 90, premium = 120, panic = 200, fame = 5,
+      ambition = 9, prestige = 4, keeps = 30 },
+    { "Crisis", free = 60, listed = 35, clubs = 5, second = { "free", "listed" }, winter = 70,
+      age = { 17, 36 }, strict = 20, knows = 30, fog = 3, wealth = 50, premium = 30, panic = 100, fame = 0,
+      ambition = 12, prestige = 2, keeps = 0 },
+    { "New-money", free = 45, listed = 0, clubs = 55, second = { "clubs", "free" }, winter = 60,
+      age = { 25, 32 }, strict = 60, knows = 50, fog = 3, wealth = 180, premium = 200, panic = 150, fame = 30,
+      ambition = 5, prestige = 3, keeps = 60 },
+    { "Selling farm", free = 20, listed = 20, clubs = 30, second = { "listed", "free" }, winter = 30,
+      age = { 18, 22 }, strict = 85, knows = 60, fog = 2, wealth = 60, premium = 40, panic = 50, fame = 0,
+      ambition = 12, prestige = 4, keeps = 0 },
+}
+
+-- The personas a club without an entry in CLUBS draws from, by its place in the game's
+-- club ranking (the ten groups of CEILING). 1 to 8 names per group; a name written twice
+-- is drawn twice as often, and with fewer than 8 names the list is read again from its
+-- start until 8 are filled. Which one a club draws is fixed by the club.
+local PERSONA_GROUPS = {
+    { "Galactico", "Old-money", "State-backed", "Elite trader" },                                       -- 1-10
+    { "Old-money", "Elite trader", "Moneyball", "New-money", "Old-money", "Academy purist" },           -- 11-20
+    { "Mid-table", "Moneyball", "Elite trader", "Old-money", "New-money", "Academy purist",
+      "Mid-table", "Selling farm" },                                                                    -- 21-50
+    { "Mid-table", "Mid-table", "Moneyball", "Academy purist", "Selling farm", "Survival churner",
+      "Old-money", "New-money" },                                                                       -- 51-80
+    { "Mid-table", "Mid-table", "Survival churner", "Selling farm", "Academy purist", "Moneyball",
+      "Crisis", "Survival churner" },                                                                   -- 81-120
+    { "Mid-table", "Survival churner", "Survival churner", "Selling farm", "Academy purist", "Crisis",
+      "Mid-table", "Moneyball" },                                                                       -- 121-170
+    { "Mid-table", "Survival churner", "Survival churner", "Selling farm", "Academy purist", "Crisis" },  -- 171-220
+    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner" },  -- 221-260
+    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner" },  -- 261-300
+    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner" },  -- others
+}
+
+-- The clubs with a persona of their own: the game's id of the club, the persona. At most
+-- 96. The ids are those of the career the module was set against (the name behind each is
+-- what that career calls the club); a club your data does not have is simply never found.
+-- If an id stands twice, the last entry counts. { } : no club is named.
+-- How each was chosen: from what the real club does on the market (README.md).
+local CLUBS = {
+    { 0x001c804a, "State-backed" },      -- Paris Saint-Germain
+    { 0x001b4036, "Galactico" },         -- Real Madrid CF
+    { 0x001b002b, "Old-money" },         -- FC Barcelona
+    { 0x00194000, "Galactico" },         -- Arsenal FC
+    { 0x001fc074, "Old-money" },         -- FC Bayern München
+    { 0x002b400c, "State-backed" },      -- Manchester City FC
+    { 0x0019c00b, "Moneyball" },         -- Liverpool FC
+    { 0x002b002a, "Old-money" },         -- Club Atlético de Madrid
+    { 0x001dc01c, "Old-money" },         -- Internazionale Milano
+    { 0x0019000d, "Galactico" },         -- Manchester United
+    { 0x00198006, "Elite trader" },      -- Chelsea FC
+    { 0x002cc011, "Moneyball" },         -- Tottenham Hotspur FC
+    { 0x0051c021, "Old-money" },         -- SSC Napoli
+    { 0x001f8075, "Elite trader" },      -- Borussia Dortmund
+    { 0x001e001d, "Old-money" },         -- Juventus FC
+    { 0x001f4024, "Old-money" },         -- AS Roma
+    { 0x001e4020, "Moneyball" },         -- AC Milan
+    { 0x001ac001, "New-money" },         -- Aston Villa FC
+    { 0x00408029, "Academy purist" },    -- Athletic Club de Bilbao (the game makes no plan for the club you play)
+    { 0x0020817f, "Old-money" },         -- Galatasaray SK
+    { 0x001a800e, "New-money" },         -- Newcastle United FC
+    { 0x0031417e, "Old-money" },         -- Fenerbahçe SK
+    { 0x00308035, "Old-money" },         -- Real Betis Balompié
+    { 0x005e4004, "Moneyball" },         -- Brighton & Hove Albion FC
+    { 0x00200073, "Elite trader" },      -- Bayer 04 Leverkusen
+    { 0x003a8014, "Elite trader" },      -- Atalanta BC
+    { 0x03f9c002, "Moneyball" },         -- AFC Bournemouth
+    { 0x0030006c, "Elite trader" },      -- FC Porto
+    { 0x002fc063, "Elite trader" },      -- SL Benfica
+    { 0x00630010, "Moneyball" },         -- Sunderland AFC
+    { 0x04e4807e, "Elite trader" },      -- RB Leipzig
+    { 0x04150003, "Moneyball" },         -- Brentford FC
+    { 0x0138008c, "Old-money" },         -- CR Flamengo
+    { 0x041ec017, "New-money" },         -- Como 1907
+    { 0x00310038, "Academy purist" },    -- Real Sociedad de Fútbol
+    { 0x017441c3, "New-money" },         -- Al Hilal SFC
+    { 0x001d004e, "Selling farm" },      -- Ajax
+    { 0x001c0046, "Elite trader" },      -- AS Monaco
+    { 0x001d805a, "Elite trader" },      -- PSV
+    { 0x0039c07f, "Moneyball" },         -- VfB Stuttgart
+    { 0x005c8034, "Survival churner" },  -- Rayo Vallecano de Madrid
+    { 0x0030406f, "Selling farm" },      -- Sporting CP
+    { 0x0030c02c, "Academy purist" },    -- RC Celta de Vigo
+    { 0x001b803a, "Crisis" },            -- Valencia CF
+    { 0x0041c033, "Academy purist" },    -- CA Osasuna
+    { 0x002d4043, "Crisis" },            -- Olympique Lyonnais
+    { 0x0044417a, "Old-money" },         -- Beşiktaş JK
+    { 0x0036804b, "Elite trader" },      -- Stade Rennais FC
+    { 0x002d8040, "Moneyball" },         -- RC Lens
+    { 0x028441d3, "New-money" },         -- Al Nassr FC
+    { 0x002280ae, "Old-money" },         -- CA River Plate
+    { 0x0022c09e, "Old-money" },         -- CA Boca Juniors
+    { 0x005a802f, "Survival churner" },  -- Getafe CF
+    { 0x00354041, "Elite trader" },      -- LOSC Lille
+    { 0x00224091, "Elite trader" },      -- SE Palmeiras
+    { 0x00388077, "Elite trader" },      -- Eintracht Frankfurt
+    { 0x0038c079, "Academy purist" },    -- SC Freiburg
+    { 0x001c4044, "Old-money" },         -- Olympique de Marseille
+    { 0x00424039, "Crisis" },            -- Sevilla FC
+    { 0x001d4051, "Selling farm" },      -- Feyenoord
+    { 0x01ed8064, "Selling farm" },      -- Sporting Braga
+    { 0x0020c161, "Elite trader" },      -- Celtic FC
+    { 0x0222c10d, "Moneyball" },         -- Girona FC
+    { 0x059a80cc, "New-money" },         -- Inter Miami CF
+    { 0x015141ca, "New-money" },         -- Al Ahli Saudi FC
+    { 0x00434148, "Elite trader" },      -- Club Brugge KV
+    { 0x015181cf, "New-money" },         -- Al Ittihad Club
+    { 0x002b8144, "Selling farm" },      -- RSC Anderlecht
+    { 0x003c804f, "Selling farm" },      -- AZ
+    { 0x012cc191, "Selling farm" },      -- GNK Dinamo Zagreb
+    { 0x012ac14a, "Selling farm" },      -- KRC Genk
+    { 0x018c8193, "Selling farm" },      -- FC Salzburg
+    { 0x012e0159, "Selling farm" },      -- FC Nordsjælland
+}
+
 -- ========================= end of settings =========================
 
-local CAVE = 0x047d3c40         -- unused end of a code section: the ceilings, four numbers and the routine
-local CAVE_SIZE = 0x180
-local NUMBERS_AT = 0x34         -- offset of CEILING_STRETCH, 100 + CEILING_NEED, CEILING_LISTED, CEILING_FREE there
+local CAVE = 0x047d4200         -- unused end of a page of the game's code: the tables and the routine
+local CAVE_SIZE = 0x930
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
--- the highest rating of the range a computer club searches first, smallest clubs first (the game's numbers)
+-- the rating range a computer club searches first, smallest clubs first (the game's numbers)
+local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
 local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 86, 99 }
+-- offsets in that memory: the twelve numbers, the two ranges, the personas by group, the
+-- personas, the personas of the named clubs, their ids (money_cave.py has the list)
+local NUMBERS_AT, RANGES_AT, GROUPS_AT, PERSONAS_AT, CLUB_TYPES_AT, CLUB_IDS_AT = 0x34, 0x64, 0x78, 0xc8, 0x208, 0x268
+local MOST_PERSONAS, MOST_CLUBS, PER_GROUP = 15, 96, 8
+-- the numbers of a persona in the order of the memory, with the lowest and highest of each
+local GENES = { { "free", 0, 100 }, { "listed", 0, 100 }, { "clubs", 0, 100 }, { "winter", 0, 100 },
+                { "knows", 1, 100 }, { "fog", 0, 10 }, { "wealth", 10, 250 }, { "premium", 0, 250 },
+                { "panic", 0, 250 }, { "fame", 0, 250 }, { "ambition", 0, 99 }, { "prestige", 0, 99 },
+                { "keeps", 0, 100 }, { "strict", 0, 100 } }
+local PLACE = { free = 0, listed = 1, clubs = 2 }
+-- persona 0: a club as in version 1 (what every club is with PERSONA = false)
+local NEUTRAL = "64000064ff0064646400ffff0000003fffff0000"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
-local ROUTINE = { 0x44, "53575589e583ec1c8b45008b58d88b480481f9580d6603740c81f9b90d66"
-      .. "030f85f70000008b48188b09894de88b50308b128b000fb6481b894df009ca8955e48b401c8b0083f8090f87"
-      .. "ce0000000fb688683c7d04894dec8b0485403c7d048945fcc745f80d0000006a028d45f85053e849fe07ff83"
-      .. "c40c0fb6c0837df00074093b45ec0f87a2000000837dfcff0f8488000000e873cffdff837de40074128b45fc"
-      .. "f725783c7d04f73554067b048945fc0fb74b2c6953309301000131d16955e8b179379e31d169c96bcaeb85c1"
-      .. "e9180faf0d743c7d048b45fcf7e1b900640000f7f10145fc8b8bb400000083e10f4983f901b9803c7d047611"
-      .. "f783b8000000000000607411b97c3c7d0489f8f721f73554067b0489c73b7dfc771089ec5d5f5b588b4d2456"
-      .. "50e9105695ff89ec5d5f5b83c404e96bbde8fe" }
+local ROUTINE = { 0x3e8, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
+      .. "0c81f9b90d66030f853e040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
+      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87fc0300008945e031c98b93b400"
+      .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
+      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e803040000"
+      .. "8945ec8955b031c9518b45ec8b55e8e8bb0300005989848d70ffffff4183f90e72e6837dd0020f85d0000000"
+      .. "8365f8008d45f8508d45c45089d9e8926905ff8b45c43b0534eb4f020f84ae000000e8b003000050833d5c42"
+      .. "7d040074658b4dc88b49f48b45c425ff3f00003d8d0200000f838000000083bc81ac070000177676817dc0b9"
+      .. "0d660375395253e8c8f807ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc"
+      .. "04750439c1770b83f807733a807a0e08733458b90c0000008b55c4e8ff020000694dc4b179379e334dd8334d"
+      .. "ac69c92febd427c1e9186bc964c1e90839c10f82b7020000eb0658e9af020000837dd0017419694dd4b16756"
+      .. "16c1e9186bc964c1e9083b4d800f8390020000c745f80d0000006a028d45f85053e85ef307ff83c40c0fb6c0"
+      .. "8945dc8b55b00fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d04c1e8100fb69164"
+      .. "427d0439d0730289d00fb6916e427d0439d0760289d08945cc03459c3945dc0f87260200008b55b88b4dc88b"
+      .. "49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85"
+      .. "d60000008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d172"
+      .. "2740039574ffffff39d1721c40039578ffffff39d17211837de4000f84a60100008b55ec0fb64210837de400"
+      .. "752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f836e0100"
+      .. "00837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f854e010000837de400752f8b4b1cc1e9"
+      .. "0783e13f8b55ec3a4a0e72053a4a0f7619694dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45"
+      .. "848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc"
+      .. "0f8ce50000008b4de08b45dc837df000740f0fb69128427d0439d00f8fca0000008b048d00427d0483f8ff0f"
+      .. "84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c"
+      .. "388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf0064"
+      .. "0000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000"
+      .. "e8500000008b45dce85dc2fdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089"
+      .. "ec5d5f5b588b4d245650e95f4995ff89ec5d5f5b83c404e9bab0e8fef7e139fa7303f7f7c383c8ffc30145fc"
+      .. "7304834dfcffc30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908"
+      .. "030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978"
+      .. "093902740883c210ebf48b142483c4048b0d60427d0449781239048d68447d0475f40fb68108447d04eb1f0f"
+      .. "b64a0e83f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
-local SITE = { "ceiling", 0x0365fb0d, "8b4d2456e8aa98ac00", "e87241170190909090" }
+local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8d64a170190909090" }
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {
@@ -127,8 +399,8 @@ local MONEY = {
       .. "9301000131d169c9b179379ec1e9180faf0d48067b04c1e908030d44067b04f7e1f73558067b043d9ce0f505"
       .. "7605b89ce0f50589c78b8bb4000000c1e90b81e1ff0f00000faf0d40067b04f7e1b9a0860100f7f101c7c745"
       .. "f400000000c3" },
-    { "number 100", 0x047b0654,
-      "64000000" },
+    { "numbers", 0x047b0654,
+      "64000000e8030000" },
 }
 
 -- The code of the game the place and the routine rely on: name, address, bytes.
@@ -177,12 +449,63 @@ local CONTEXT = {
       .. "8d85e0ffffff508d8de4ffffff518b8decffffff8d95d8ffffff52c785d8ffffff01000000e86ae8ffff8bb5"
       .. "c8ffffff8bbdc4ffffffc685f3ffffff0039f775588b45288b4d248b55205051528b55148d85c4ffffff508b"
       .. "450c8d4d1b515253508d8de0ffffff518b8decffffff8d95e4ffffff528d85d8ffffff50c785d8ffffff0000"
-      .. "0000e809e8ffff8bb5c8ffffff8bbdc4ffffffeb07" },
+      .. "0000e809e8ffff8bb5c8ffffff8bbdc4ffffffeb07c685f3ffffff01e8f5be1f0039f70f84da0200006a0056"
+      .. "57e84ac4feff29fe89f3c1fb0383c40cc745240000000085db743489fe903b5d2476418b4e048b16518b8de8"
+      .. "ffffff52e8221a1c00f780b8000000000000608b4524751c4083c60889452439d872cf31f685db0f849f0000"
+      .. "0089f8894524eb6939c3770b68fc93f001ff1538747d048b8decffffff8d34c756e871c3ffff8b5d088b068b"
+      .. "4e048903894b04c785fcffffffffffffff85ff7411578d550852c7450802000000e8124d56ff89d88b8df4ff"
+      .. "ffff64890d00000000595f5e5b89ec5dc224008d24248b452439f376978b48048b10518b8de8ffffff52e878"
+      .. "191c008b80b4000000240f3c020f8434020000834524084639de72ce31c089452485db746989fe39c30f8659"
+      .. "ffffff56e84ec0220083c4043c0175448b4e048b16518b8de8ffffff52e82d191c00f780b800000000000020"
+      .. "0f854c0200008b46048b0e50518b8de8ffffffe80b191c00f780b8000000000000400f852a0200008b452440"
+      .. "83c60889452439c377a1c745240000000085db743d89fe3b5d240f86e4feffff8b56048b068b8de8ffffff52"
+      .. "50e8c5181c008b88b40000008b452480e10f80f9010f84e20100004083c60889452439d872c5c74524000000"
+      .. "0085db0f841601000089fe3b5d240f8698feffff8b56048b068b8de8ffffff5250e879181c008d4d145189c7"
+      .. "8d55205289f9c7451400000000e8b3a01c008b0d34eb4f028b452089ca25ff3f000081e2ff3f000039d0750b"
+      .. "334d20f7c100c0ffff74148b8decffffff83bc81ac070000170f869000000057e8fb2f1f008b168b4e0483c4"
+      .. "0480bdf3ffffff008995d4ffffff898dd8ffffff0f85960100008b551c8b1283fa09720c8b4d288339000f87"
+      .. "920100008b4d108b490483f901750983fa080f837501000083f904750839c20f875f01000083f807732d8b57"
+      .. "2c8b47308d8ddcffffff518b8decffffff8995dcffffff8985e0ffffffe8e1c6ffff83f8080f823f0100008b"
+      .. "45244083c60889452439d80f82f2feffff8bbdc4ffffff8b75088b1508eb4f028b0d04eb4f02c785fcffffff"
+      .. "ffffffff895604890e85ff7411578d450850c7450802000000e8b24a56ff89f08b8df4ffffff64890d000000"
+      .. "00595f5e5b89ec5dc2240039f3770b68fc93f001ff1538747d048b8decffffff8d34f756e8aec0ffff8b5d08"
+      .. "8b0e8b5604890b895304c785fcffffffffffffff85ff7411578d450850c7450802000000e84f4a56ff89d88b"
+      .. "8df4ffffff64890d00000000595f5e5b89ec5dc224008b452439c3770b68fc93f001ff1538747d048b8decff"
+      .. "ffff8d34c756e848c0ffff8b5d088b168b46048913894304c785fcffffffffffffff85ff7411578d4d0851c7"
+      .. "450802000000e8e94956ff89d88b8df4ffffff64890d00000000595f5e5b89ec5dc224008d95d4ffffff52eb"
+      .. "108d8dd4ffffff51eb078d85d4ffffff508b8decffffffe8dfbfffff8b75088b85c4ffffff8b8dd4ffffff8b"
+      .. "95d8ffffff890e895604c785fcffffffffffffff85c00f84cefeffff50e9b8" },
     { "range", 0x0365d08d,
       "5589e58b45088b0083f8097758ff2485fdd06503b84b0000005dc20400b84c0000005dc20400b84d0000005d"
       .. "c20400b84e0000005dc20400b84f0000005dc20400b8500000005dc20400b8530000005dc20400b856000000"
       .. "5dc20400b8630000005dc20400b84a0000005dc2040089fff2d06503a1d06503aad06503b3d06503bcd06503"
       .. "c5d06503ced06503d7d06503e0d06503e9d06503" },
+    { "range low", 0x0365d12d,
+      "5589e58b45088b0083f8097758ff24859dd16503b8330000005dc20400b8370000005dc20400b83b0000005d"
+      .. "c20400b83f0000005dc20400b8430000005dc20400b8460000005dc20400b8490000005dc20400b84c000000"
+      .. "5dc20400b8530000005dc20400b82f0000005dc2040089ff92d1650341d165034ad1650353d165035cd16503"
+      .. "65d165036ed1650377d1650380d1650389d16503" },
+    { "club", 0x0382b087,
+      "5589e58b450c8b0083f8027c0f8b45088b0dc0fe510289085dc208008b9481a80000008b450889105dc20800" },
+    { "band", 0x0385400e,
+      "5589e583ec28a1501a520231e88985fcffffff8b0d480f5202578b7d088b572c8b473085c9751d85c00f94d0"
+      .. "84c0742131c05f8b8dfcffffff31e9e8fa2b090089ec5dc3663b15440f5202750439c874df568d85d8ffffff"
+      .. "506a2e89f9c785d8ffffff00000000e83638fdff0fb6b5d8ffffff83fe077605be070000006a028d8dd8ffff"
+      .. "ff5157c785d8ffffff0d000000e8f648feff83c40c0fb6d0c785dcffffff00000000c785e0ffffff32000000"
+      .. "c785e4ffffff37000000c785e8ffffff3c000000c785ecffffff46000000c785f0ffffff50000000c785f4ff"
+      .. "ffff55000000c785f8ffffff5800000089f083fe05761531c93b948ddcffffff72084183f90872f1eb0289c8"
+      .. "83fe047239770a83fa507205b80400000083fe05770a83fa557205b80500000083fe06770a83fa587205b806"
+      .. "00000083fe07770a83fa5a7205b8070000008b8dfcffffff5e31e95fe8e52a090089ec5dc3" },
+    { "club level", 0x0365d775,
+      "5589e551535657e864e91b008b70308b45088b48048b10515289f131dbe89e501c0089c78d4508508d8dfcff"
+      .. "ffff5189f9895d08e8d9d81c008b87b400000083e00f8d8ecc84cc0083f802750c5f5e8d43015b89ec5dc204"
+      .. "0083f801750e5f5eb8050000005b89ec5dc20400a134eb4f028b95fcffffff89c631d6f7c6ff3f0000750931"
+      .. "d0a900c0ffff74198d95fcffffff52e82744b5ff0fb6400e5f5e5b89ec5dc204005f5e89d85b89ec5dc20400" },
+    { "ranking", 0x031b1c34,
+      "5589e583ec0c5389c88b88a0280000565731ff8985fcffffff898df8ffffff85c9744a8b4d088b19895d0881"
+      .. "e3ff3f000089c68d098d95f4ffffff5289f1e8fb464c008b0089c181e1ff3f000039d9750a334508a900c0ff"
+      .. "ff741b4783c6103bbdf8ffffff72ce8b85fcffffff5f5e5b89ec5dc2040089f85fc1e0040385fcffffff5e5b"
+      .. "89ec5dc20400" },
     { "rating", 0x03853b42,
       "5589e55de94f4efeff" },
     { "take", 0x041293c0,
@@ -190,7 +513,6 @@ local CONTEXT = {
       .. "0485c974378b068b14f889118b44f804894104834604085f5e5dc204003b460875096a0189f1e8bdfaffff8b"
       .. "460485c0740a8b0f89088b5704895004834604085f5e5dc20400" },
 }
-
 local function hex(s)
     local t = {}
     for i = 1, #s do t[i] = string.format("%02x", string.byte(s, i)) end
@@ -214,6 +536,10 @@ local function clamp(v, lo, hi)
     return v
 end
 
+local function round(v)
+    return math.floor(v + 0.5)
+end
+
 -- 1234567 -> "1,234,567"
 local function commas(v)
     local s = string.format("%.0f", v)
@@ -231,14 +557,17 @@ local function amount(millions)
     return math.floor(millions * 1000 + 0.5) * 10
 end
 
--- nil, or what is wrong with the settings
-local function settings_fault()
-    if type(WRITE) ~= "boolean" then return "WRITE is not true or false" end
+local function is_number(v, lo, hi)
+    return type(v) == "number" and v >= lo and v <= hi
+end
+
+-- nil, or what is wrong with the settings of the ceiling
+local function ceiling_fault()
     if CEILING == false then return nil end
     if type(CEILING_RATING) ~= "boolean" then return "CEILING_RATING is not true or false" end
     for _, c in ipairs({ { CEILING_STRETCH, "CEILING_STRETCH", 300 }, { CEILING_NEED, "CEILING_NEED", 300 },
                          { CEILING_LISTED, "CEILING_LISTED", 100 }, { CEILING_FREE, "CEILING_FREE", 100 } }) do
-        if type(c[1]) ~= "number" or c[1] < 0 or c[1] > c[3] then
+        if not is_number(c[1], 0, c[3]) then
             return c[2] .. " is not a number from 0 to " .. c[3]
         end
     end
@@ -254,34 +583,156 @@ local function settings_fault()
     return nil
 end
 
+-- the number of a persona by its name -> index 1 to 15, or nil
+local function persona_number(name)
+    for i, a in ipairs(ARCHETYPES) do
+        if a[1] == name then return i end
+    end
+    return nil
+end
+
+-- nil, or what is wrong with the settings of the personas
+local function persona_fault()
+    if PERSONA == false then return nil end
+    if type(SCOUTING) ~= "boolean" then return "SCOUTING is not true or false" end
+    if not is_number(PERSONA_SPREAD, 0, 50) then return "PERSONA_SPREAD is not a number from 0 to 50" end
+    if type(STRENGTH) ~= "table" or #STRENGTH ~= 2 or not is_number(STRENGTH[1], 0, 0.5)
+        or not is_number(STRENGTH[2], 0, 99) then
+        return "STRENGTH is not { 0 to 0.5, 0 to 99 }"
+    end
+    if not is_number(WINTER_MONTH, 0, 12) or WINTER_MONTH ~= math.floor(WINTER_MONTH) then
+        return "WINTER_MONTH is not a whole number from 0 to 12"
+    end
+    if not is_number(SQUAD_NEED, 0, 32) then return "SQUAD_NEED is not a number from 0 to 32" end
+    if type(ARCHETYPES) ~= "table" or #ARCHETYPES < 1 or #ARCHETYPES > MOST_PERSONAS then
+        return "ARCHETYPES is not a list of 1 to " .. MOST_PERSONAS .. " personas"
+    end
+    for i, a in ipairs(ARCHETYPES) do
+        local where = "ARCHETYPES: entry " .. i
+        if type(a) ~= "table" or type(a[1]) ~= "string" or a[1] == "" then return where .. " has no name" end
+        where = where .. " (" .. a[1] .. ")"
+        if persona_number(a[1]) ~= i then return where .. ": the name stands twice" end
+        for _, g in ipairs(GENES) do
+            if not is_number(a[g[1]], g[2], g[3]) then
+                return where .. ": " .. g[1] .. " is not a number from " .. g[2] .. " to " .. g[3]
+            end
+        end
+        if a.free + a.listed + a.clubs > 100 then return where .. ": free + listed + clubs is above 100" end
+        if type(a.age) ~= "table" or #a.age ~= 2 or not is_number(a.age[1], 0, 63)
+            or not is_number(a.age[2], a.age[1], 63) then
+            return where .. ": age is not { first, last } with 0 to 63 each"
+        end
+        if type(a.second) ~= "table" or #a.second ~= 2 or PLACE[a.second[1]] == nil
+            or PLACE[a.second[2]] == nil or a.second[1] == a.second[2] then
+            return where .. ": second is not two different places of \"free\", \"listed\", \"clubs\""
+        end
+    end
+    if type(PERSONA_GROUPS) ~= "table" or #PERSONA_GROUPS ~= 10 then
+        return "PERSONA_GROUPS is not a list of 10 lists"
+    end
+    for i, group in ipairs(PERSONA_GROUPS) do
+        if type(group) ~= "table" or #group < 1 or #group > PER_GROUP then
+            return "PERSONA_GROUPS: entry " .. i .. " is not a list of 1 to " .. PER_GROUP .. " names"
+        end
+        for _, name in ipairs(group) do
+            if persona_number(name) == nil then
+                return "PERSONA_GROUPS: entry " .. i .. " names a persona ARCHETYPES does not have"
+            end
+        end
+    end
+    if type(CLUBS) ~= "table" or #CLUBS > MOST_CLUBS then
+        return "CLUBS is not a list of at most " .. MOST_CLUBS .. " clubs"
+    end
+    for i, c in ipairs(CLUBS) do
+        if type(c) ~= "table" or not is_number(c[1], 0, 4294967295) or c[1] ~= math.floor(c[1]) then
+            return "CLUBS: entry " .. i .. " does not start with a club id"
+        end
+        if persona_number(c[2]) == nil then
+            return "CLUBS: entry " .. i .. " names a persona ARCHETYPES does not have"
+        end
+    end
+    return nil
+end
+
+-- nil, or what is wrong with the settings
+local function settings_fault()
+    if type(WRITE) ~= "boolean" then return "WRITE is not true or false" end
+    if type(SELL_SIDE) ~= "boolean" then return "SELL_SIDE is not true or false" end
+    if type(PERSONA) ~= "boolean" then return "PERSONA is not true or false" end
+    return ceiling_fault() or persona_fault()
+end
+
 -- the highest value by club level 0 to 9 (CEILING starts with the best clubs, level 9;
 -- 0xffffffff: no ceiling)
 local function values()
     local out = {}
     for level = 0, 9 do
-        local v = CEILING[10 - level]
+        local v = CEILING and CEILING[10 - level] or 0
         out[level + 1] = (v == 0) and 0xffffffff or clamp(amount(v), 100, 99990000)
     end
     return out
 end
 
+-- the 20 bytes of a persona
+local function persona_bytes(a)
+    local t = {}
+    for i, g in ipairs(GENES) do
+        t[i] = string.char(clamp(round(a[g[1]]), g[2], g[3]))
+    end
+    if not SCOUTING then t[5] = string.char(255) end
+    return table.concat(t) .. string.char(round(a.age[1]), round(a.age[2]), PLACE[a.second[1]], PLACE[a.second[2]], 0, 0)
+end
+
+-- the part of the memory after the ceilings: twelve numbers, the two rating ranges, the
+-- personas by club level, the personas, the named clubs
+local function persona_image()
+    local ceiling = (CEILING ~= false)
+    local numbers = { ceiling and round(CEILING_STRETCH) or 0, ceiling and round(CEILING_NEED) or 0,
+                      ceiling and round(CEILING_FREE) or 100, ceiling and round(CEILING_LISTED) or 100,
+                      1000, 0, 0, 0, 0, 0, SELL_SIDE and 1 or 0, 0 }
+    local groups, personas, types, ids = {}, { unhex(NEUTRAL) }, {}, {}
+    if PERSONA then
+        local spread = round(PERSONA_SPREAD)
+        numbers[5], numbers[6] = 1000 - 10 * spread, 20 * spread
+        numbers[7], numbers[8] = round(STRENGTH[1] * 65536), round(STRENGTH[2] * 65536) + 32768
+        numbers[9], numbers[10], numbers[12] = WINTER_MONTH, round(SQUAD_NEED), #CLUBS
+        for _, a in ipairs(ARCHETYPES) do personas[#personas + 1] = persona_bytes(a) end
+        for level = 0, 9 do
+            local group = PERSONA_GROUPS[10 - level]
+            for k = 0, PER_GROUP - 1 do
+                groups[#groups + 1] = string.char(persona_number(group[k % #group + 1]))
+            end
+        end
+        for i, c in ipairs(CLUBS) do
+            types[i] = string.char(persona_number(c[2]))
+            ids[i] = u32(c[1])
+        end
+    end
+    local out = ""
+    for _, v in ipairs(numbers) do out = out .. u32(v) end
+    for level = 1, 10 do out = out .. string.char(RANGE_LOW[level]) end
+    for level = 1, 10 do out = out .. string.char(RANGE_TOP[level]) end
+    out = out .. table.concat(groups)
+    out = out .. string.rep("\0", PERSONAS_AT - NUMBERS_AT - #out) .. table.concat(personas)
+    out = out .. string.rep("\0", CLUB_TYPES_AT - NUMBERS_AT - #out) .. table.concat(types)
+    return out .. string.rep("\0", CLUB_IDS_AT - NUMBERS_AT - #out) .. table.concat(ids)
+end
+
 -- what goes into the memory: the ceilings, the highest rating of the second search by
--- club level (255: none), the four numbers of the limit, the routine. nil: the module
--- file is damaged
+-- club level (255: none), the tables of persona_image, the routine. nil: the module file
+-- is damaged
 local function image()
     local parts = {}
     for _, v in ipairs(values()) do parts[#parts + 1] = u32(v) end
     for level = 0, 9 do
-        parts[#parts + 1] = string.char(CEILING_RATING and RANGE_TOP[level + 1] or 255)
+        parts[#parts + 1] = string.char((CEILING and CEILING_RATING) and RANGE_TOP[level + 1] or 255)
     end
     local out = table.concat(parts)
-    out = out .. string.rep("\0", NUMBERS_AT - #out) .. u32(math.floor(CEILING_STRETCH + 0.5))
-        .. u32(100 + math.floor(CEILING_NEED + 0.5)) .. u32(math.floor(CEILING_LISTED + 0.5))
-        .. u32(math.floor(CEILING_FREE + 0.5))
-    if #out ~= ROUTINE[1] or ROUTINE[1] + #ROUTINE[2] / 2 > CAVE_SIZE then
+    out = out .. string.rep("\0", NUMBERS_AT - #out) .. persona_image()
+    if #out > ROUTINE[1] or #unhex(NEUTRAL) ~= 20 or ROUTINE[1] + #ROUTINE[2] / 2 > CAVE_SIZE then
         return nil
     end
-    out = out .. unhex(ROUTINE[2])
+    out = out .. string.rep("\0", ROUTINE[1] - #out) .. unhex(ROUTINE[2])
     return out .. string.rep("\0", CAVE_SIZE - #out)
 end
 
@@ -293,7 +744,7 @@ local function same(name, at, expected)
     return good
 end
 
-local function report()
+local function report_ceiling()
     log("price ceiling of the computer clubs: the value on the screen up to which a club signs for sure, by its "
         .. "place in the club ranking:")
     local groups = { "1-10", "11-20", "21-50", "51-80", "81-120", "121-170", "171-220", "221-260", "261-300",
@@ -311,22 +762,37 @@ local function report()
     end
     log(string.format("  above the ceiling: the chance falls to none at %d percent above it; a club in need "
         .. "counts its ceiling %d percent higher; a listed player counts at %d percent of his value, a player "
-        .. "without a contract at %d percent", math.floor(CEILING_STRETCH + 0.5), math.floor(CEILING_NEED + 0.5),
-        math.floor(CEILING_LISTED + 0.5), math.floor(CEILING_FREE + 0.5)))
+        .. "without a contract at %d percent", round(CEILING_STRETCH), round(CEILING_NEED),
+        round(CEILING_LISTED), round(CEILING_FREE)))
     log(CEILING_RATING and "  second search: no player rated above the top of the club's own rating range"
         or "  second search: from rating 99 down, as in the game")
 end
 
+local function report_persona()
+    log(string.format("club personas: %d personas, %d clubs named, the others by their place in the club "
+        .. "ranking; each number up to %d percent lower or higher from club to club", #ARCHETYPES, #CLUBS,
+        round(PERSONA_SPREAD)))
+    for _, a in ipairs(ARCHETYPES) do
+        log(string.format("  %-17s looks first: free %d, listed %d, clubs %d percent, second search %s, %s; winter %d; ages "
+            .. "%d-%d (%d); knows %s; fog %d; wealth %d, premium %d, panic %d, fame %d; ambition %d, prestige %d; "
+            .. "keeps %d", a[1], round(a.free), round(a.listed), round(a.clubs), a.second[1], a.second[2],
+            round(a.winter), round(a.age[1]), round(a.age[2]), round(a.strict),
+            SCOUTING and string.format("%d", round(a.knows)) or "all", round(a.fog), round(a.wealth), round(a.premium),
+            round(a.panic), round(a.fame), round(a.ambition), round(a.prestige), round(a.keeps)))
+    end
+end
+
 function m.init(ctx)
-    log("MLTransfers 1: the price ceiling of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 2: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then
         log("RESULT: nothing written. Settings: " .. fault)
         return
     end
-    if CEILING == false then
-        log("RESULT: nothing written. CEILING = false: the computer clubs choose as in the game.")
+    if CEILING == false and not SELL_SIDE and not PERSONA then
+        log("RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off: the computer clubs choose as in "
+            .. "the game.")
         return
     end
     local memory_image = image()
@@ -366,10 +832,11 @@ function m.init(ctx)
             .. "made for. Use the two files that came together.")
         return
     end
-    local there = memory.read(SITE[2], #SITE[4] / 2)
-    if there ~= nil and hex(there) == SITE[4] then
-        log("RESULT: nothing written. The price ceiling is in the game already: by an MLMoney.lua of "
-            .. "version 6 with CEILING on (replace it with version 7), or this module stands twice in sider.ini.")
+    local there = memory.read(SITE[2], #SITE[3] / 2)
+    if there ~= nil and string.sub(hex(there), 1, 2) == "e8" and hex(there) ~= SITE[3] then
+        log("RESULT: nothing written. The game's choosing code is changed already: by an MLMoney.lua of "
+            .. "version 6 with CEILING on (replace it with version 7), by version 1 of this module, or this "
+            .. "module stands twice in sider.ini.")
         return
     end
     if not (good and empty) then
@@ -382,7 +849,7 @@ function m.init(ctx)
         return
     end
 
-    -- 3. the table and the routine first; nothing in the game points to them yet
+    -- 3. the tables and the routine first; nothing in the game points to them yet
     memory.write(CAVE, memory_image)
     if memory.read(CAVE, CAVE_SIZE) ~= memory_image then
         log("RESULT: the table could not be written; the game's code is unchanged. "
@@ -394,14 +861,27 @@ function m.init(ctx)
     local new = unhex(SITE[4])
     memory.write(SITE[2], new)
     local stuck = (memory.read(SITE[2], #new) == new)
-    log(string.format("written: %-8s at %08x  %s", SITE[1], SITE[2], stuck and "ok" or "FAILED"))
+    log(string.format("written: %-9s at %08x  %s", SITE[1], SITE[2], stuck and "ok" or "FAILED"))
     if not stuck then
         log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
         return
     end
 
-    report()
-    log("RESULT: installed. Changed: price ceiling of the computer clubs.")
+    local changed = {}
+    if CEILING ~= false then
+        report_ceiling()
+        changed[#changed + 1] = "price ceiling of the computer clubs"
+    end
+    if SELL_SIDE then
+        log("selling side: a player whose club does not let him go takes no place on a buyer's list")
+        changed[#changed + 1] = "selling side"
+    end
+    if PERSONA then
+        report_persona()
+        changed[#changed + 1] = "club personas"
+        if SCOUTING then changed[#changed + 1] = "scouting" end
+    end
+    log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
 end
 
 return m

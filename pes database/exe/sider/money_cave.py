@@ -12,10 +12,10 @@
 
 MLMoney.lua changes up to 25 places of PES2017.exe (sha256 44b0caaa...) and fills a
 piece of unused memory with 13 small routines and their tables. MLTransfers.lua changes
-one place more and fills a second piece (the price ceiling of the computer clubs, which
-was part of MLMoney.lua in its versions 5 and 6). Its routine calls FEE_CODE and divides
-by the 100 at HUNDRED_AT, both in the memory of MLMoney.lua, so it writes nothing unless
-it finds them there (MONEY_NEEDED).
+one place more and fills a second piece (the transfers of the computer clubs; its price
+ceiling was part of MLMoney.lua in its versions 5 and 6). Its routine calls FEE_CODE and
+divides by the 100 and the 1000 at HUNDRED_AT, all in the memory of MLMoney.lua, so it
+writes nothing unless it finds them there (MONEY_NEEDED).
 
 Fee, fcn_038ab832 (MASTER_LEAGUE.md 6.2). The 17 bytes at 0x038ab8db hold the rating part
 of the formula, `9000 * max(0, rating - 68)`, left in edi. They become a call to FEE_CODE:
@@ -102,51 +102,93 @@ starting amount in club_money_setup) become calls that do the same and apply INC
 The yearly budget step (6.7) is not changed. june_grants() below is its arithmetic, and
 test_money.py runs the game's code for both days against it.
 
-Transfers of the computer clubs (9.6, 9.10; MLTransfers.lua). ai_candidates (fcn_0365f5c2) lists up to
-three players a computer club may sign for a position: it walks lists of players by
-overall from the top of the club's rating range down and adds every player who passes
-its tests with `mov ecx, [ebp + 0x24]; push esi; call 0x041293c0` at 0x0365fb0d. None of
-the tests reads a price. Those nine bytes become a call to CEILING_CODE, which works out
-the player's value (the game's rating call, then FEE_CODE) and compares it with a limit
-made from CEILING_TAB[club level]; in the club's second search, among all players, it
-first compares the rating with CEILING_TOP[club level]. Above either, it drops its return
-address and jumps to 0x0365fb28, where the game's own failed tests go: the next player.
-The level and the "second search" byte are arguments and locals of ai_pick_candidate
-(fcn_03660c52), the only caller; the routine reads them through the saved ebp, and only
-if ai_candidates will return to one of its two calls there. Otherwise, and with a level
-above 9, the player is added as in the game.
+Transfers of the computer clubs (9.6, 9.10; MLTransfers.lua). ai_candidates (fcn_0365f5c2)
+lists up to three players a computer club may sign for a position: it walks lists of
+players by overall from the top of the club's rating range down and adds every player who
+passes its tests with `mov ecx, [ebp + 0x24]; push esi; call 0x041293c0` at 0x0365fb0d.
+None of the tests reads a price, and none asks the player's club. Those nine bytes become
+a call to CEILING_CODE, which decides whether the player is added. If not, it drops its
+return address and jumps to 0x0365fb28, where the game's own failed tests go: the next
+player. What it reads of the game: from the frame of ai_candidates the player record, the
+date, the pool object, the mode data, the position and the status band asked for and the
+plan record (buying club, kind); through the saved ebp, from ai_pick_candidate
+(fcn_03660c52), the only caller, the club level and the "second search" byte; and the
+return address of ai_candidates, which says which of the two calls of ai_pick_candidate
+this is. Only if that address is one of the two, and the level is 0 to 9, it decides at
+all; otherwise the player is added as in the game.
 
-The limit (version 6; all divisions drop the remainder):
+Version 2 of MLTransfers.lua (version 1: only step 7, with wealth, premium and panic 100
+and fame 0). A club has a persona: 14 numbers (GENE_NAMES), two ages and two places for
+its second search, 20 bytes at GENES_TAB. Which persona: the one CLUBS names for the club
+id (HAND_IDS, HAND_TYPES), else one of the 8 at BY_LEVEL_TAB for the level of the club's
+record in the game's club ranking (mode data + 0xcc84cc, records of 16 bytes: club id,
+place, points at +8, level at +0xe; the game's own search fcn_031b1c34 gives the first
+record for a club that is not there, and so does the routine), drawn by the club id. Each
+of the 14 numbers is, for a club, the persona's number x (PERSONA_LOW + (h x PERSONA_RANGE
+>> 8)) / 1000, h being a byte drawn from club id and the number's place. Persona 0
+(NEUTRAL) is what every club is with PERSONA off: it never refuses in steps 2 to 6.
+A player is "free" if his status (+0xb4, bits 0-3) is 1 or 2, else "listed" if he has mark
+29 or 30 of +0xb8, else "clubs". In order (accepts() below is the same in Python):
 
-    limit = CEILING_TAB[level]
-    limit = limit * (100 + NEED) / 100           if the club is in need: the second search,
-                                                 or a slot that asks for a status band
-    limit = limit + limit * (h * STRETCH) / 25600
-    price = value * FREE / 100                   player of status 1 or 2 (signed without a transfer)
-          = value * LISTED / 100                 else, player with mark 29 or 30 (listed by his club)
+ 1. The selling club (only for "clubs", and if the player has a club). With SELL_SIDE: the
+    pool object counts more than 23 players for it (dword at +0x7ac + 4 x the low 14 bits
+    of its id, as the game's own pool function asks), and, in the second call of
+    ai_pick_candidate, the rule by which that function lets a player with a contract go
+    after it has listed him: the buyer's level is 9 and the slot asks for a band, or the
+    plan's kind is 1 and the level at least 8, or the kind is 4 and the level above the
+    player's status band, or his band is below 7 and his club's level below 8. Then
+    `keeps` of the selling club's persona: refused if a draw from club, player and date
+    is below it.
+ 2. Scouting (not for "listed"): refused if a draw from player and buyer is not below
+    `knows`.
+ 3. The player: refused if his rating is above eleven + `prestige`, eleven = (ranking
+    points of the buyer x STRENGTH_A + STRENGTH_B) >> 16, kept inside the rating range of
+    the level of its ranking record (WINDOW_LOW, WINDOW_TOP).
+ 4. Need: the slot asks for a status band, or the pool counts fewer than SQUAD players for
+    the buyer. Unless the slot asks for a band: a draw from position, buyer and date
+    picks, by `free`, `listed`, `clubs`, the place the club looks in for this position on
+    this day, or none (refused; in need it takes the first of the persona's two places
+    for the second search instead). If the month is WINTER, a second such draw must be below `winter`
+    (not in need). In the second search the place is the first of the persona's two that
+    the first search did not use. The player must be of that place. Then the ages (not
+    in need): outside them he is refused if a draw from player and buyer is below
+    `strict`.
+ 5. The rating as this club sees it: rating - fog + (h x (2 fog + 1) >> 8). Refused if
+    below eleven - `ambition` (not in need).
+ 6. In the second search: refused if that rating is above CEILING_TOP[level].
+ 7. The price, unless CEILING_TAB[level] is "none" (all divisions drop the remainder, and
+    a product that does not fit 32 bits counts as the largest number):
+
+    limit = CEILING_TAB[level] * wealth / 100
+    limit = limit * (100 + NEED * panic / 100) / 100     in need, or in the second search
+    limit = limit + limit * (h * (STRETCH * premium / 100)) / 25600
+    limit = limit + limit * (popularity * fame) / 100000
+    price = value * FREE / 100                   a "free" player
+          = value * LISTED / 100                 a "listed" player
           = value                                else
     refused if price > limit
 
-h is one byte made from the player's id and the id of the buying club, so one club goes
-further for a player than another, and the same club decides the same way about the same
-player: h = ((word at +0x2c) ^ (dword at +0x30) * 0x01000193 ^ club id * 0x9e3779b1)
-* 0x85ebca6b >> 24. The band asked for is ai_candidates' last argument ([ebp + 0x30] ->
-number), the buying club the first dword of the plan record ([ebp + 0x18]). With STRETCH
-= 0, NEED = 0, LISTED = FREE = 100 this is the plain ceiling of version 5. limit() and
-candidates() below are the same in Python; test_money.py runs the whole of ai_candidates,
-and ai_pick_candidate up to the end of its two calls, against them.
+value is what FEE_CODE gives for the rating of step 5. h is one byte made from the
+player's id and the id of the buying club, so one club goes further for a player than
+another, and the same club decides the same way about the same player: h = ((word at
++0x2c) ^ (dword at +0x30) * 0x01000193 ^ club id * 0x9e3779b1) * 0x85ebca6b >> 24. The
+other draws use the same two keys and the factors HASH_*. test_money.py runs the whole of
+ai_candidates, and ai_pick_candidate up to the end of its two calls, against accepts()
+and candidates().
 
 The memory used is the end of the section .trace: the section's content ends at
 0x047b005d, its declared size at 0x047b0123, and its last page runs to 0x047b0fff. The
 section is readable, writable and executable. No call or jump of the exe goes there.
-The ceiling's tables and routine are in a second piece (CAVE_2): the end of the last
-page of the section .xcode, which follows .trace in memory. That section's content ends at
-0x047d3a42, its declared size at 0x047d3c22, the file's bytes for it at 0x047d3dff and its
-last page at 0x047d3fff; it is readable, writable and executable too. The file holds zeros
-from 0x047d3a43 on, and no call, jump or stored address of the unencrypted sections points
-into 0x047d3a43-0x047d3fff. (Version 5 kept the ceiling at 0x047b0130-0x047b01fb, below
-the first piece; the larger routine of version 6 does not fit there, and that range is
-unused again.)
+The tables and the routine of MLTransfers.lua are in a second piece (CAVE_2): the page of
+the section .data1, which follows .trace and .xcode in memory. That section holds 0x170
+bytes (0x047d4000-0x047d416f, code the game runs); the file's bytes for it end at
+0x047d41ff and are zeros from 0x047d4170 on, and the rest of its page, to 0x047d4fff, is
+not in the file: the loader fills it with zeros. The section is readable, writable and
+executable. In the whole file 23 dwords have a value from 0x047d4170 to 0x047d4fff, at
+places without a pattern (fewer than chance gives for a file of this size): no stored
+address points there. (Version 1 used 0x047d3c40-0x047d3dbf, the end of .xcode's last
+page; the routine of version 2 does not fit there, and that range is unused again.
+Version 5 of MLMoney.lua kept the ceiling at 0x047b0130-0x047b01fb.)
 """
 import struct
 import sys
@@ -200,21 +242,45 @@ LEAGUE_ROWS_TAB = CAVE + 0xbb0  # 12 rows of 24 words: prize by place in units o
 LEAGUE_ROWS, LEAGUE_ROW_WORDS, LEAGUE_UNIT = 12, 24, 100
 CAVE_SIZE = 0xdf0
 CAVE_LIMIT = 0x047b1000
-# a second piece, the unused end of the next section (.xcode): the price ceiling of the
-# computer clubs (only written when CEILING is on)
-CAVE_2 = 0x047d3c40
-CAVE_2_SIZE = 0x180
-CAVE_2_LIMIT = 0x047d4000
+# a second piece, the unused rest of the page of the section .data1 (it follows .xcode in
+# memory): the tables and the routine of MLTransfers.lua (only written when a part of it is on)
+CAVE_2 = 0x047d4200
+CAVE_2_SIZE = 0x930
+CAVE_2_LIMIT = 0x047d5000
 CEILING_TAB = CAVE_2            # 10 dwords, by club level 0-9: the value a club of that level takes for sure
 CEILING_TOP = CAVE_2 + 0x28     # 10 bytes, by club level: the highest rating it takes in the second, wide search
 STRETCH_AT = CAVE_2 + 0x34      # dword: percent above the ceiling at which the chance to take a player reaches none
-NEED_AT = CAVE_2 + 0x38         # dword: 100 + the percent by which need raises the ceiling
-LISTED_AT = CAVE_2 + 0x3c       # dword: percent of his value that counts for a player listed by his club
-FREE_AT = CAVE_2 + 0x40         # dword: the same for a player signed without a transfer (status 1 or 2)
-CEILING_CODE = CAVE_2 + 0x44
+NEED_AT = CAVE_2 + 0x38         # dword: the percent by which need raises the ceiling
+FREE_AT = CAVE_2 + 0x3c         # dword: percent of his value that counts for a player signed without a transfer (status 1 or 2)
+LISTED_AT = CAVE_2 + 0x40       # dword: the same for a player listed by his club
+PERSONA_LOW_AT = CAVE_2 + 0x44  # dword: 1000 - 10 x PERSONA_SPREAD
+PERSONA_RANGE_AT = CAVE_2 + 0x48  # dword: 20 x PERSONA_SPREAD
+STRENGTH_A_AT = CAVE_2 + 0x4c   # dword: rating points per ranking point, times 65536
+STRENGTH_B_AT = CAVE_2 + 0x50   # dword: the rating at 0 ranking points, times 65536, plus 32768
+WINTER_AT = CAVE_2 + 0x54       # dword: the month of the planning day whose deals close in the winter window (0: none)
+SQUAD_AT = CAVE_2 + 0x58        # dword: a club that counts fewer players than this is in need
+SELL_AT = CAVE_2 + 0x5c         # dword: 1 = the selling club's side is asked before a player takes a place
+HAND_COUNT_AT = CAVE_2 + 0x60   # dword: how many clubs are named in CLUBS
+RANGE_LOW_TAB = CAVE_2 + 0x64   # 10 bytes, by club level: the lowest and (next 10 bytes) the highest rating a
+RANGE_TOP_TAB = CAVE_2 + 0x6e   # first eleven is taken to have (the game's rating range of the level)
+BY_LEVEL_TAB = CAVE_2 + 0x78    # 10 rows of 8 bytes, by club level: the personas a club without a name draws from
+GENES_TAB = CAVE_2 + 0xc8       # 16 personas of 20 bytes (GENE_NAMES, then first age, last age, two channels)
+HAND_TYPES = CAVE_2 + 0x208     # 96 bytes: the persona of each named club
+HAND_IDS = CAVE_2 + 0x268       # 96 dwords: the ids of the named clubs
+CEILING_CODE = CAVE_2 + 0x3e8
 NO_CEILING = 0xffffffff         # in CEILING_TAB: this level takes any value
 NO_TOP = 0xff                   # in CEILING_TOP: this level takes any rating
 LEVELS = 10
+PERSONAS, PERSONA_BYTES, BY_LEVEL, HAND = 16, 20, 8, 96
+# the numbers of a persona that are changed a little from club to club (bytes 0 to 13 of its 20)
+GENE_NAMES = ('free', 'listed', 'clubs', 'winter', 'knows', 'fog', 'wealth', 'premium', 'panic', 'fame', 'ambition',
+              'prestige', 'keeps', 'strict')
+GENES = len(GENE_NAMES)
+AGE_FROM, AGE_TO, THEN_1, THEN_2 = 14, 15, 16, 17      # the bytes after them
+CHANNELS = ('free', 'listed', 'clubs')                 # where a player is: 0 no contract, 1 listed by his club, 2 any other
+NO_CHANNELS = 0xff              # in THEN_1: this persona takes players from anywhere
+# persona 0: a club that behaves as in version 1 (what every club is with PERSONA = false)
+NEUTRAL = bytes([100, 0, 0, 100, 255, 0, 100, 100, 100, 0, 255, 255, 0, 0, 0, 63, NO_CHANNELS, NO_CHANNELS, 0, 0])
 # the highest overall of the rating range of a club, by level 0 to 9 (fcn_0365d08d)
 WINDOW_TOP = (74, 75, 76, 77, 78, 79, 80, 83, 86, 99)
 # the club ranking places of each level, 9 down to 0 (fcn_036720d7 and fcn_03672359; the last has no end)
@@ -259,6 +325,18 @@ CLUB_POPULARITY = 0x03878855
 # mov ecx, [ebp + 0x24]; push esi; call take
 CEILING_SITE, CEILING_SITE_OLD = 0x0365fb0d, bytes.fromhex('8b4d2456e8aa98ac00')
 AI_CANDIDATES, AI_PICK, AI_MAX_OVERALL = 0x0365f5c2, 0x03660c52, 0x0365d08d
+AI_MIN_OVERALL = 0x0365d12d
+# the lowest overall of the rating range of a club, by level 0 to 9 (fcn_0365d12d)
+WINDOW_LOW = (47, 51, 55, 59, 63, 67, 70, 73, 76, 83)
+PLAYER_CLUB = 0x0382b087                        # thiscall (player record; -> club id, -> index 0): the club he plays for
+PLAYER_BAND = 0x0385400e                        # (player record) -> his status band 0 to 7
+NO_CLUB = 0xffffffff                            # that id, in the game's file
+NO_CLUB_AT = 0x024feb34                         # dword: the club id that stands for "no club"
+RANK_TABLE, RANK_COUNT, RANK_MOST = 0xcc84cc, 0x28a0, 650    # mode data: the club ranking, records of 16 bytes
+# (club id, place, word +8 ranking points, byte +0xe level); the count is a dword at this offset from its start
+POOL_COUNTS = 0x7ac                             # the pool object: dwords by the low 14 bits of a club id, its counted players
+POOL_CLUBS = 0x28d                              # the pool object counts the players of this many clubs
+POOL_KEEPS = 23                                 # a club lets a player go only while it counts more than this
 AI_NEXT_PLAYER = 0x0365fb28                     # where ai_candidates goes on when a player fails a test
 AI_TAKEN = 0x0365fb16                           # the instruction after the replaced ones
 AI_PICK_RETURNS = (0x03660d58, 0x03660db9)      # where ai_candidates returns to: its two calls in ai_pick_candidate
@@ -307,6 +385,9 @@ GAME_LEAGUE = {
 POSITIONS = ('GK', 'CB', 'LB', 'RB', 'DMF', 'CMF', 'LMF', 'RMF', 'AMF', 'LWF', 'RWF', 'SS', 'CF')
 HASH_A, HASH_B = 0x01000193, 0x9e3779b1
 HASH_C = 0x85ebca6b             # the last step of the hash of the ceiling (player and buying club)
+# the last steps of the other draws of MLTransfers.lua, and the factor of the position asked for
+HASH_POSITION, HASH_KEEPS, HASH_KNOWS, HASH_WINTER, HASH_AGE, HASH_FOG = (
+    0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xcc9e2d51, 0x1b873593, 0xe6546b65)
 
 FEE_SOURCE = f'''
     cmp eax, 99
@@ -501,59 +582,183 @@ l2: imul ecx, ecx, {LEAGUE_ROW_WORDS}
     imul eax, eax, {LEAGUE_UNIT}
     ret
 '''
-# The price ceiling. Entered by a call from ai_candidates (ebp = its frame) in the place of
-# `mov ecx, [ebp + 0x24]; push esi; call take`. The player record the function is looking
-# at is its local [ebp - 0x28], the plan record of the buying club its argument
-# [ebp + 0x18] (club id in the first dword), the status band the slot asks for its last
-# argument ([ebp + 0x30] -> number). The club level is not handed to ai_candidates; it is
-# an argument of its only caller, ai_pick_candidate ([its ebp + 0x1c] -> level), whose
-# frame is the saved ebp; the byte [its ebp + 0x1b] is 1 in the second, wide search (lowest
-# overall handed in as 0). If ai_candidates was not called from one of the two known
-# places, or the level is not 0 to 9, the player is taken as in the game. Otherwise:
-#   - the rating is fetched with the game's rating call, as the fee function does;
-#   - in the wide search a rating above CEILING_TOP[level] is refused;
-#   - a level without a ceiling takes the player;
-#   - the limit is the ceiling, raised by NEED in the wide search and for a slot that asks
-#     for a band, and then by up to STRETCH percent by the hash of player and club;
-#   - the value is worked out by FEE_CODE (record in ebx, scratch dword at [ebp - 0xc]),
-#     counted at FREE percent for status 1 or 2 and else at LISTED percent with mark 29 or
-#     30, and refused if it is above the limit.
-# Refused: the return address is dropped and the game's "next player" follows.
-# Locals: [ebp - 4] limit, [ebp - 8] position 13, [ebp - 0xc] scratch of FEE_CODE,
-# [ebp - 0x10] wide search, [ebp - 0x14] highest rating, [ebp - 0x18] buying club,
-# [ebp - 0x1c] need.
+# The routine of MLTransfers.lua. Entered by a call from ai_candidates (ebp = its frame) in
+# the place of `mov ecx, [ebp + 0x24]; push esi; call take`: the player has passed every test
+# of the game and is about to be put on the list of (at most three) candidates. From the
+# frame of ai_candidates: [ebp - 0x28] the player record, [ebp - 0x24] today (word year, byte
+# month, byte day), [ebp - 0xc] the pool object, [ebp - 8] the mode data, [ebp + 0x14] ->
+# the position asked for, [ebp + 0x18] the plan record of the buying club (club id, kind),
+# [ebp + 0x30] -> the status band the slot asks for. The club level is not handed to
+# ai_candidates; it is an argument of its only caller, ai_pick_candidate ([its ebp + 0x1c]
+# -> level), whose frame is the saved ebp; the byte [its ebp + 0x1b] is 1 in the second,
+# wide search. If ai_candidates was not called from one of the two known places, or the
+# level is not 0 to 9, the player is taken as in the game. Otherwise the steps of
+# accepts() below, in its order. Refused: the return address is dropped and the game's
+# "next player" follows.
+# Locals: [ebp - 4] limit, [ebp - 8] a number handed to the game by address, [ebp - 0xc]
+# scratch of FEE_CODE, [ebp - 0x10] wide search, [ebp - 0x14] persona of the buying club,
+# [ebp - 0x18] buying club, [ebp - 0x1c] need, [ebp - 0x20] level, [ebp - 0x24] rating (as
+# the club sees it, once the fog is on it), [ebp - 0x28] key of the player, [ebp - 0x2c]
+# key of player and buying club, [ebp - 0x30] where the player is (CHANNELS), [ebp - 0x34]
+# the eleven of the buying club, [ebp - 0x38] frame of ai_candidates, [ebp - 0x3c] his
+# club, [ebp - 0x40] the return address of ai_candidates, [ebp - 0x44] kind of the plan,
+# [ebp - 0x48] band asked for, [ebp - 0x4c] key of club, date and position, [ebp - 0x50]
+# ranking record of the buying club, [ebp - 0x54] date part of the keys, [ebp - 0x90] to
+# [ebp - 0x5c] the 14 numbers of the buying club's persona (GENE_NAMES).
+def G(name):
+    return 'dword ptr [ebp - 0x%x]' % (0x90 - 4 * GENE_NAMES.index(name))
+
+
+def PERCENT(register):
+    """the high byte of the register -> 0 to 99"""
+    return f'''shr {register}, 24
+    imul {register}, {register}, 100
+    shr {register}, 8'''
+
+
 CEILING_SOURCE = f'''
     push ebx
     push edi
     push ebp
     mov ebp, esp
-    sub esp, 0x1c
+    sub esp, 0x90
     mov eax, dword ptr [ebp]
+    mov dword ptr [ebp - 0x38], eax
     mov ebx, dword ptr [eax - 0x28]
     mov ecx, dword ptr [eax + 4]
     cmp ecx, {AI_PICK_RETURNS[0]}
     je c1
     cmp ecx, {AI_PICK_RETURNS[1]}
-    jne c3
-c1: mov ecx, dword ptr [eax + 0x18]
+    jne take
+c1: mov dword ptr [ebp - 0x40], ecx
+    mov ecx, dword ptr [eax - 0x24]
+    mov dword ptr [ebp - 0x54], ecx
+    mov ecx, dword ptr [eax + 0x18]
+    mov edx, dword ptr [ecx + 4]
+    mov dword ptr [ebp - 0x44], edx
     mov ecx, dword ptr [ecx]
     mov dword ptr [ebp - 0x18], ecx
     mov edx, dword ptr [eax + 0x30]
     mov edx, dword ptr [edx]
+    mov dword ptr [ebp - 0x48], edx
+    mov edx, dword ptr [eax + 0x14]
+    imul edx, dword ptr [edx], {HASH_POSITION}
+    mov dword ptr [ebp - 0x4c], edx
     mov eax, dword ptr [eax]
     movzx ecx, byte ptr [eax + 0x1b]
     mov dword ptr [ebp - 0x10], ecx
-    or edx, ecx
-    mov dword ptr [ebp - 0x1c], edx
     mov eax, dword ptr [eax + 0x1c]
     mov eax, dword ptr [eax]
     cmp eax, {LEVELS - 1}
-    ja c3
-    movzx ecx, byte ptr [eax + {CEILING_TOP}]
-    mov dword ptr [ebp - 0x14], ecx
-    mov eax, dword ptr [eax*4 + {CEILING_TAB}]
-    mov dword ptr [ebp - 4], eax
-    mov dword ptr [ebp - 8], 0xd
+    ja take
+    mov dword ptr [ebp - 0x20], eax
+    xor ecx, ecx
+    mov edx, dword ptr [ebx + 0xb4]
+    and edx, 0xf
+    dec edx
+    cmp edx, 1
+    jbe c2
+    inc ecx
+    test dword ptr [ebx + 0xb8], 0x60000000
+    jnz c2
+    inc ecx
+c2: mov dword ptr [ebp - 0x30], ecx
+    movzx ecx, word ptr [ebx + 0x2c]
+    imul edx, dword ptr [ebx + 0x30], {HASH_A}
+    xor ecx, edx
+    mov dword ptr [ebp - 0x28], ecx
+    imul edx, dword ptr [ebp - 0x18], {HASH_B}
+    xor ecx, edx
+    mov dword ptr [ebp - 0x2c], ecx
+    xor dword ptr [ebp - 0x4c], edx
+    mov ecx, dword ptr [ebp - 0x54]
+    and ecx, 0xffffff
+    imul ecx, ecx, {HASH_A}
+    xor dword ptr [ebp - 0x4c], ecx
+    mov dword ptr [ebp - 0x54], ecx
+    mov eax, dword ptr [ebp - 0x18]
+    call persona
+    mov dword ptr [ebp - 0x14], eax
+    mov dword ptr [ebp - 0x50], edx
+    xor ecx, ecx
+c3: push ecx
+    mov eax, dword ptr [ebp - 0x14]
+    mov edx, dword ptr [ebp - 0x18]
+    call gene
+    pop ecx
+    mov dword ptr [ebp + ecx*4 - 0x90], eax
+    inc ecx
+    cmp ecx, {GENES}
+    jb c3
+    cmp dword ptr [ebp - 0x30], 2
+    jne s9
+    and dword ptr [ebp - 8], 0
+    lea eax, [ebp - 8]
+    push eax
+    lea eax, [ebp - 0x3c]
+    push eax
+    mov ecx, ebx
+    call {PLAYER_CLUB}
+    mov eax, dword ptr [ebp - 0x3c]
+    cmp eax, dword ptr [{NO_CLUB_AT}]
+    je s9
+    call persona
+    push eax
+    cmp dword ptr [{SELL_AT}], 0
+    je s5
+    mov ecx, dword ptr [ebp - 0x38]
+    mov ecx, dword ptr [ecx - 0xc]
+    mov eax, dword ptr [ebp - 0x3c]
+    and eax, 0x3fff
+    cmp eax, {POOL_CLUBS}
+    jae s8
+    cmp dword ptr [ecx + eax*4 + {POOL_COUNTS}], {POOL_KEEPS}
+    jbe s8
+    cmp dword ptr [ebp - 0x40], {AI_PICK_RETURNS[1]}
+    jne s5
+    push edx
+    push ebx
+    call {PLAYER_BAND}
+    add esp, 4
+    pop edx
+    mov ecx, dword ptr [ebp - 0x20]
+    cmp ecx, 9
+    jb s1
+    cmp dword ptr [ebp - 0x48], 0
+    ja s5
+s1: cmp dword ptr [ebp - 0x44], 1
+    jne s2
+    cmp ecx, 8
+    jae s5
+s2: cmp dword ptr [ebp - 0x44], 4
+    jne s3
+    cmp ecx, eax
+    ja s5
+s3: cmp eax, 7
+    jae s8
+    cmp byte ptr [edx + 0xe], 8
+    jae s8
+s5: pop eax
+    mov ecx, {GENE_NAMES.index('keeps')}
+    mov edx, dword ptr [ebp - 0x3c]
+    call gene
+    imul ecx, dword ptr [ebp - 0x3c], {HASH_B}
+    xor ecx, dword ptr [ebp - 0x28]
+    xor ecx, dword ptr [ebp - 0x54]
+    imul ecx, ecx, {HASH_KEEPS}
+    {PERCENT('ecx')}
+    cmp ecx, eax
+    jb refuse
+    jmp s9
+s8: pop eax
+    jmp refuse
+s9: cmp dword ptr [ebp - 0x30], 1
+    je k9
+    imul ecx, dword ptr [ebp - 0x2c], {HASH_KNOWS}
+    {PERCENT('ecx')}
+    cmp ecx, {G('knows')}
+    jae refuse
+k9: mov dword ptr [ebp - 8], 0xd
     push 2
     lea eax, [ebp - 8]
     push eax
@@ -561,48 +766,166 @@ c1: mov ecx, dword ptr [eax + 0x18]
     call {RATING}
     add esp, 12
     movzx eax, al
-    cmp dword ptr [ebp - 0x10], 0
-    je c2
-    cmp eax, dword ptr [ebp - 0x14]
-    ja c4
-c2: cmp dword ptr [ebp - 4], -1
-    je c3
-    call {FEE_CODE}
+    mov dword ptr [ebp - 0x24], eax
+    mov edx, dword ptr [ebp - 0x50]
+    movzx ecx, byte ptr [edx + 0xe]
+    cmp ecx, {LEVELS - 1}
+    jbe e1
+    mov ecx, {LEVELS - 1}
+e1: movzx eax, word ptr [edx + 8]
+    imul eax, dword ptr [{STRENGTH_A_AT}]
+    add eax, dword ptr [{STRENGTH_B_AT}]
+    shr eax, 16
+    movzx edx, byte ptr [ecx + {RANGE_LOW_TAB}]
+    cmp eax, edx
+    jae e2
+    mov eax, edx
+e2: movzx edx, byte ptr [ecx + {RANGE_TOP_TAB}]
+    cmp eax, edx
+    jbe e3
+    mov eax, edx
+e3: mov dword ptr [ebp - 0x34], eax
+    add eax, {G('prestige')}
+    cmp dword ptr [ebp - 0x24], eax
+    ja refuse
+    mov edx, dword ptr [ebp - 0x48]
+    mov ecx, dword ptr [ebp - 0x38]
+    mov ecx, dword ptr [ecx - 0xc]
+    mov eax, dword ptr [ebp - 0x18]
+    and eax, 0x3fff
+    cmp eax, {POOL_CLUBS}
+    jae n1
+    mov eax, dword ptr [ecx + eax*4 + {POOL_COUNTS}]
+    cmp eax, dword ptr [{SQUAD_AT}]
+    jae n1
+    or edx, 1
+n1: mov dword ptr [ebp - 0x1c], edx
+    cmp dword ptr [ebp - 0x48], 0
+    jnz f1
+    mov edx, dword ptr [ebp - 0x14]
+    cmp byte ptr [edx + {THEN_1}], {NO_CHANNELS}
+    je a0
+    imul ecx, dword ptr [ebp - 0x4c], {HASH_C}
+    {PERCENT('ecx')}
+    xor eax, eax
+    mov edx, {G('free')}
+    cmp ecx, edx
+    jb w1
+    inc eax
+    add edx, {G('listed')}
+    cmp ecx, edx
+    jb w1
+    inc eax
+    add edx, {G('clubs')}
+    cmp ecx, edx
+    jb w1
     cmp dword ptr [ebp - 0x1c], 0
-    je c5
-    mov eax, dword ptr [ebp - 4]
-    mul dword ptr [{NEED_AT}]
-    div dword ptr [{HUNDRED_AT}]
+    je refuse
+    mov edx, dword ptr [ebp - 0x14]
+    movzx eax, byte ptr [edx + {THEN_1}]
+w1: cmp dword ptr [ebp - 0x1c], 0
+    jnz w2
+    mov ecx, dword ptr [ebp - 0x38]
+    movzx ecx, byte ptr [ecx - 0x22]
+    cmp ecx, dword ptr [{WINTER_AT}]
+    jne w2
+    imul ecx, dword ptr [ebp - 0x4c], {HASH_WINTER}
+    {PERCENT('ecx')}
+    cmp ecx, {G('winter')}
+    jae refuse
+w2: cmp dword ptr [ebp - 0x10], 0
+    je w4
+    mov edx, dword ptr [ebp - 0x14]
+    movzx ecx, byte ptr [edx + {THEN_1}]
+    cmp ecx, eax
+    jne w3
+    movzx ecx, byte ptr [edx + {THEN_2}]
+w3: mov eax, ecx
+w4: cmp eax, dword ptr [ebp - 0x30]
+    jne refuse
+a0: cmp dword ptr [ebp - 0x1c], 0
+    jnz f1
+    mov ecx, dword ptr [ebx + 0x1c]
+    shr ecx, 7
+    and ecx, 0x3f
+    mov edx, dword ptr [ebp - 0x14]
+    cmp cl, byte ptr [edx + {AGE_FROM}]
+    jb a1
+    cmp cl, byte ptr [edx + {AGE_TO}]
+    jbe f1
+a1: imul ecx, dword ptr [ebp - 0x2c], {HASH_AGE}
+    {PERCENT('ecx')}
+    cmp ecx, {G('strict')}
+    jb refuse
+f1: mov eax, {G('fog')}
+    lea ecx, [eax*2 + 1]
+    imul edx, dword ptr [ebp - 0x2c], {HASH_FOG}
+    shr edx, 24
+    imul ecx, edx
+    shr ecx, 8
+    sub ecx, eax
+    add dword ptr [ebp - 0x24], ecx
+    cmp dword ptr [ebp - 0x1c], 0
+    jnz p0
+    mov eax, dword ptr [ebp - 0x34]
+    sub eax, {G('ambition')}
+    cmp dword ptr [ebp - 0x24], eax
+    jl refuse
+p0: mov ecx, dword ptr [ebp - 0x20]
+    mov eax, dword ptr [ebp - 0x24]
+    cmp dword ptr [ebp - 0x10], 0
+    je p1
+    movzx edx, byte ptr [ecx + {CEILING_TOP}]
+    cmp eax, edx
+    jg refuse
+p1: mov eax, dword ptr [ecx*4 + {CEILING_TAB}]
+    cmp eax, -1
+    je take
+    mov edi, 100
+    mov ecx, {G('wealth')}
+    call muldiv
     mov dword ptr [ebp - 4], eax
-c5: movzx ecx, word ptr [ebx + 0x2c]
-    imul edx, dword ptr [ebx + 0x30], {HASH_A}
-    xor ecx, edx
-    imul edx, dword ptr [ebp - 0x18], {HASH_B}
-    xor ecx, edx
-    imul ecx, ecx, {HASH_C}
-    shr ecx, 24
-    imul ecx, dword ptr [{STRETCH_AT}]
+    mov eax, dword ptr [ebp - 0x1c]
+    or eax, dword ptr [ebp - 0x10]
+    jz p2
+    mov eax, dword ptr [{NEED_AT}]
+    mov ecx, {G('panic')}
+    call muldiv
+    lea ecx, [eax + edi]
     mov eax, dword ptr [ebp - 4]
-    mul ecx
-    mov ecx, 25600
-    div ecx
-    add dword ptr [ebp - 4], eax
+    call muldiv
+    mov dword ptr [ebp - 4], eax
+p2: mov eax, dword ptr [{STRETCH_AT}]
+    mov ecx, {G('premium')}
+    call muldiv
+    imul ecx, dword ptr [ebp - 0x2c], {HASH_C}
+    shr ecx, 24
+    imul ecx, eax
+    mov eax, dword ptr [ebp - 4]
+    mov edi, 25600
+    call muldiv
+    call more
     mov ecx, dword ptr [ebx + 0xb4]
-    and ecx, 0xf
-    dec ecx
-    cmp ecx, 1
-    mov ecx, {FREE_AT}
-    jbe c6
-    test dword ptr [ebx + 0xb8], 0x60000000
-    jz c7
-    mov ecx, {LISTED_AT}
-c6: mov eax, edi
-    mul dword ptr [ecx]
+    shr ecx, 11
+    and ecx, 0xfff
+    imul ecx, {G('fame')}
+    mov eax, dword ptr [ebp - 4]
+    mov edi, 100000
+    call muldiv
+    call more
+    mov eax, dword ptr [ebp - 0x24]
+    call {FEE_CODE}
+    mov ecx, dword ptr [ebp - 0x30]
+    cmp ecx, 2
+    je p3
+    mov eax, edi
+    mul dword ptr [ecx*4 + {FREE_AT}]
     div dword ptr [{HUNDRED_AT}]
     mov edi, eax
-c7: cmp edi, dword ptr [ebp - 4]
-    ja c4
-c3: mov esp, ebp
+p3: cmp edi, dword ptr [ebp - 4]
+    ja refuse
+take:
+    mov esp, ebp
     pop ebp
     pop edi
     pop ebx
@@ -611,12 +934,72 @@ c3: mov esp, ebp
     push esi
     push eax
     jmp {TAKE}
-c4: mov esp, ebp
+refuse:
+    mov esp, ebp
     pop ebp
     pop edi
     pop ebx
     add esp, 4
     jmp {AI_NEXT_PLAYER}
+muldiv:
+    mul ecx
+    cmp edx, edi
+    jae m1
+    div edi
+    ret
+m1: or eax, -1
+    ret
+more:
+    add dword ptr [ebp - 4], eax
+    jnc m2
+    or dword ptr [ebp - 4], -1
+m2: ret
+gene:
+    movzx eax, byte ptr [eax + ecx]
+    imul ecx, ecx, {HASH_A}
+    imul edx, edx, {HASH_B}
+    xor ecx, edx
+    imul ecx, ecx, {HASH_C}
+    shr ecx, 24
+    imul ecx, dword ptr [{PERSONA_RANGE_AT}]
+    shr ecx, 8
+    add ecx, dword ptr [{PERSONA_LOW_AT}]
+    mul ecx
+    div dword ptr [{THOUSAND_AT}]
+    ret
+persona:
+    mov edx, dword ptr [ebp - 0x38]
+    mov edx, dword ptr [edx - 8]
+    add edx, {RANK_TABLE}
+    push edx
+    mov ecx, dword ptr [edx + {RANK_COUNT}]
+    cmp ecx, {RANK_MOST}
+    ja r2
+r1: dec ecx
+    js r2
+    cmp dword ptr [edx], eax
+    je r3
+    add edx, 16
+    jmp r1
+r2: mov edx, dword ptr [esp]
+r3: add esp, 4
+    mov ecx, dword ptr [{HAND_COUNT_AT}]
+r4: dec ecx
+    js r5
+    cmp dword ptr [ecx*4 + {HAND_IDS}], eax
+    jne r4
+    movzx eax, byte ptr [ecx + {HAND_TYPES}]
+    jmp r7
+r5: movzx ecx, byte ptr [edx + 0xe]
+    cmp ecx, {LEVELS - 1}
+    jbe r6
+    mov ecx, {LEVELS - 1}
+r6: imul eax, eax, {HASH_B}
+    shr eax, 29
+    movzx eax, byte ptr [ecx*8 + eax + {BY_LEVEL_TAB}]
+r7: imul eax, eax, {PERSONA_BYTES}
+    add eax, {GENES_TAB}
+    ret
 '''
 # the assembled routines (python3 money_cave.py build checks them against the source above)
 FEE_BYTES = bytes.fromhex(
@@ -638,12 +1021,31 @@ INCOME_SCALE_BYTES = bytes.fromhex('85c07e0e52f7258c0d7b04f73554067b045ac3')
 INCOME_S_BYTES = bytes.fromhex('81c6983a00005089f0e8deffffff89c658c3')
 LEAGUE_BYTES = bytes.fromhex('31c9eb0d0fb7144d900d7b0439fa7411413b0da80d7b0472eb8b0485c0077b04c36bc91801c10fb7044db00d7b046bc064c3')
 CEILING_BYTES = bytes.fromhex(
-    '53575589e583ec1c8b45008b58d88b480481f9580d6603740c81f9b90d66030f85f70000008b48188b09894de88b50308b128b000fb648'
-    '1b894df009ca8955e48b401c8b0083f8090f87ce0000000fb688683c7d04894dec8b0485403c7d048945fcc745f80d0000006a028d45f8'
-    '5053e849fe07ff83c40c0fb6c0837df00074093b45ec0f87a2000000837dfcff0f8488000000e873cffdff837de40074128b45fcf72578'
-    '3c7d04f73554067b048945fc0fb74b2c6953309301000131d16955e8b179379e31d169c96bcaeb85c1e9180faf0d743c7d048b45fcf7e1'
-    'b900640000f7f10145fc8b8bb400000083e10f4983f901b9803c7d047611f783b8000000000000607411b97c3c7d0489f8f721f7355406'
-    '7b0489c73b7dfc771089ec5d5f5b588b4d245650e9105695ff89ec5d5f5b83c404e96bbde8fe')
+    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f853e040000894dc08b48dc894dac8b4818'
+    '8b51048955bc8b09894de88b50308b128955b88b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87fc03000089'
+    '45e031c98b93b400000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd86955e8'
+    'b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8030400008945ec8955b031c9518b45ec8b55'
+    'e8e8bb0300005989848d70ffffff4183f90e72e6837dd0020f85d00000008365f8008d45f8508d45c45089d9e8926905ff8b45c43b0534'
+    'eb4f020f84ae000000e8b003000050833d5c427d040074658b4dc88b49f48b45c425ff3f00003d8d0200000f838000000083bc81ac0700'
+    '00177676817dc0b90d660375395253e8c8f807ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc047504'
+    '39c1770b83f807733a807a0e08733458b90c0000008b55c4e8ff020000694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1'
+    'e90839c10f82b7020000eb0658e9af020000837dd0017419694dd4b1675616c1e9186bc964c1e9083b4d800f8390020000c745f80d0000'
+    '006a028d45f85053e85ef307ff83c40c0fb6c08945dc8b55b00fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d'
+    '04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d08945cc03459c3945dc0f87260200008b55b88b4dc88b49f48b'
+    '45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85d60000008b55ec807a10ff0f8494'
+    '000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837d'
+    'e4000f84a60100008b55ec0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7c'
+    'ffffff0f836e010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f854e010000837de400752f8b4b1cc1e90783e1'
+    '3f8b55ec3a4a0e72053a4a0f7619694dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955d4656b54'
+    'e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb69128427d04'
+    '39d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d'
+    '90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e8'
+    '6d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce85dc2fdff8b'
+    '4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e95f4995ff89ec5d5f5b83c404e9ba'
+    'b0e8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf'
+    '0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902'
+    '740883c210ebf48b142483c4048b0d60427d0449781239048d68447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069'
+    'c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3')
 assert CEILING_CODE + len(CEILING_BYTES) <= CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
 ROUTINES = ((FEE_CODE, FEE_SOURCE, 'FEE_BYTES'), (SALARY_CODE, SALARY_SOURCE, 'SALARY_BYTES'),
             (BUDGET_T_CODE, BUDGET_T_SOURCE, 'BUDGET_T_BYTES'), (BUDGET_S_CODE, BUDGET_S_SOURCE, 'BUDGET_S_BYTES'),
@@ -672,7 +1074,15 @@ MIN_INCOME, MAX_INCOME = 10, 1000
 MAX_INCOME_WAGES = 100                  # percent: the wage bill times this still fits the division
 MAX_LEAGUE_ROW = 650                    # millions: a place of a list by league is kept in 16 bits
 MIN_CEILING, MAX_CEILING = 0.01, 9999   # millions; 0 in the list: no ceiling for that group of clubs
-MAX_STRETCH, MAX_NEED = 300, 300        # percent: the largest ceiling times both still fits 32 bits
+MAX_STRETCH, MAX_NEED = 300, 300        # percent
+MAX_PERSONA_SPREAD = 50                 # percent
+MAX_SLOPE, MAX_BASE = 0.5, 99           # STRENGTH: rating points per ranking point, rating at 0 points
+MAX_SQUAD = 32
+# a persona: the lowest and the highest number each entry takes (GENE_NAMES, then the two ages)
+GENE_LIMITS = {'free': (0, 100), 'listed': (0, 100), 'clubs': (0, 100), 'winter': (0, 100), 'knows': (1, 100),
+               'fog': (0, 10), 'wealth': (10, 250), 'premium': (0, 250), 'panic': (0, 250), 'fame': (0, 250),
+               'ambition': (0, 99), 'prestige': (0, 99), 'keeps': (0, 100), 'strict': (0, 100)}
+AGE_LIMITS = (0, 63)
 NO_TALENT = 255
 
 # the code the routines rely on: name, address, byte count (MLMoney.lua compares these
@@ -701,11 +1111,17 @@ CONTEXT = (
 )
 
 
-# the same for MLTransfers.lua (the price ceiling); compared only when CEILING is on
+# the same for MLTransfers.lua; compared only when one of its parts is on
 CONTEXT_CEILING = (
     ('choose', AI_CANDIDATES, 1462),        # ai_candidates, the whole function
-    ('pick', AI_PICK, 373),                 # ai_pick_candidate up to the end of its two calls of ai_candidates
+    ('pick', AI_PICK, 1483),                # ai_pick_candidate, the whole function: its two calls of ai_candidates
+                                            # and the rule by which it takes one of the three (the selling side)
     ('range', AI_MAX_OVERALL, 152),         # the highest overall of a club's rating range, by level (WINDOW_TOP)
+    ('range low', AI_MIN_OVERALL, 152),     # the lowest (WINDOW_LOW)
+    ('club', PLAYER_CLUB, 44),              # the club a player plays for, the whole function
+    ('band', PLAYER_BAND, 345),             # the status band of a player, the whole function
+    ('club level', 0x0365d775, 176),        # what ai_pick_candidate asks about the selling club: its level, from the ranking
+    ('ranking', 0x031b1c34, 138),           # the look-up of a club in the ranking that function uses
     ('rating', RATING, 9),                  # the rating call of the fee function
     ('take', TAKE, 114),                    # the function that adds a player to the candidates, both its returns
 )
@@ -717,7 +1133,8 @@ def call(site, target):
 
 # what MLTransfers.lua must find in the memory of MLMoney.lua before it writes: name,
 # address, bytes. (FEE_BYTES is defined above; the mark is compared apart, for the log.)
-MONEY_NEEDED = (('value routine', FEE_CODE, FEE_BYTES), ('number 100', HUNDRED_AT, struct.pack('<I', 100)))
+MONEY_NEEDED = (('value routine', FEE_CODE, FEE_BYTES), ('numbers', HUNDRED_AT, struct.pack('<II', 100, 1000)))
+assert THOUSAND_AT == HUNDRED_AT + 4
 
 
 FEE_SITE_NEW = call(FEE_SITE, FEE_CODE) + b'\x90' * 12
@@ -747,7 +1164,7 @@ SITES = (('fee', FEE_SITE, FEE_SITE_OLD, FEE_SITE_NEW), ('salary', SALARY_SITE, 
          ('income 4', INCOME_W_SITE, INCOME_W_SITE_OLD, call(INCOME_W_SITE, WAGES_KEEP_CODE) + b'\x90' * 4),
          ) + tuple(('nat %d' % i, at, struct.pack('<I', old), struct.pack('<I', old))
                    for i, (at, old) in enumerate(NATIONAL_SITES)) + (
-         ('ceiling', CEILING_SITE, CEILING_SITE_OLD, call(CEILING_SITE, CEILING_CODE) + b'\x90' * 4),)
+         ('transfers', CEILING_SITE, CEILING_SITE_OLD, call(CEILING_SITE, CEILING_CODE) + b'\x90' * 4),)
 assert all(len(old) == len(new) for _, _, old, new in SITES)
 
 
@@ -804,13 +1221,19 @@ class Tables:
     rating range; ceiling_stretch: percent above its ceiling at which a club's chance to
     take a player has fallen to none; ceiling_need: percent by which need raises the
     ceiling; ceiling_listed, ceiling_free: percent of his value that counts for a listed
-    player and for one signed without a transfer."""
+    player and for one signed without a transfer; sell: the selling club's side is asked
+    (SELL_SIDE); scouting: the `knows` of the personas counts (SCOUTING); persona: None, or
+    a dict with archetypes [(name, {entry: number, 'age': (first, last), 'second': (channel,
+    channel)})], groups (10 lists of names, best clubs first), clubs [(club id, name)],
+    spread (percent), strength (rating points per ranking point, rating at 0 points),
+    winter (month or 0), squad (players)."""
 
     def __init__(self, value, age, position, spread, fame, salary, salary_age, budget_transfer, budget_salary,
                  cup=None, league=None, league_2=None, prize_share=None, pay_gap=None, bonus=None,
                  young_years=None, talent=None, talent_step=0, talent_max=0, talent_cap=0, income=None,
                  league_by_id=None, cup_national=None, cup_tv=None, income_wages=None, ceiling=None,
-                 ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100):
+                 ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100,
+                 sell=False, scouting=False, persona=None):
         self.value = [clamp(amount(m), 1, CAP) for m in curve(value, 0, 99, True)]
         self.age = [clamp(int(p + 0.5), 0, MAX_AGE_PERCENT) for p in curve(age, 0, 63, False)]
         self.position = [clamp(int(position[n] + 0.5), 0, MAX_POSITION_PERCENT) for n in POSITIONS] + [100] * 3
@@ -869,13 +1292,44 @@ class Tables:
         assert self.national is None or len(self.national) == len(NATIONAL_SITES)
         # by club level 0 to 9 (the list in the settings starts with the best clubs, level 9)
         assert ceiling is None or len(ceiling) == LEVELS
-        self.ceiling = None if ceiling is None else [
+        self.has_ceiling = ceiling is not None
+        self.ceiling = [NO_CEILING] * LEVELS if ceiling is None else [
             clamp(amount(m), amount(MIN_CEILING), amount(MAX_CEILING)) if m else NO_CEILING for m in reversed(ceiling)]
-        self.ceiling_top = list(WINDOW_TOP) if ceiling_rating else [NO_TOP] * LEVELS
-        self.ceiling_stretch = clamp(int(ceiling_stretch + 0.5), 0, MAX_STRETCH)
-        self.ceiling_need = clamp(int(ceiling_need + 0.5), 0, MAX_NEED)
-        self.ceiling_listed = clamp(int(ceiling_listed + 0.5), 0, 100)
-        self.ceiling_free = clamp(int(ceiling_free + 0.5), 0, 100)
+        self.ceiling_top = list(WINDOW_TOP) if ceiling_rating and self.has_ceiling else [NO_TOP] * LEVELS
+        self.ceiling_stretch = clamp(int(ceiling_stretch + 0.5), 0, MAX_STRETCH) if self.has_ceiling else 0
+        self.ceiling_need = clamp(int(ceiling_need + 0.5), 0, MAX_NEED) if self.has_ceiling else 0
+        self.ceiling_listed = clamp(int(ceiling_listed + 0.5), 0, 100) if self.has_ceiling else 100
+        self.ceiling_free = clamp(int(ceiling_free + 0.5), 0, 100) if self.has_ceiling else 100
+        # MLTransfers.lua writes only if one of its parts is on
+        self.sell, self.has_persona = bool(sell), persona is not None
+        self.scouting = bool(scouting) and self.has_persona
+        self.transfers = self.has_ceiling or self.sell or self.has_persona
+        # the personas: number 0 is the club of version 1, the others are ARCHETYPES in their order
+        self.genes, self.names = [NEUTRAL], ['']
+        self.by_level, self.hand = [[0] * BY_LEVEL for _ in range(LEVELS)], []
+        self.persona_low, self.persona_range, self.strength_a, self.strength_b, self.winter, self.squad = 1000, 0, 0, 0, 0, 0
+        if persona is not None:
+            for name, numbers in persona['archetypes']:
+                record = [clamp(int(numbers[k] + 0.5), *GENE_LIMITS[k]) for k in GENE_NAMES]
+                if not scouting:
+                    record[GENE_NAMES.index('knows')] = NEUTRAL[GENE_NAMES.index('knows')]
+                record += [clamp(int(a + 0.5), *AGE_LIMITS) for a in numbers['age']]
+                record += [CHANNELS.index(c) for c in numbers['second']] + [0, 0]
+                self.genes.append(bytes(record))
+                self.names.append(name)
+            assert len(self.genes) <= PERSONAS and len(persona['groups']) == LEVELS
+            for level, group in zip(range(LEVELS - 1, -1, -1), persona['groups']):
+                assert 1 <= len(group) <= BY_LEVEL
+                self.by_level[level] = [self.names.index(group[k % len(group)]) for k in range(BY_LEVEL)]
+            self.hand = [(int(club), self.names.index(name)) for club, name in persona['clubs']]
+            assert len(self.hand) <= HAND
+            spread = clamp(int(persona['spread'] + 0.5), 0, MAX_PERSONA_SPREAD)
+            self.persona_low, self.persona_range = 1000 - 10 * spread, 20 * spread
+            slope, base = persona['strength']
+            self.strength_a = int(clamp(slope, 0, MAX_SLOPE) * 65536 + 0.5)
+            self.strength_b = int(clamp(base, 0, MAX_BASE) * 65536 + 0.5) + 32768
+            self.winter = clamp(int(persona['winter'] + 0.5), 0, 12)
+            self.squad = clamp(int(persona['squad'] + 0.5), 0, MAX_SQUAD)
 
     def sites(self):
         """The places the module changes with these settings: (name, address, old, new)."""
@@ -886,7 +1340,7 @@ class Tables:
               'cup 3': self.has_cup, 'league 1': self.has_league, 'league 2': self.has_league_2,
               'prize 1': share, 'prize 2': share, 'pay gap': self.has_gap, 'bonus 1': bonus, 'bonus 2': bonus,
               'years': self.young_years is not None, 'income 1': income or wages, 'income 2': income, 'income 3': income,
-              'income 4': wages, 'ceiling': self.ceiling is not None}
+              'income 4': wages, 'transfers': self.transfers}
         used = []
         for name, at, old, new in SITES:
             if name == 'years' and on[name]:
@@ -930,12 +1384,18 @@ def image(t):
 
 
 def image_2(t):
-    """The second piece of memory: the ceilings by club level, the four numbers of the
-    limit and the routine."""
+    """The second piece of memory: the tables and the routine of MLTransfers.lua."""
     d = struct.pack('<%dI' % LEVELS, *t.ceiling) + bytes(t.ceiling_top)
-    d = d.ljust(STRETCH_AT - CAVE_2, b'\0') + struct.pack('<4I', t.ceiling_stretch, 100 + t.ceiling_need,
-                                                           t.ceiling_listed, t.ceiling_free)
-    assert CAVE_2 + len(d) == CEILING_CODE
+    d = d.ljust(STRETCH_AT - CAVE_2, b'\0') + struct.pack(
+        '<12I', t.ceiling_stretch, t.ceiling_need, t.ceiling_free, t.ceiling_listed, t.persona_low, t.persona_range,
+        t.strength_a, t.strength_b, t.winter, t.squad, int(t.sell), len(t.hand))
+    assert CAVE_2 + len(d) == RANGE_LOW_TAB and RANGE_TOP_TAB == RANGE_LOW_TAB + LEVELS
+    d = (d + bytes(WINDOW_LOW) + bytes(WINDOW_TOP)).ljust(BY_LEVEL_TAB - CAVE_2, b'\0')
+    d += b''.join(bytes(row) for row in t.by_level)
+    assert CAVE_2 + len(d) == GENES_TAB
+    d = (d + b''.join(t.genes)).ljust(HAND_TYPES - CAVE_2, b'\0')
+    d = (d + bytes(index for _, index in t.hand)).ljust(HAND_IDS - CAVE_2, b'\0')
+    d = (d + struct.pack('<%dI' % len(t.hand), *[club for club, _ in t.hand])).ljust(CEILING_CODE - CAVE_2, b'\0')
     d += CEILING_BYTES
     assert len(d) <= CAVE_2_SIZE
     return d.ljust(CAVE_2_SIZE, b'\0')
@@ -966,53 +1426,173 @@ def level_of_place(place):
             return level
 
 
+M32 = 0xffffffff
+
+
+def high_byte(x, factor):
+    """One byte from a key: the last step of every draw of MLTransfers.lua."""
+    return ((x & M32) * factor & M32) >> 24
+
+
+def draw(x, factor):
+    """The same as a number from 0 to 99."""
+    return high_byte(x, factor) * 100 >> 8
+
+
+def player_key(player):
+    return (player[0] & 0xffff) ^ (player[1] * HASH_A & M32)
+
+
+def club_key(club):
+    return club * HASH_B & M32
+
+
 def stretch_hash(player, club):
-    """The byte the ceiling routine makes from a player's id and the buying club's id."""
-    x = (player[0] & 0xffff) ^ (player[1] * HASH_A & 0xffffffff) ^ (club * HASH_B & 0xffffffff)
-    return (x * HASH_C & 0xffffffff) >> 24
+    """The byte the routine makes from a player's id and the buying club's id."""
+    return high_byte(player_key(player) ^ club_key(club), HASH_C)
 
 
-def limit(t, level, player=(0, 0), club=0, need=False):
+def muldiv(a, b, c):
+    """a x b / c as the routine works it out: the largest number if it does not fit 32 bits."""
+    return min(a * b // c, M32)
+
+
+def gene(t, record, i, club):
+    """Entry i (GENE_NAMES) of a persona as the club with this id has it: the number of the
+    persona, up to PERSONA_SPREAD percent lower or higher by a draw from club and entry."""
+    h = high_byte((i * HASH_A & M32) ^ club_key(club), HASH_C)
+    return record[i] * (t.persona_low + (h * t.persona_range >> 8)) // 1000
+
+
+def persona_index(t, club, level):
+    """Which persona a club has: the one CLUBS names for it (the last entry counts), else
+    one of the eight of its level (the level of its record in the club ranking; for a club
+    that is not in the ranking the game's own search gives the first record, and so does
+    the routine)."""
+    named = [index for c, index in t.hand if c == club]
+    return named[-1] if named else t.by_level[min(level, LEVELS - 1)][club_key(club) >> 29]
+
+
+def persona(t, club, level):
+    return t.genes[persona_index(t, club, level)]
+
+
+def eleven(t, points, level):
+    """The rating a club's first eleven is taken to have: from its ranking points, kept
+    inside the rating range the game gives its level."""
+    level = min(level, LEVELS - 1)
+    return clamp(((points * t.strength_a + t.strength_b) & M32) >> 16, WINDOW_LOW[level], WINDOW_TOP[level])
+
+
+def limit(t, level, player=(0, 0), club=0, need=False, numbers=None, popularity=0):
     """The most a computer club of this level counts as affordable for this player.
-    need: its second search, or a slot that asks for a status band."""
-    x = t.ceiling[level]
+    need: its second search, a slot that asks for a status band, or too small a squad;
+    numbers: the club's persona as it has it (gene() of every entry; None: persona 0)."""
+    g = dict(zip(GENE_NAMES, numbers or NEUTRAL))
+    x = muldiv(t.ceiling[level], g['wealth'], 100)
     if need:
-        x = x * (100 + t.ceiling_need) // 100
-    return x + x * (stretch_hash(player, club) * t.ceiling_stretch) // 25600
+        x = muldiv(x, (muldiv(t.ceiling_need, g['panic'], 100) + 100) & M32, 100)
+    stretch = muldiv(t.ceiling_stretch, g['premium'], 100)
+    x = min(x + muldiv(x, stretch_hash(player, club) * stretch & M32, 25600), M32)
+    return min(x + muldiv(x, popularity * g['fame'] & M32, 100000), M32)
 
 
-def affordable(t, level, rating, age, popularity, position=5, player=(0, 0), wide=False, from_pick=True,
-               club=0, band=0, status=0, listed=False):
-    """Does a computer club of this level take the player as a candidate (after all the
-    game's own tests)? wide: the second search, among all players; club: the buying club's
-    id; band: the status band the slot asks for; status: of the player (+0xb4, bits 0-3);
-    listed: he carries mark 29 or 30. Without the ceiling, with a level outside 0 to 9, or
-    when the choosing code was not entered from ai_pick_candidate: always."""
-    if t is None or t.ceiling is None or not from_pick or not 0 <= level < LEVELS:
+def accepts(t, level, player, buyer=None, search=None, from_pick=True):
+    """Does a computer club take the player as a candidate (after all the game's own
+    tests)? The routine of MLTransfers.lua, step by step.
+
+    level: of the buying club, as ai_pick_candidate has it (the plan record).
+    player: dict with rating, age, popularity, position, id (two parts) and, if not 0 or
+    False, status (+0xb4 bits 0-3), listed (mark 29 or 30), band (his status band), club
+    (None: the game's "no club"; else a dict with id, level and points of its ranking
+    record and count, the players the pool counts for it).
+    buyer: dict with id, level and points (its ranking record), count (as above).
+    search: dict with wide (the second search, among all players), first (the first of the
+    two calls of ai_candidates: the set of players without a contract and of those who
+    have outgrown their club), band (the status band the slot asks for), kind (of the
+    plan), position (asked for), date (year, month).
+    Without a part of MLTransfers.lua on, with a level outside 0 to 9, or when the choosing
+    code was not entered from ai_pick_candidate: always."""
+    if t is None or not t.transfers or not from_pick or not 0 <= level < LEVELS:
         return True
-    if wide and rating > t.ceiling_top[level]:
+    buyer = buyer or dict(id=0, level=level, points=0, count=99)
+    search = dict(dict(wide=False, first=False, band=0, kind=0, position=13, date=(0, 0)), **(search or {}))
+    status, wide = player.get('status', 0), search['wide']
+    where = 0 if status in (1, 2) else 1 if player.get('listed') else 2
+    key = player_key(player['id'])
+    both = key ^ club_key(buyer['id'])
+    year, month = search['date']
+    date = (year | month << 16) * HASH_A & M32
+    turn = (search['position'] * HASH_POSITION & M32) ^ club_key(buyer['id']) ^ date
+    mine = persona(t, buyer['id'], buyer['level'])
+    numbers = [gene(t, mine, i, buyer['id']) for i in range(GENES)]
+    g = dict(zip(GENE_NAMES, numbers))
+    # 1. the selling club: the rule by which ai_pick_candidate lets a player with a contract go
+    #    (a player it would refuse must not take one of the three places), then what the club keeps
+    seller = player.get('club')
+    if where == 2 and seller is not None:
+        if t.sell:
+            if seller['count'] is None or seller['count'] <= POOL_KEEPS:
+                return False
+            if not search['first']:
+                band = player.get('band', 0)
+                wanted = ((level >= 9 and search['band'] > 0) or (search['kind'] == 1 and level >= 8)
+                          or (search['kind'] == 4 and level > band))
+                if not wanted and (band >= 7 or seller['level'] >= 8):
+                    return False
+        keeps = gene(t, persona(t, seller['id'], seller['level']), GENE_NAMES.index('keeps'), seller['id'])
+        if draw(club_key(seller['id']) ^ key ^ date, HASH_KEEPS) < keeps:
+            return False
+    # 2. scouting: a club knows a part of the players; a listed player is known to all
+    if where != 1 and draw(both, HASH_KNOWS) >= g['knows']:
+        return False
+    # 3. the player: he does not join a club too far below him
+    own = eleven(t, buyer['points'], buyer['level'])
+    if player['rating'] > own + g['prestige']:
+        return False
+    # 4. where the club looks. A slot that asks for a band looks everywhere; a club with a
+    #    small squad is in need too: it always buys, in winter as well, at any age
+    need = bool(search['band']) or (buyer['count'] is not None and buyer['count'] < t.squad)
+    if not search['band'] and mine[THEN_1] != NO_CHANNELS:
+        d = draw(turn, HASH_C)
+        first = (0 if d < g['free'] else 1 if d < g['free'] + g['listed']
+                 else 2 if d < g['free'] + g['listed'] + g['clubs'] else None)
+        if first is None:                                    # it does not buy for this position this time
+            if not need:
+                return False
+            first = mine[THEN_1]
+        if not need and month == t.winter and draw(turn, HASH_WINTER) >= g['winter']:
+            return False
+        if wide:                                             # the second search: the next place it looks in
+            first = mine[THEN_1] if mine[THEN_1] != first else mine[THEN_2]
+        if first != where:
+            return False
+    if not need and not mine[AGE_FROM] <= player['age'] <= mine[AGE_TO] and draw(both, HASH_AGE) < g['strict']:
+        return False
+    # 5. the rating as this club sees it
+    seen = player['rating'] + (high_byte(both, HASH_FOG) * (2 * g['fog'] + 1) >> 8) - g['fog']
+    if not need and seen < own - g['ambition']:
+        return False
+    # 6. the price
+    if wide and seen > t.ceiling_top[level]:
         return False
     if t.ceiling[level] == NO_CEILING:
         return True
-    price = value(t, rating, age, popularity, position, player)
-    if status in (1, 2):
-        price = price * t.ceiling_free // 100
-    elif listed:
-        price = price * t.ceiling_listed // 100
-    return price <= limit(t, level, player, club, bool(wide or band))
+    price = value(t, seen & M32, player['age'], player['popularity'], player['position'], player['id'])
+    if where != 2:
+        price = price * (t.ceiling_free, t.ceiling_listed)[where] // 100
+    return price <= limit(t, level, player['id'], buyer['id'], need or wide, numbers, player['popularity'])
 
 
-def candidates(t, level, lists, lowest, highest, wide=False, passes=lambda p: True, most=3, club=0, band=0):
+def candidates(t, level, lists, lowest, highest, passes=lambda p: True, most=3, buyer=None, search=None):
     """The walk of ai_candidates over one set of lists: from the highest overall asked for
     down to the lowest, each list in its order, the first `most` players who pass the
-    game's tests and the ceiling. lists: {overall: [player, ...]}, a player being a dict
-    with rating, age, popularity, position, id and, if not 0, status and listed. As the
-    game, the walk leaves out the list of `lowest` itself."""
+    game's tests and the routine. lists: {overall: [player, ...]}, a player being a dict
+    as accepts() takes it. As the game, the walk leaves out the list of `lowest` itself."""
     out = []
     for overall in range(highest, lowest, -1):
         for p in lists.get(overall, ()):
-            if passes(p) and affordable(t, level, p['rating'], p['age'], p['popularity'], p['position'], p['id'],
-                                        wide, True, club, band, p.get('status', 0), p.get('listed', False)):
+            if passes(p) and accepts(t, level, p, buyer, search):
                 out.append(p)
                 if len(out) >= most:
                     return out
@@ -1218,7 +1798,7 @@ def lua_block(exe):
             '-- number in "years" is YOUNG_YEARS and the amounts of the six "nat" places are\n'
             '-- CUP_NATIONAL; they are put in below.)\nlocal SITES = {\n')
     for name, at, old, new in SITES:
-        if name != 'ceiling':                                # that place belongs to MLTransfers.lua
+        if name != 'transfers':                              # that place belongs to MLTransfers.lua
             out += '    { "%s", 0x%08x, "%s", "%s" },\n' % (name, at, old.hex(), new.hex())
     return (out + '}\n\n-- The code and data those places and the routines rely on: name, address, bytes.\n'
             + context_lua(exe) + '\n')
@@ -1226,7 +1806,7 @@ def lua_block(exe):
 
 def lua_block_transfers(exe):
     """The lines of MLTransfers.lua from `local ROUTINE` to the end of CONTEXT."""
-    (name, at, old, new), = [x for x in SITES if x[0] == 'ceiling']
+    (name, at, old, new), = [x for x in SITES if x[0] == 'transfers']
     out = ('local ROUTINE = { 0x%02x, %s }\n\n-- The place that is changed: name, address, bytes there now, bytes to write.\n'
            'local SITE = { "%s", 0x%08x, "%s", "%s" }\n\n'
            '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n' % (
@@ -1246,7 +1826,7 @@ if __name__ == '__main__':
             assert code == globals()[name], '%s: the bytes kept in this file are not what the source assembles to: %s' % (name, code.hex())
         print('ok: the source assembles to the bytes kept in this file')
     print('memory   %08x - %08x' % (CAVE, CAVE + CAVE_SIZE - 1))
-    print('memory 2 %08x - %08x (MLTransfers.lua: the price ceiling)' % (CAVE_2, CAVE_2 + CAVE_2_SIZE - 1))
+    print('memory 2 %08x - %08x (MLTransfers.lua)' % (CAVE_2, CAVE_2 + CAVE_2_SIZE - 1))
     for name, at, old, new in SITES:
         print('%-9s %08x: %s -> %s' % (name, at, old.hex(), new.hex()))
     for at, _, name in ROUTINES:

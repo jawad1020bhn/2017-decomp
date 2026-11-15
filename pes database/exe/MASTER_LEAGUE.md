@@ -1220,7 +1220,8 @@ part):
   83 to 99, a level-0 club at 47 to 74 (9.4). `sider/MLTransfers.lua` adds a
   highest value per level, which gives way for a club in need (9.10).
 - It takes **the best three that fit** and prefers listed players and players
-  without a club among them (9.6).
+  without a club among them (9.6). In one window read from two saves 506 of 511
+  signings were players without a contract (9.11).
 - A player leaves a computer club on this way only if that club counts more than 23
   players; those more than 3 points above the top of their club's window are looked
   at first (9.5).
@@ -1299,6 +1300,60 @@ and can meet the same three. `CEILING_RATING = false` switches step 4 off.
 
 The module books no money. A computer club still has no account (9.7).
 
+### 9.11 One window read from two saves, and version 2 of `sider/MLTransfers.lua`
+
+Level: the counts are **read from two save files** of one career (Athletic Club, first
+season, 1 July and 15 September 2024, `MLMoney.lua` 7 and `MLTransfers.lua` 1 in use;
+`ML saves/`). The player records were compared in the unpacked mode data; the fields
+are those of 13.
+
+| | |
+|---|---|
+| signings by the 498 computer clubs | 511 |
+| of them players without a contract | 506 |
+| of them from another club | 5 |
+| players with mark 29 or 30 before / after | 816 / 1,547 |
+| marked players who moved | 0 |
+
+So nearly every signing is a free agent and the lists of 9.3 grow without being used.
+The reading of 9.5 and 9.6 gives two causes; neither is the price ceiling:
+
+- `ai_pick_candidate` searches the set of players without a contract and of players
+  who outgrew their club first, and the other set only if the first gave nobody. After
+  the end of the contracts the first set is never empty.
+- For a player of the other set `ai_pick_candidate` asks after `ai_candidates` has
+  listed three whether he may go: the buyer's level is 9 and the slot asks for a band,
+  or the plan's kind is 1 and the level at least 8, or the kind is 4 and the level above
+  the player's band, or his band is below 7 and his club's level below 8. If none of
+  the three may go, nobody is signed for the slot.
+
+Version 2 of `MLTransfers.lua` works at the same place as 9.10 (`0x0365fb0d`) with a
+longer routine (1,345 bytes at `0x047d45e8`, tables from `0x047d4200`, in the unused
+rest of the page of section `.data1`). Before the ceiling it
+
+1. asks the question above, and the pool's count of more than 23, before the player is
+   listed (`SELL_SIDE`), and lets the selling club keep a share of its players;
+2. lets the buying club know only a share of the players (`SCOUTING`);
+3. gives each club a persona (`PERSONA`): a draw from position, club and date says in
+   which of three places it looks for that position on that day (no contract, marked
+   29 or 30, other players of clubs) or that it does not buy; the second search looks
+   in the next place; ages; a rating seen with an error; a lowest and a highest rating
+   against the rating of its first eleven, which is worked out from the points of its
+   ranking record (mean of the best eleven of the 499 ranked clubs of the save ≈
+   0.0533 x points + 9.45).
+
+The persona is named per club id or drawn by level. All it needs beyond 9.10 is read
+from the frame of `ai_candidates` (date `[ebp - 0x24]`, pool `[ebp - 0xc]`, mode data
+`[ebp - 8]`, position `[ebp + 0x14]`) and with the game's own functions for a player's
+club (`fcn_0382b087`), his band (`fcn_0385400e`) and the ranking record
+(`fcn_031b1c34`, which returns the first record for a club that is not ranked). The
+steps and every address are written out at the top of `sider/money_cave.py`;
+`sider/README.md` has the settings.
+
+**Run in the emulator** as in 9.10, against `money_cave.accepts`. **Not run in the
+game.** Not established: how many signings the settings give in a window, and whether
+the running game leaves the memory at `0x047d4200` alone.
+
 ## 10 Team strength
 
 Level: **read**.
@@ -1372,13 +1427,34 @@ read far enough to see that they are not the growth arithmetic (nor is
 
 ## 13 The Master League save file
 
-Level: **read** (table), the content **not seen**.
+Level: the table **read**; the content **seen in two saves of one career** (see below).
 
 The save-kind table at `0x0213d1a8` (see `NOTES.md`) has Master League in **row 10**:
 name `ML`, folder key `ml` (row 11 is `BL`, row 9 `LG`). The
 container is the one `savefile.py` reads: same header, same cipher, same hashes. What
-is inside (the mode data of section 2.2, in which order, packed or not) is not read,
-and no `ML…` file is in the repository to look at.
+is inside was looked at in the two files of `ML saves/` (the same career on 1 July
+and on 15 September of its first season). `python3 tools/savefile.py unpack <save>
+<folder>` gives a `data.dat` of 13,253,312 bytes. Found in it, each by its content:
+
+| file offset | what | how it was recognised |
+|---|---|---|
+| `0x50` | 626 team records of `0x520` bytes; the low 14 bits of a club id are the index in this table | names and ids |
+| `0x92262c` | the club ranking: 499 records of 16 bytes: club id, place, points (twice, 16 bits each), 0, level (16 bits) | places 1 to 499 in order, levels as in 9.4 |
+| `0x92596c` | 498 plan records of `0x118` bytes (9.1) | club ids in ranking order |
+
+The ranking stands at mode data `+0xcc84cc` in the code, so for this part of the file
+`file offset = mode-data offset - 0x3a5ea0`. That rule does **not** hold for the
+whole file: the player records (21,033 of `0xe0` bytes) are not at the offset it
+gives, which lies beyond the end of the file. They were compared between the two saves
+in an earlier pass, but the file offset used then was not written down and a later
+search did not find it again (player names are not stored as plain text; club ids are
+densest around `0x160000`, `0x750000` and `0x920000`). **The file offset of the player
+records is open.**
+
+Fields of a player record used in that pass, **from the saves, not from the code**:
+club id at `+0xa8`; `+0xb4`: status in bits 0-3, deal in bits 4-5, popularity taken to
+be bits 11-22; `+0xb8`: marks 29 and 30 (9.3), bit 28 loan. Ratings and ages worked
+out from the records can be off by 1 or 2.
 
 One consequence of section 2: a career keeps its own player and team records in the
 mode data. That is read from the look-up functions (they search tables inside the mode
