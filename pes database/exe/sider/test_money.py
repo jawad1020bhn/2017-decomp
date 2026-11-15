@@ -111,7 +111,7 @@ def settings(source):
                 for i, amounts, percent in re.findall(r'\{\s*(\d+),\s*(?:\{([^{}]*)\}|([\d.]+))\s*\}', text('LEAGUE_BY_ID'))]
 
     def persona():
-        """ARCHETYPES, PERSONA_GROUPS, CLUBS and the four numbers of MLTransfers.lua"""
+        """ARCHETYPES, PERSONA_GROUPS, CLUBS and the numbers of MLTransfers.lua that need PERSONA"""
         if text('PERSONA') != 'true':
             return None
         kinds = []
@@ -123,7 +123,8 @@ def settings(source):
         groups = [re.findall(r'"([^"]+)"', group) for group in re.findall(r'\{([^{}]*)\}', text('PERSONA_GROUPS')[1:])]
         clubs = [(int(c, 0), name) for c, name in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *"([^"]+)" *\}', text('CLUBS'))]
         return dict(archetypes=kinds, groups=groups, clubs=clubs, spread=number('PERSONA_SPREAD'),
-                    strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'))
+                    strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'),
+                    keep=numbers('KEEP_BEST'), known=number('KNOWN_FROM'), shift=number('AGE_SHIFT'))
     rivals = [(int(a, 0), int(b, 0)) for a, b in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *(0x[0-9a-fA-F]+|\d+) *\}', text('RIVALS'))]
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
     return mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
@@ -1110,20 +1111,32 @@ def main(exe):
     assert mc.accepts(t, 0, cheap, dict(id=5, level=0, points=0, count=99)) and not mc.accepts(
         t, 0, dear, dict(id=5, level=0, points=0, count=99))
     # the other parts of MLTransfers.lua, alone and together, with their numbers at the limits
-    for case, (spread, strength, winter, squad, scouting) in enumerate((
-            ('0', '{ 0.0533, 9.45 }', '0', '0', 'true'), ('50', '{ 0.5, 99 }', '12', '32', 'false'),
-            ('20', '{ 0, 0 }', '1', '23', 'true'), ('33.4', '{ 0.02, 40 }', '9', '25', 'true'),
-            ('20', '{ 0.0533, 9.45 }', '9', '23', 'false'))):
+    # (KEEP_BEST, KNOWN_FROM, AGE_SHIFT: as in the file, at their highest, off, and two more)
+    for case, (spread, strength, winter, squad, scouting, keep, known, shift) in enumerate((
+            ('0', '{ 0.0533, 9.45 }', '0', '0', 'true', (4, 12, 2), 80, 2),
+            ('50', '{ 0.5, 99 }', '12', '32', 'false', (99, 100, 99), 0, 5),
+            ('20', '{ 0, 0 }', '1', '23', 'true', (0, 0, 0), 100, 0),
+            ('33.4', '{ 0.02, 40 }', '9', '25', 'true', (10, 3, 0), 70, 1),
+            ('20', '{ 0.0533, 9.45 }', '9', '23', 'false', (0, 100, 99), 55, 5),
+            ('20', '{ 0.0533, 9.45 }', '9', '23', 'true', (6, 20, 5), 75, 3))):
         text = only(PERSONA=None, **dict(([('CEILING', None)] if case % 2 else []) + ([('SELL_SIDE', None)] if case % 3 else [])
                                          + ([] if case % 2 else [('RIVALS', None)])))
         for name, new in (('PERSONA_SPREAD', spread), ('STRENGTH', strength), ('WINTER_MONTH', winter), ('SQUAD_NEED', squad),
-                          ('SCOUTING', scouting)):
+                          ('SCOUTING', scouting), ('KEEP_BEST', '{ %d, %d, %d }' % keep), ('KNOWN_FROM', str(known)),
+                          ('AGE_SHIFT', str(shift))):
             text = setting(text, name, new)
         t, lines = install(text, 'values, ' + CEILING_LABEL if case % 2 else 'values')
         assert (t.has_ceiling, t.sell, t.has_persona, t.scouting) == (bool(case % 2), bool(case % 3), True, scouting == 'true')
         assert len(t.rivals) == (0 if case % 2 else 61)
         assert (t.persona_range, t.winter, t.squad) == (20 * int(float(spread) + 0.5), int(winter), int(squad))
-        assert len(t.genes) == 12 and len(t.hand) == 180 and t.genes[0] == mc.NEUTRAL
+        assert ((t.keep_from, t.keep_step, t.keep_bigger), t.known, t.age_shift) == (keep, known, shift)
+        assert ('  players rated %d or more are known to every club; the ages of a persona are moved by up to %d years '
+                'from club to club' % (known, shift)) in lines
+        assert (('  a club keeps its first team: for each rating point a player stands above its eleven minus %d, %d '
+                 'percent more often; not against a buyer whose eleven is %d or more points better' % keep) if keep[1]
+                else '  a club keeps its first team no more often than its other players (KEEP_BEST is off)') in lines
+        assert {mc.age_shift(t, c) for c in range(3000)} == set(range(-shift, shift + 1))
+        assert len(t.genes) == 14 and len(t.hand) == 180 and t.genes[0] == mc.NEUTRAL
         assert all(record[mc.GENE_NAMES.index('knows')] == 255 for record in t.genes) == (scouting == 'false')
         assert h.choose_cases(500, t)[0] > 0
     # the rivals alone and with each other part: 64 pairs among 12 clubs (every club has many
@@ -1153,7 +1166,11 @@ def main(exe):
         named = '{\n%s\n}' % '\n'.join('    { %s, "P%d" },' % (random.choice(['0x%08x', '%d']) % c, random.randint(1, count)) for c in ids)
         text = source
         for name, new in (('ARCHETYPES', archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named if clubs else '{ }'),
-                          ('PERSONA_SPREAD', random.choice(['0', '50', '20']))):
+                          ('PERSONA_SPREAD', random.choice(['0', '50', '20'])),
+                          ('KEEP_BEST', '{ %d, %d, %d }' % (random.randint(0, 20), random.choice([0, 100, random.randint(1, 30)]),
+                                                            random.choice([0, 99, random.randint(0, 10)]))),
+                          ('KNOWN_FROM', str(random.choice([0, 100, random.randint(40, 99)]))),
+                          ('AGE_SHIFT', str(random.randint(0, 5)))):
             text = setting(text, name, new)
         t, lines = install(text, everything)
         assert (len(t.genes), len(t.hand)) == (count + 1, clubs)
@@ -1163,9 +1180,15 @@ def main(exe):
         assert h.choose_cases(700, t)[0] > 0
     t, lines = install(source, everything)
     assert [l for l in lines if l.startswith('club personas')] == [
-        'club personas: 11 personas, 180 clubs named, the others by their place in the club ranking; each number up to 20 '
+        'club personas: 13 personas, 180 clubs named, the others by their place in the club ranking; each number up to 20 '
         'percent lower or higher from club to club']
-    assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 11
+    assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 13
+    assert not any('name a club that a later entry names again' in l for l in lines)
+    assert ((t.keep_from, t.keep_step, t.keep_bigger), t.known, t.age_shift) == ((4, 12, 2), 80, 2)
+    twice = settings(source).hand[7][0]
+    _, lines = install(source.replace('local CLUBS = {', 'local CLUBS = {\n    { 0x%08x, "Crisis" },' % twice), everything)
+    assert ('  note: 1 entries of CLUBS name a club that a later entry names again; the last entry of a club counts') in lines
+    t, lines = install(source, everything)
     assert 'selling side: a player whose club does not let him go takes no place on a buyer\'s list' in lines
     assert 'rivals: 61 pairs of clubs do not buy each other\'s players who have a contract' in lines and len(t.rivals) == 61
     assert len({frozenset(pair) for pair in t.rivals}) == 61 and all(a != b for a, b in t.rivals)
@@ -1235,8 +1258,8 @@ def main(exe):
           'version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the '
           'four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs '
           'among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling '
-          'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH and '
-          'SQUAD_NEED at their limits; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
+          'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, '
+          'SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
           'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each' % (
               len(alone), ', '.join(gaps)))
 
@@ -1399,10 +1422,18 @@ def main(exe):
            ('WINTER_MONTH is not a whole number from 0 to 12', setting(source, 'WINTER_MONTH', '13')),
            ('WINTER_MONTH is not a whole number from 0 to 12', setting(source, 'WINTER_MONTH', '1.5')),
            ('SQUAD_NEED is not a number from 0 to 32', setting(source, 'SQUAD_NEED', '33')),
+           ('KNOWN_FROM is not a number from 0 to 100', setting(source, 'KNOWN_FROM', '101')),
+           ('KNOWN_FROM is not a number from 0 to 100', setting(source, 'KNOWN_FROM', 'true')),
+           ('AGE_SHIFT is not a number from 0 to 5', setting(source, 'AGE_SHIFT', '6')),
+           ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 12 }')),
+           ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 100, 12, 2 }')),
+           ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 101, 2 }')),
+           ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 12, -1 }')),
+           ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '12')),
            ('ARCHETYPES: entry 1 (Galactico): free + listed + clubs is above 100',
             source.replace('free = 20, listed = 5, clubs = 75', 'free = 21, listed = 5, clubs = 75')),
            ('ARCHETYPES: entry 3 (Moneyball): knows is not a number from 1 to 100', source.replace('knows = 90', 'knows = 0')),
-           ('ARCHETYPES: entry 2 (State-backed): wealth is not a number from 10 to 250', source.replace('wealth = 200', 'wealth = 251')),
+           ('ARCHETYPES: entry 2 (State-backed): wealth is not a number from 10 to 250', source.replace('wealth = 160', 'wealth = 251')),
            ('ARCHETYPES: entry 4 (Elite trader): fog is not a number from 0 to 10',
             source.replace('fog = 1, wealth = 100, premium = 60', 'fog = 11, wealth = 100, premium = 60')),
            ('ARCHETYPES: entry 7 (Mid-table): keeps is not a number from 0 to 100', source.replace('prestige = 4, keeps = 40', 'prestige = 4')),

@@ -57,7 +57,7 @@ FAULTS = (
      'local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 85, 99 }'),
     ('MLTransfers.lua', 'local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }',
      'local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 82 }'),
-    ('MLTransfers.lua', 'local CAVE_SIZE = 0xd60', 'local CAVE_SIZE = 0xd5c'),
+    ('MLTransfers.lua', 'local CAVE_SIZE = 0xe00', 'local CAVE_SIZE = 0xdfc'),
     ('MLTransfers.lua', 'local CAVE = 0x047d4200 ', 'local CAVE = 0x047d41f8 '),
     # the numbers of the limit: the two discounts swapped, a negative number let through
     ('MLTransfers.lua', 'ceiling and round(CEILING_FREE) or 100, ceiling and round(CEILING_LISTED) or 100',
@@ -149,8 +149,8 @@ FAULTS = (
     ('money_cave.py', "^ key ^ date, HASH_KEEPS) < keeps:", "^ key, HASH_KEEPS) < keeps:"),
     # scouting, the player's say, need, the place a club looks in, winter, the ages, the fog,
     # ambition: each a step off or with a part left out
-    ('money_cave.py', "if where != 1 and draw(both, HASH_KNOWS) >= g['knows']:", "if draw(both, HASH_KNOWS) >= g['knows']:"),
-    ('money_cave.py', "if where != 1 and draw(both, HASH_KNOWS) >= g['knows']:", "if where != 1 and draw(both, HASH_KNOWS) > g['knows']:"),
+    ('money_cave.py', "if where != 1 and player['rating'] < t.known and draw(both", "if player['rating'] < t.known and draw(both"),
+    ('money_cave.py', "< t.known and draw(both, HASH_KNOWS) >= g['knows']:", "< t.known and draw(both, HASH_KNOWS) > g['knows']:"),
     ('money_cave.py', "if player['rating'] > own + g['prestige']:", "if player['rating'] >= own + g['prestige']:"),
     ('money_cave.py', "need = bool(search['band']) or (buyer['count']", "need = (buyer['count']"),
     ('money_cave.py', "buyer['count'] < t.squad)", "buyer['count'] <= t.squad)"),
@@ -159,8 +159,8 @@ FAULTS = (
     ('money_cave.py', "if not need and month == t.winter and draw(turn", "if not need and draw(turn"),
     ('money_cave.py', "if not need and month == t.winter and draw(turn", "if month == t.winter and draw(turn"),
     ('money_cave.py', "first = mine[THEN_1] if mine[THEN_1] != first else mine[THEN_2]", "first = mine[THEN_1]"),
-    ('money_cave.py', "<= mine[AGE_TO] and draw(both, HASH_AGE) < g['strict']:", "<= mine[AGE_TO] and draw(both, HASH_AGE) <= g['strict']:"),
-    ('money_cave.py', "not mine[AGE_FROM] <= player['age'] <= mine[AGE_TO]", "not mine[AGE_FROM] < player['age'] <= mine[AGE_TO]"),
+    ('money_cave.py', "            and draw(both, HASH_AGE) < g['strict']):", "            and draw(both, HASH_AGE) <= g['strict']):"),
+    ('money_cave.py', "not mine[AGE_FROM] <= player['age'] - age_shift(", "not mine[AGE_FROM] < player['age'] - age_shift("),
     ('money_cave.py', "(2 * g['fog'] + 1) >> 8) - g['fog']", "(2 * g['fog']) >> 8) - g['fog']"),
     ('money_cave.py', "if not need and seen < own - g['ambition']:", "if not need and seen <= own - g['ambition']:"),
     ('money_cave.py', "if not need and seen < own - g['ambition']:", "if seen < own - g['ambition']:"),
@@ -168,7 +168,7 @@ FAULTS = (
     ('money_cave.py', "    if not search['band'] and mine[THEN_1] != NO_CHANNELS:", "    if not search['band']:"),
     ('money_cave.py', "    if not search['band'] and mine[THEN_1] != NO_CHANNELS:", "    if not need and mine[THEN_1] != NO_CHANNELS:"),
     ('money_cave.py', "            if not need:\n                return False\n            first = mine[THEN_1]", "            return False"),
-    ('money_cave.py', "    if not need and not mine[AGE_FROM] <= player['age']", "    if not mine[AGE_FROM] <= player['age']"),
+    ('money_cave.py', "    if (not need and not mine[AGE_FROM] <= player['age']", "    if (not mine[AGE_FROM] <= player['age']"),
     # the numbers of a persona in the limit left out; the spread from club to club left out;
     # the first entry for a club counts; another draw for the persona of a level; the
     # strength of the eleven not kept above the range; without its rounding
@@ -182,6 +182,30 @@ FAULTS = (
     ('money_cave.py', ">> 16, WINDOW_LOW[level], WINDOW_TOP[level])", ">> 16, 0, WINDOW_TOP[level])"),
     ('money_cave.py', "self.strength_b = int(clamp(base, 0, MAX_BASE) * 65536 + 0.5) + 32768", "self.strength_b = int(clamp(base, 0, MAX_BASE) * 65536 + 0.5)"),
     ('money_cave.py', "or not from_pick or not 0 <= level < LEVELS:", "or not from_pick or not 0 <= level <= LEVELS:"),
+    # version 3. The first team: the line one point off, kept against a bigger club too, the
+    # bigger club one point off, measured from the buyer's eleven, the step left out; the star:
+    # one point off, listed players not known; the ages moved the other way, by half, not at all
+    ('money_cave.py', "and player['rating'] + t.keep_from > his:", "and player['rating'] + t.keep_from >= his:"),
+    ('money_cave.py', "if own - his < t.keep_bigger and player['rating']", "if player['rating']"),
+    ('money_cave.py', "if own - his < t.keep_bigger and player['rating']", "if own - his <= t.keep_bigger and player['rating']"),
+    ('money_cave.py', "keeps += (player['rating'] + t.keep_from - his) * t.keep_step", "keeps += (player['rating'] + t.keep_from - own) * t.keep_step"),
+    ('money_cave.py', "keeps += (player['rating'] + t.keep_from - his) * t.keep_step", "keeps += t.keep_step"),
+    ('money_cave.py', "if where != 1 and player['rating'] < t.known and draw(both", "if where != 1 and player['rating'] <= t.known and draw(both"),
+    ('money_cave.py', "if where != 1 and player['rating'] < t.known and draw(both", "if where != 1 and draw(both"),
+    ('money_cave.py', "<= player['age'] - age_shift(t, buyer['id']) <=", "<= player['age'] + age_shift(t, buyer['id']) <="),
+    ('money_cave.py', "<= player['age'] - age_shift(t, buyer['id']) <=", "<= player['age'] <="),
+    ('money_cave.py', "* (2 * t.age_shift + 1) >> 8) - t.age_shift", "* (2 * t.age_shift) >> 8) - t.age_shift"),
+    ('money_cave.py', "return (high_byte(club_key(club), HASH_SHIFT)", "return (high_byte(club, HASH_SHIFT)"),
+    # the same in MLTransfers.lua: the five numbers in another order, one place too low, not
+    # written with PERSONA, a faulty one let through, the duplicate note left out
+    ('MLTransfers.lua', 'round(KEEP_BEST[1]), round(KEEP_BEST[2]), round(KEEP_BEST[3]), round(KNOWN_FROM),\n',
+     'round(KEEP_BEST[2]), round(KEEP_BEST[1]), round(KEEP_BEST[3]), round(KNOWN_FROM),\n'),
+    ('MLTransfers.lua', 'local LAST_AT = 0xdec', 'local LAST_AT = 0xde8'),
+    ('MLTransfers.lua', 'round(AGE_SHIFT) } or { 0, 0, 0, 0, 0 }', 'round(KNOWN_FROM) } or { 0, 0, 0, 0, 0 }'),
+    ('MLTransfers.lua', 'if not is_number(KNOWN_FROM, 0, 100) then', 'if false then'),
+    ('MLTransfers.lua', 'if not is_number(AGE_SHIFT, 0, 5) then', 'if not is_number(AGE_SHIFT, 0, 6) then'),
+    ('MLTransfers.lua', 'or not is_number(KEEP_BEST[2], 0, 100)', 'or not is_number(KEEP_BEST[2], 0, 101)'),
+    ('MLTransfers.lua', 'if seen[c[1]] then twice = twice + 1 end', 'if seen[c[1]] then twice = 0 end'),
 )
 
 
@@ -228,12 +252,15 @@ def routine(exe):
             (changed(('CEILING', 'false'), ('PERSONA', 'false')), 300),
             (changed(('SELL_SIDE', 'false'), ('PERSONA', 'false'), ('RIVALS', '{ }')), 200),
             (changed(('SELL_SIDE', 'false'), ('ARCHETYPES', tm.archetypes_text(kinds)),
-                     ('PERSONA_GROUPS', groups), ('CLUBS', named), ('PERSONA_SPREAD', '50'), ('RIVALS', dense)), 400),
+                     ('PERSONA_GROUPS', groups), ('CLUBS', named), ('PERSONA_SPREAD', '50'), ('RIVALS', dense),
+                     ('KEEP_BEST', '{ 0, 100, 99 }'), ('KNOWN_FROM', '100'), ('AGE_SHIFT', '0')), 400),
             (changed(('CEILING', 'false'), ('SCOUTING', 'false'), ('STRENGTH', '{ 0.02, 40 }'), ('SQUAD_NEED', '32'),
-                     ('WINTER_MONTH', '12'), ('PERSONA_SPREAD', '0')), 200),
+                     ('WINTER_MONTH', '12'), ('PERSONA_SPREAD', '0'), ('KEEP_BEST', '{ 10, 3, 0 }'), ('KNOWN_FROM', '60'),
+                     ('AGE_SHIFT', '5')), 200),
             (changed(('CEILING', '{ %s }' % ', '.join(['9999'] * 10)), ('CEILING_STRETCH', '300'), ('CEILING_NEED', '300'),
                      ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named), ('RIVALS', wide)), 200))
     tables = [mc.image_2(u)[:mc.CEILING_CODE - mc.CAVE_2] for u, _ in sets]
+    last = [mc.image_2(u)[mc.KEEP_FROM_AT - mc.CAVE_2:] for u, _ in sets]     # the five numbers behind the routine
     random.seed(1)
     print('without a fault: %d of 400 lists changed by the module, %d players refused' % h.choose_cases(400, t))
     good = h.g.read(mc.CEILING_CODE, len(mc.CEILING_BYTES))
@@ -247,8 +274,9 @@ def routine(exe):
         tm.poke(h.g, mc.CEILING_CODE + k, bytes([good[k] ^ (1 << bit if bit is not None else 0)]))
         random.seed(7)
         try:
-            for (u, n), table in zip(sets, tables):
+            for (u, n), table, numbers in zip(sets, tables, last):
                 tm.poke(h.g, mc.CAVE_2, table)
+                tm.poke(h.g, mc.KEEP_FROM_AT, numbers)
                 h.choose_cases(n, u)
             return True
         except BaseException:                                # a failed case or a fault of the emulated processor
@@ -256,6 +284,7 @@ def routine(exe):
         finally:
             tm.poke(h.g, mc.CEILING_CODE + k, bytes([good[k]]))
             tm.poke(h.g, mc.CAVE_2, tables[0])
+            tm.poke(h.g, mc.KEEP_FROM_AT, last[0])
 
     def sound():
         """the harness after a fault: the routine as it should be passes again"""
