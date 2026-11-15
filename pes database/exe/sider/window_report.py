@@ -164,7 +164,7 @@ def judge(t, before, rate, k, r, new, start):
         out['keeps'] = any(mc.draw(mc.club_key(seller['id']) ^ key ^ stamp, mc.HASH_KEEPS) >= keeps for stamp in stamps)
         out['keeps chance'] = 100 - 100 * (min(keeps, 100) / 100.0) ** len(months)
         out['seller count'] = seller['count'] > mc.POOL_KEEPS
-    if w != 1 and rating < t.known:                                        # KNOWN_FROM
+    if w != 1 and rating < t.known and popularity(r) < t.known_fame:       # KNOWN_FROM, KNOWN_FAME
         out['knows'] = mc.draw(both, mc.HASH_KNOWS) < g['knows']
         out['knows chance'] = min(100, g['knows'])
     out['prestige'] = rating <= own + g['prestige']
@@ -177,8 +177,9 @@ def judge(t, before, rate, k, r, new, start):
     # the steps that hang on the slot: counted with the player's own position, without a band
     out['small squad'] = buyer['count'] < t.squad
     out['in age range'] = mine[mc.AGE_FROM] <= age(r) - mc.age_shift(t, buyer['id']) <= mine[mc.AGE_TO]
-    out['age'] = out['in age range'] or mc.draw(both, mc.HASH_AGE) >= g['strict']
-    out['age chance'] = 100 - g['strict']
+    strict = g['strict'] * (t.strict_free if w == 0 else 100)            # STRICT_FREE
+    out['age'] = out['in age range'] or mc.draw(both, mc.HASH_AGE) * 100 >= strict
+    out['age chance'] = 100 - strict / 100.0
     out['ambition'] = seen >= own - g['ambition']
     if mine[mc.THEN_1] != mc.NO_CHANNELS:
         def place(pos, stamp):

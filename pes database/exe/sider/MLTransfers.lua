@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 3: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 4: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -20,7 +20,7 @@
 --     its first team, except against a clearly bigger club (KEEP_BEST).
 --   * scouting (SCOUTING): a club knows only a part of the players (how many is a number
 --     of its persona). Players a club has put on its list are known to all, and so are
---     the good ones (KNOWN_FROM).
+--     the good ones (KNOWN_FROM) and the famous ones (KNOWN_FAME).
 --   * rivals (RIVALS): two clubs that are rivals do not buy each other's players.
 -- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
 -- did.
@@ -152,6 +152,20 @@ local SCOUTING = true
 -- Below it SCOUTING counts as above. 0 to 100; 100: no player is known to all (version 2).
 local KNOWN_FROM = 80
 
+-- A player of this popularity or more is known to every club as well: a famous name is
+-- not overlooked, whatever his rating. The game keeps a popularity for every player; in
+-- the career the module was set against the highest is 1,110, a player rated 80 to 84 has
+-- about 660, and 700 or more have 395 players of 19,921 (109 of them rated under 80).
+-- 0 to 4096; 4096: off, no player is known for his name (version 3). Needs SCOUTING.
+local KNOWN_FAME = 700
+
+-- A player without a contract costs no fee, so a club is less strict about his age: for
+-- him `strict` of the persona (below) counts only this many percent. With 50 a club that
+-- refuses 70 of 100 players outside its ages refuses 35 of 100 such players without a
+-- contract. 0 to 100; 100: off, as for every other player (version 3); 0: his age is
+-- never a reason. Needs PERSONA.
+local STRICT_FREE = 50
+
 -- A club holds on to its first team. Three numbers:
 --   1. a player counts as first team if his rating is at most this many points below
 --      the rating of his club's first eleven (STRENGTH below), or better. 0 to 99.
@@ -207,7 +221,8 @@ local SQUAD_NEED = 23
 --                         these two places that the first search did not look in.
 --   winter                percent of the positions it still buys for in the winter window
 --   age, strict           the ages it wants (first, last), and how many percent of the
---                         players outside them it refuses
+--                         players outside them it refuses (of players without a contract:
+--                         STRICT_FREE percent of that)
 --   knows                 percent of the players it knows (SCOUTING)
 --   fog                   how far its judgement of a rating is off: up to this many
 --                         points too low or too high, fixed by club and player. 0 to 10
@@ -226,10 +241,10 @@ local SQUAD_NEED = 23
 local ARCHETYPES = {
     { "Galactico", free = 20, listed = 5, clubs = 75, second = { "clubs", "free" }, winter = 30,
       age = { 22, 30 }, strict = 70, knows = 70, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
-      ambition = 4, prestige = 12, keeps = 70 },
+      ambition = 4, prestige = 12, keeps = 50 },
     { "State-backed", free = 20, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 40,
       age = { 22, 29 }, strict = 80, knows = 75, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
-      ambition = 4, prestige = 10, keeps = 70 },
+      ambition = 4, prestige = 10, keeps = 50 },
     { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 30,
       age = { 20, 24 }, strict = 85, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
       ambition = 8, prestige = 6, keeps = 30 },
@@ -241,7 +256,7 @@ local ARCHETYPES = {
       ambition = 12, prestige = 4, keeps = 50 },
     { "Old-money", free = 30, listed = 20, clubs = 50, second = { "clubs", "free" }, winter = 40,
       age = { 25, 30 }, strict = 75, knows = 60, fog = 2, wealth = 110, premium = 100, panic = 120, fame = 30,
-      ambition = 5, prestige = 8, keeps = 60 },
+      ambition = 5, prestige = 8, keeps = 50 },
     { "Mid-table", free = 20, listed = 25, clubs = 45, second = { "listed", "clubs" }, winter = 40,
       age = { 24, 28 }, strict = 50, knows = 50, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
       ambition = 8, prestige = 4, keeps = 40 },
@@ -589,8 +604,10 @@ local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 86, 99 }
 -- the pairs (money_cave.py has the list)
 local NUMBERS_AT, RANGES_AT, GROUPS_AT, PERSONAS_AT, CLUB_TYPES_AT, CLUB_IDS_AT = 0x34, 0x64, 0x78, 0xc8, 0x208, 0x2c8
 local RIVALS_AT = 0x5c8
--- the last five numbers of that memory: KEEP_BEST (three), KNOWN_FROM, AGE_SHIFT
-local LAST_AT = 0xdec
+-- the last seven numbers of that memory: KNOWN_FAME (times 1 << 20, as the routine
+-- compares it; 4096 is the largest number), STRICT_FREE, KEEP_BEST (three), KNOWN_FROM,
+-- AGE_SHIFT
+local LAST_AT = 0xde4
 local MOST_PERSONAS, MOST_CLUBS, PER_GROUP, MOST_RIVALS = 15, 192, 8, 64
 -- the numbers of a persona in the order of the memory, with the lowest and highest of each
 local GENES = { { "free", 0, 100 }, { "listed", 0, 100 }, { "clubs", 0, 100 }, { "winter", 0, 100 },
@@ -602,40 +619,41 @@ local PLACE = { free = 0, listed = 1, clubs = 2 }
 local NEUTRAL = "64000064ff0064646400ffff0000003fffff0000"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
 local ROUTINE = { 0x7d0, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
-      .. "0c81f9b90d66030f85b0040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
-      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f876e0400008945e031c98b93b400"
+      .. "0c81f9b90d66030f85d3040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
+      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87910400008945e031c98b93b400"
       .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
-      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8b2040000"
-      .. "8945ec8955b031c9518b45ec8b55e8e86a0400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
-      .. "45f85053e86ff007ff83c40c0fb6c08945dc8b55b0e8fb0300008945cc837dd0000f84470100008365f8008d"
+      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8d5040000"
+      .. "8945ec8955b031c9518b45ec8b55e8e88d0400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
+      .. "45f85053e86ff007ff83c40c0fb6c08945dc8b55b0e81e0400008945cc837dd0000f84470100008365f8008d"
       .. "45f8508d45c45089d9e8836505ff8b45c43b0534eb4f020f84250100008b55e88b0dc8477d0449782e3904cd"
-      .. "cc477d04750d3914cdd0477d040f84860300003914cdcc477d0475de3904cdd0477d040f8470030000ebcf83"
-      .. "7dd0020f85e1000000e8f40300005052e87c0300008945a85a833d5c427d040074698b4dc88b49f48b45c425"
+      .. "cc477d04750d3914cdd0477d040f84a90300003914cdcc477d0475de3904cdd0477d040f8493030000ebcf83"
+      .. "7dd0020f85e1000000e8170400005052e89f0300008945a85a833d5c427d040074698b4dc88b49f48b45c425"
       .. "ff3f00003d8d0200000f83a900000083bc81ac070000170f869b000000817dc0b90d660375395253e867f407"
       .. "ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f80773"
-      .. "5f807a0e08735958b90c0000008b55c4e8350300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d04"
+      .. "5f807a0e08735958b90c0000008b55c4e8580300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d04"
       .. "2b55a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c1"
-      .. "0f828b020000eb0658e983020000837dd00174248b45dc3b05f84f7d047319694dd4b1675616c1e9186bc964"
-      .. "c1e9083b4d800f83590200008b45cc03459c3945dc0f874a0200008b55b88b4dc88b49f48b45e825ff3f0000"
-      .. "3d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85fa0000008b55ec807a10"
-      .. "ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1"
-      .. "721c40039578ffffff39d17211837de4000f84ca0100008b55ec0fb64210837de400752b8b4dc80fb649de3b"
-      .. "0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f8392010000837df00074118b55ec"
-      .. "0fb64a1039c175040fb64a1189c83b45d00f8572010000837de40075536945e8b179379e69c091f44525c1e8"
-      .. "188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a0f7e1969"
-      .. "4dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955d4656b54e6c1ea18"
-      .. "0fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f"
-      .. "0fb69128427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba000000"
-      .. "8945fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b"
-      .. "4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000"
-      .. "c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce803befdff8b4dd083f9"
-      .. "02741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9054595ff89ec5d"
-      .. "5f5b83c404e960ace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b909"
-      .. "0000000fb742080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439"
-      .. "d0760289d0c30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e90803"
-      .. "0d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c497809"
-      .. "3902740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb6"
-      .. "4a0e83f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
+      .. "0f82ae020000eb0658e9a6020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f"
+      .. "7d047319694dd4b1675616c1e9186bc964c1e9083b4d800f836b0200008b45cc03459c3945dc0f875c020000"
+      .. "8b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955"
+      .. "e4837db8000f850c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b95"
+      .. "70ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837de4000f84dc0100008b55ec0f"
+      .. "b64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cff"
+      .. "ffff0f83a4010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f8584010000837de400"
+      .. "75656945e8b179379e69c091f44525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e1"
+      .. "3f29c18b55ec3a4a0e7c053a4a0f7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05"
+      .. "e84f7d046bc96439c10f82190100008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c101"
+      .. "4ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb69128427d0439d0"
+      .. "0f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0"
+      .. "741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694d"
+      .. "d46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f0000"
+      .. "0faf4d948b45fcbfa0860100e848000000e8500000008b45dce8e0bdfdff8b4dd083f902741189f8f7248d3c"
+      .. "427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9e24495ff89ec5d5f5b83c404e93dace8"
+      .. "fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf"
+      .. "054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb604"
+      .. "0869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f735"
+      .. "58067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf4"
+      .. "8b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b909"
+      .. "00000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
 local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8be4e170190909090" }
@@ -856,6 +874,8 @@ local function persona_fault()
     if not is_number(SQUAD_NEED, 0, 32) then return "SQUAD_NEED is not a number from 0 to 32" end
     if not is_number(KNOWN_FROM, 0, 100) then return "KNOWN_FROM is not a number from 0 to 100" end
     if not is_number(AGE_SHIFT, 0, 5) then return "AGE_SHIFT is not a number from 0 to 5" end
+    if not is_number(KNOWN_FAME, 0, 4096) then return "KNOWN_FAME is not a number from 0 to 4096" end
+    if not is_number(STRICT_FREE, 0, 100) then return "STRICT_FREE is not a number from 0 to 100" end
     if type(KEEP_BEST) ~= "table" or #KEEP_BEST ~= 3 or not is_number(KEEP_BEST[1], 0, 99)
         or not is_number(KEEP_BEST[2], 0, 100) or not is_number(KEEP_BEST[3], 0, 99) then
         return "KEEP_BEST is not { 0 to 99, 0 to 100, 0 to 99 }"
@@ -996,7 +1016,7 @@ local function persona_image()
 end
 
 -- what goes into the memory: the ceilings, the highest rating of the second search by
--- club level (255: none), the tables of persona_image, the routine, the last five
+-- club level (255: none), the tables of persona_image, the routine, the last seven
 -- numbers (0 without PERSONA). nil: the module file is damaged
 local function image()
     local parts = {}
@@ -1011,8 +1031,10 @@ local function image()
     end
     out = out .. string.rep("\0", ROUTINE[1] - #out) .. unhex(ROUTINE[2])
     out = out .. string.rep("\0", LAST_AT - #out)
-    local last = PERSONA and { round(KEEP_BEST[1]), round(KEEP_BEST[2]), round(KEEP_BEST[3]), round(KNOWN_FROM),
-                               round(AGE_SHIFT) } or { 0, 0, 0, 0, 0 }
+    local fame = round(KNOWN_FAME)
+    local last = PERSONA and { fame < 4096 and fame * 0x100000 or 0xffffffff, round(STRICT_FREE),
+                               round(KEEP_BEST[1]), round(KEEP_BEST[2]), round(KEEP_BEST[3]), round(KNOWN_FROM),
+                               round(AGE_SHIFT) } or { 0, 0, 0, 0, 0, 0, 0 }
     for _, v in ipairs(last) do out = out .. u32(v) end
     if #out ~= CAVE_SIZE then return nil end
     return out
@@ -1072,6 +1094,8 @@ local function report_persona()
     end
     log(string.format("  players rated %d or more are known to every club; the ages of a persona are moved by up "
         .. "to %d years from club to club", round(KNOWN_FROM), round(AGE_SHIFT)))
+    log(string.format("  players of a popularity of %d or more are known to every club; for a player without a "
+        .. "contract %d percent of `strict` count", round(KNOWN_FAME), round(STRICT_FREE)))
     for _, a in ipairs(ARCHETYPES) do
         log(string.format("  %-17s looks first: free %d, listed %d, clubs %d percent, second search %s, %s; winter %d; ages "
             .. "%d-%d (%d); knows %s; fog %d; wealth %d, premium %d, panic %d, fame %d; ambition %d, prestige %d; "
@@ -1083,7 +1107,7 @@ local function report_persona()
 end
 
 function m.init(ctx)
-    log("MLTransfers 3: the transfers of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 4: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then

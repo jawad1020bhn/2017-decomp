@@ -8,7 +8,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
-| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); version 3 has run in the emulator only |
+| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); version 3 has run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 7: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
@@ -163,12 +163,95 @@ Not shown: the set-up of a career as a whole was not run, only its eight instruc
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
 
-## `MLTransfers.lua`, version 3: the selling side, club personas, scouting, rivals
+## `MLTransfers.lua`, version 4: the selling side, club personas, scouting, rivals
 
 Version 2 ran in the game: one transfer window played with it was read from two save
-files (see "What the second window showed" below). **Version 3 has run in the emulator
-only.** It needs `MLMoney.lua` version 7 as before. The price ceiling of version 1 is
-still there and is described in the next section.
+files (see "What the second window showed" below). **Versions 3 and 4 have run in the
+emulator only.** It needs `MLMoney.lua` version 7 as before. The price ceiling of
+version 1 is still there and is described in the next section.
+
+### New in version 4
+
+From a second list of suggestions by the user (five points). Three were taken, two were
+not; the reasons are below, with numbers from the model on the save from before the
+window played with version 2 (`ML saves/2nd test`, 19,921 players, 498 computer clubs).
+
+| | as shipped | what it does |
+|---|---|---|
+| `KNOWN_FAME` (new) | 700 | a player whose popularity is this or more is known to every club (no scouting draw), whatever his rating. 4096: off |
+| `STRICT_FREE` (new) | 50 | for a player without a contract, `strict` of the buying club's persona counts only this many percent: he costs no fee, so his age matters less. 100: off |
+| `keeps` of three personas | Galactico 50 (was 70), State-backed 50 (was 70), Old-money 50 (was 60) | the biggest clubs let more of their players go |
+
+With `KNOWN_FAME = 4096`, `STRICT_FREE = 100` and the three `keeps` put back, the
+routine does what version 3 did.
+
+**Famous players.** The popularity the game keeps runs from 0 to 1,110 in that career
+(half of all players have 250 or less; a player rated 80 to 84 has about 660). 395
+players have 700 or more, and 109 of them are rated under 80, so version 3 let most
+clubs overlook them: Andrew Robertson, Mateo Kovačić, Luke Shaw, Mason Mount, Jordan
+Henderson. All 109 have a club. Of the players without a contract and rated under 80
+none reaches 700 (the highest has 610); the one free player above it, Riyad Mahrez with
+710, is rated 84 and is known already through his rating. So in that save the number
+changes nothing for free players and opens only sales between clubs.
+
+**The age of a player without a contract.** A club that wants players of 24 to 28 and
+refuses half of the others now refuses a quarter of the others who have no contract.
+
+**What it should give, worked out and not played.** The number of the 498 computer clubs
+that could sign a player: they know him, he would join, his age and rating fit, and the
+price is within the club's limit. (The place the club looks in on that day, and the
+selling club, are left out; this is another count than the 19.7 in the table of
+version 3 below, so compare the two columns here with each other only.)
+
+| players | how many | version 3 | version 4 |
+|---|---|---|---|
+| no contract, rated 80 or more | 19 | 31.6 | 55.3 |
+| no contract, rated 70 or more, up to 30 years old | 1,559 | 75.3 | 107.6 |
+| no contract, rated 70 or more, 31 or older | 837 | 66.3 | 114.5 |
+| no contract, rated 75 to 79, 34 or older | 97 | 32.5 | 72.1 |
+| with a contract, popularity 700 or more, rated under 80 | 107 | 34.0 | 60.8 |
+| with a contract, all others rated 70 or more | 4,873 | 64.9 | 64.9 |
+
+So a player without a contract is open to about half as many clubs again when he is
+young and to nearly twice as many when he is over 30. A club still signs only one
+player for a place, and how often it looks among the players without a contract is
+`free` of its persona, which did not change: the number of such signings should stay
+about the same, but **they will be older**. If the news shows too many old players
+signed, raise `STRICT_FREE` (75, then 100).
+
+The share of its players (not listed) a club lets go to a buyer that is not clearly
+bigger, by the place of the player in its squad (best eleven / places 12 to 18 / the
+rest):
+
+| persona (clubs) | version 3 | version 4 |
+|---|---|---|
+| Galactico (3) | 8 / 36 / 40 percent | 19 / 53 / 57 percent |
+| State-backed (2) | 2 / 27 / 31 percent | 10 / 48 / 51 percent |
+| Old-money (23) | 8 / 36 / 39 percent | 14 / 46 / 49 percent |
+
+Over all 498 clubs version 3 gave 25 / 60 / 68 percent, so these 28 clubs still hold
+their players better than the average club does. `KEEP_BEST` is unchanged.
+
+**Not taken: prestige + 4 for Galactico and State-backed** (12 to 16, 10 to 14). It
+changes nothing. The five clubs of these two personas (Real Madrid, Arsenal,
+Manchester United, Paris Saint-Germain, Manchester City) have an eleven of 83 to 87
+and already take a player up to 94 to 101; the best player of the career is rated 91.
+No player is refused by them for this reason, with 12 or with 16.
+
+**Not taken: prestige minus 1 for each year over 30.** `prestige` is how far *above* a
+club's eleven a player may be and still join. Taking a point off for each year over 30
+makes an older player refuse *more* clubs, which is the opposite of the reason given for
+it ("an ageing player accepts a weaker club") and works against `STRICT_FREE`. In the
+model, the players without a contract rated 80 or more and 34 or older could be signed
+by 25 clubs in version 3 and by 9 with this rule; players with a contract of that kind
+by 24 and by 8. The other way round (one point *more* per year over 30) gives 76 and
+67. That would be a rule of its own and was not asked for; it also does not fit: with
+the two new pieces of code one byte of the routine's page is left.
+
+**In the game, look at:** the new log line (below); whether well-known players of 75
+to 79 now move; how old the players are that clubs sign without a transfer; whether
+the five biggest clubs lose too many of their best eleven (then put their `keeps` back
+to 70).
 
 ### New in version 3
 
@@ -286,7 +369,8 @@ passed them, in this order; "refused" means the club looks at the next player:
    clearly the bigger club.
 2. **Scouting.** The club knows `knows` percent of the players. Which ones is drawn
    from club and player and stays the same for the whole career. A listed player is
-   known to every club, and so is a player rated `KNOWN_FROM` (80) or more (version 3).
+   known to every club, and so is a player rated `KNOWN_FROM` (80) or more (version 3)
+   or of a popularity of `KNOWN_FAME` (700) or more (version 4).
 3. **The player.** He does not join a club whose first eleven is more than `prestige`
    rating points below him. The eleven's rating is worked out from the club's points in
    the game's club ranking (`STRENGTH`).
@@ -298,7 +382,8 @@ passed them, in this order; "refused" means the club looks at the next player:
    buys only `winter` percent of the time. If the first search gives nobody, the
    second search (among all ratings) looks in the next place the persona names
    (`second`). Then the ages: a player outside `age` is refused `strict` percent of the
-   time. The two ages are moved by up to `AGE_SHIFT` years from club to club
+   time; a player without a contract only `STRICT_FREE` (50) percent of that
+   (version 4). The two ages are moved by up to `AGE_SHIFT` years from club to club
    (version 3).
 5. **The rating as the club sees it.** Up to `fog` points too low or too high (drawn
    from club and player). A player seen more than `ambition` points below the first
@@ -328,12 +413,12 @@ the same way on the same day.
 
 | persona | looks first: free / listed / clubs / does not buy | second search | winter | ages (strict) | knows | fog | wealth | premium | panic | fame | ambition | prestige | keeps |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Galactico | 20 / 5 / 75 / 0 | clubs, free | 30 | 22-30 (70) | 70 | 1 | 150 | 150 | 100 | 40 | 4 | 12 | 70 |
-| State-backed | 20 / 15 / 65 / 0 | clubs, listed | 40 | 22-29 (80) | 75 | 2 | 160 | 150 | 150 | 25 | 4 | 10 | 70 |
+| Galactico | 20 / 5 / 75 / 0 | clubs, free | 30 | 22-30 (70) | 70 | 1 | 150 | 150 | 100 | 40 | 4 | 12 | 50 |
+| State-backed | 20 / 15 / 65 / 0 | clubs, listed | 40 | 22-29 (80) | 75 | 2 | 160 | 150 | 150 | 25 | 4 | 10 | 50 |
 | Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 30 | 20-24 (85) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 30 |
 | Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 30 | 19-23 (85) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 |
 | Academy purist | 10 / 10 / 30 / 50 | clubs, free | 15 | 18-23 (90) | 40 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 50 |
-| Old-money | 30 / 20 / 50 / 0 | clubs, free | 40 | 25-30 (75) | 60 | 2 | 110 | 100 | 120 | 30 | 5 | 8 | 60 |
+| Old-money | 30 / 20 / 50 / 0 | clubs, free | 40 | 25-30 (75) | 60 | 2 | 110 | 100 | 120 | 30 | 5 | 8 | 50 |
 | Mid-table | 20 / 25 / 45 / 10 | listed, clubs | 40 | 24-28 (50) | 50 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 40 |
 | Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 28-34 (70) | 40 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 30 |
 | Crisis | 60 / 35 / 5 / 0 | free, listed | 70 | 17-36 (20) | 30 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 |
@@ -448,7 +533,7 @@ club go for a player of the club you play was not looked at; if it does, the pai
 your club (Athletic Club - Real Sociedad) counts there too. What you buy yourself is
 not touched.
 
-### Settings new in versions 2 and 3
+### Settings new in versions 2, 3 and 4
 
 | setting | as shipped; meaning |
 |---|---|
@@ -463,6 +548,8 @@ not touched.
 | `KEEP_BEST` (0 to 99, 0 to 100, 0 to 99) | `{ 4, 12, 2 }`, version 3: see "New in version 3" |
 | `KNOWN_FROM` (0 to 100) | 80, version 3 |
 | `AGE_SHIFT` (0 to 5) | 2, version 3 |
+| `KNOWN_FAME` (0 to 4096) | 700, version 4: see "New in version 4" |
+| `STRICT_FREE` (0 to 100) | 50, version 4 |
 | `ARCHETYPES` | the thirteen personas above (at most 15) |
 | `PERSONA_GROUPS` | ten lists of 1 to 8 persona names, best clubs first |
 | `CLUBS` | the 180 named clubs (at most 192); `{ }` names none |
@@ -473,7 +560,7 @@ A faulty setting is named in `sider.log` and nothing is written, as before.
 ### What the log says
 
 ```
-MLTransfers 3: the transfers of the computer clubs from the settings in MLTransfers.lua
+MLTransfers 4: the transfers of the computer clubs from the settings in MLTransfers.lua
 check: MLMoney.lua   at 047b065c  installed, version 7
 check: value routine at 047b0c90  as expected
 check: numbers       at 047b0654  as expected
@@ -495,7 +582,9 @@ then the ceilings, `selling side: ...`, `club personas: 13 personas, 180 clubs n
 ...`, the two lines of version 3 (`a club keeps its first team: for each rating point a
 player stands above its eleven minus 4, 12 percent more often; not against a buyer
 whose eleven is 2 or more points better` and `players rated 80 or more are known to
-every club; the ages of a persona are moved by up to 2 years from club to club`), one
+every club; the ages of a persona are moved by up to 2 years from club to club`), the
+line of version 4 (``players of a popularity of 700 or more are known to every club; for
+a player without a contract 50 percent of `strict` count``), one
 line per persona, `rivals: 61 pairs of clubs do not buy each other's
 players who have a contract`, and `RESULT: installed. Changed: price ceiling of the
 computer clubs, selling side, club personas, scouting, rivals.`
@@ -504,7 +593,7 @@ If two entries of `CLUBS` name the same club, the last one counts and a line `no
 entries of CLUBS name a club that a later entry names again` says so (new in version 3;
 the file as shipped has none).
 
-**The line that matters most is `free memory at 047d4200`.** Version 3 needs 3,584
+**The line that matters most is `free memory at 047d4200`.** Versions 3 and 4 need 3,584
 bytes (version 2: 3,424; the 160 more are the rest of the same page, which no version
 has used in the game yet: the module looks for zeros there as everywhere) and version 1's place (`0x047d3c40`, 384 bytes) is too small, so it uses another
 piece of memory that has never been used in the running game: the rest of the page of
@@ -596,7 +685,9 @@ The lists are used little (40 of 816) because the listed players are weak: none 
 
 ### What is not known
 
-- Version 3 has not run in the game. Its numbers above come from the model.
+- Versions 3 and 4 have not run in the game. Their numbers above come from the model.
+- What `STRICT_FREE` does to the ages of the players signed is an estimate from how
+  many clubs could sign a player, not from a played window.
 - The winter window, a second season and the fees paid were not looked at.
 - The mix per persona in the table of the settings is what the settings ask for; the
   table above is what one window gave.
@@ -1103,7 +1194,7 @@ filled (`money_cave.py` has the layout and the source of the 14 routines):
 | `0x038aa43a`, `...446`, `...452`, `...45e`, `...46a`, `...476`, 4 bytes each, `cup_prize` | the six amounts for a cup without a row: 20000, 10000, 5000, 1000, 500, 300 (the numbers in six `mov edi`) | the six amounts of `CUP_NATIONAL` | `CUP_NATIONAL` |
 | `0x047b0200`, 3,568 bytes | zero | the tables (value, salary, two by age, position, talent), the cup table, two league lists, 12 lists by league, the single numbers, 13 routines of 226, 53, 26, 22, 53, 24, 21, 31, 8, 19, 18, 50 and 13 bytes | always |
 | `0x0365fb0d`, 9 bytes, `ai_candidates` | `mov ecx, [ebp + 0x24]; push esi; call 0x041293c0`: the player who passed every test is added to the list of candidates | call to the routine of `MLTransfers.lua`, which goes on to that function or to the game's "next player" at `0x0365fb28` | `CEILING`, `SELL_SIDE` or `PERSONA` |
-| `0x047d4200`, 3,584 bytes (version 2: 3,424; version 1: `0x047d3c40`, 384 bytes) | zero | ten ceilings, ten highest ratings for the second search, twelve single numbers, the two rating ranges by level, the personas by level (10 x 8), 16 personas of 20 bytes, 192 named clubs (persona and id), 64 pairs of rivals, the routine of 1,520 bytes, the five numbers of `KEEP_BEST`, `KNOWN_FROM` and `AGE_SHIFT` | the same |
+| `0x047d4200`, 3,584 bytes (version 2: 3,424; version 1: `0x047d3c40`, 384 bytes) | zero | ten ceilings, ten highest ratings for the second search, twelve single numbers, the two rating ranges by level, the personas by level (10 x 8), 16 personas of 20 bytes, 192 named clubs (persona and id), 64 pairs of rivals, the routine of 1,555 bytes (version 3: 1,520), the seven numbers of `KNOWN_FAME`, `STRICT_FREE`, `KEEP_BEST`, `KNOWN_FROM` and `AGE_SHIFT` (version 3: the last five) | the same |
 
 **The routine of `MLTransfers.lua`** (this part: as in version 1; the steps of version 2 and all it reads are written out at the top of `money_cave.py`). `ai_candidates` is not handed the club's level. Its only
 caller, `ai_pick_candidate`, has it as an argument, so the routine reads it from that
@@ -1184,8 +1275,8 @@ python3 test_money.py ~/pes-work/game/PES2017.exe
 ok 0: without the module the emulated game gives the amounts of ../tools/money.py (salary with role, age band and award bonuses at every place of the club ranking; fee); its budget function adds twice the mean of the 16 highest fees and the wage bill plus twice the mean of the 16 highest salaries; cup_prize and league_prize give the game's lists (2626 and 6720 cases); a prize goes to the balance only; the contract limit is 3 years up to age 23; the three amounts of yearly income are 25 x popularity - 670 x the club's number - 3,451,330 (whatever the wage bill), (403 - rank) x 5,000 and 15,000 + 165,000 x club level; on 28 and on 30 June the yearly budget step gives the two grants of money_cave.june_grants for 2,000 cases each (to within 2); ai_candidates, the code that lists the players a computer club may sign, run whole through its two calls in ai_pick_candidate and, for three cases in eight, with ai_pick_candidate itself run from its first instruction to the end of its two searches, lists the first three players of the lists from the highest overall down who pass its tests (in a deal, on loan, the status band a slot asks for), whatever their value; ai_pick_candidate searches the first set of lists and then the second, a plan of kind 1 or 4 the second only, in the rating range of the club level, or from 99 down to 41 when the lowest overall handed in is 0
 ok 1: MLMoney.lua and then MLTransfers.lua pass their checks, write only their own memory and the places they report, and what they wrote is what money_cave.py builds from the same settings
 ok 2: with the changes in, the game's code gives the amounts of money_cave.py: salary and fee for 3000 + 3000 random players (ratings 40 to 255, ages 0 to 63, every position, with and without awards and the random change) and for every place of the club ranking; the budgets of 150 squads of 0 to 40 players; cup_prize for 2626 cases (competitions 0 to 100, stages 0 to 12, two game modes; mode 0x28 keeps its own table); league_prize for 11648 cases (every list, place and half); the two places that pay a prize, in Master League and four other modes: balance, transfer budget, account line, registers and stack; the two bonus routines leave every other register as it was; the contract limit for every age; the three amounts of yearly income for 600 cases each, with wage bills from 0 to the largest number; ai_candidates run whole for 750 random sets of lists (club levels 0 to 9 and six numbers that are no level, both searches, both sets of lists, plans of every kind, any day, slots that ask for a status band; players without a contract, listed, in a deal and on loan, of any status band, of clubs with 0 to 40 counted players and of no club; buying and selling clubs anywhere in a made-up club ranking, named in CLUBS or not, some missing from the ranking, which the game's own search of the ranking answers as the routine does; the ceiling put where one player is just within the club's limit for him and 1 below that; three cases in eight with ai_pick_candidate itself run up to the end of its two searches, so that level, range, the mark of the second search and the place each search returns to are where the game puts them): it lists the players of money_cave.candidates (rivals, selling side, scouting, the persona of the buying club and of the selling club, the price), passes over the others and goes on, leaves stack, registers, player records and plan as the game does, and entered from anywhere else it lists as the game
-ok 3: with every optional part switched off only the fee place is written and salary, prizes and contract limit are the game's own; each of the 20 optional parts switched on alone changes its own places and nothing else; BUDGET_SALARY changes the salary budget; with spread, position and salary age switched off the value is VALUE x AGE plus popularity; PAY_GAP = 1, 1.5, 2, 2.75, 7.3, 10 give the club factor of money_cave.py at every place of the ranking; with every setting at its limit the code and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, SQUAD_NEED, KEEP_BEST, KNOWN_FROM and AGE_SHIFT at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each
-ok 4: WRITE = false, one changed byte at 60 places of the checked code and data, memory not empty, 57 kinds of faulty settings: MLMoney.lua writes nothing, and MLTransfers.lua after it writes nothing either; a write to its memory that does not stick: the code is not touched. MLTransfers.lua: WRITE = false, one changed byte at 30 places of the transfer code, its memory not empty, 59 kinds of faulty settings, a write that does not stick: it writes no place of the code and MLMoney.lua is installed as without it; run without MLMoney.lua, before it, with a mark that is not MLMoney.lua's, with a changed byte at 6 places of the value routine and the two numbers it uses, or a second time: it writes nothing; with another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE and PERSONA off and RIVALS empty it does not look at the game at all
+ok 3: with every optional part switched off only the fee place is written and salary, prizes and contract limit are the game's own; each of the 20 optional parts switched on alone changes its own places and nothing else; BUDGET_SALARY changes the salary budget; with spread, position and salary age switched off the value is VALUE x AGE plus popularity; PAY_GAP = 1, 1.5, 2, 2.75, 7.3, 10 give the club factor of money_cave.py at every place of the ranking; with every setting at its limit the code and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, SQUAD_NEED, KEEP_BEST, KNOWN_FROM, AGE_SHIFT, KNOWN_FAME and STRICT_FREE at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each
+ok 4: WRITE = false, one changed byte at 60 places of the checked code and data, memory not empty, 57 kinds of faulty settings: MLMoney.lua writes nothing, and MLTransfers.lua after it writes nothing either; a write to its memory that does not stick: the code is not touched. MLTransfers.lua: WRITE = false, one changed byte at 30 places of the transfer code, its memory not empty, 63 kinds of faulty settings, a write that does not stick: it writes no place of the code and MLMoney.lua is installed as without it; run without MLMoney.lua, before it, with a mark that is not MLMoney.lua's, with a changed byte at 6 places of the value routine and the two numbers it uses, or a second time: it writes nothing; with another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE and PERSONA off and RIVALS empty it does not look at the game at all
 ok 5: Bruno Fernandes as the user saw him without a module (rating 89, salary 7,259,700, value 36,743,200): the game's formula gives exactly that value from that salary with popularity 955, and with no other rating from 60 to 99
       as the user saw him with version 2 and SPREAD = 0 in a new career (age 32, value 52,973,200): the module's formula gives exactly that for an AMF of rating 89 with popularity 910, and with no other popularity
 ```
@@ -1240,11 +1331,18 @@ for 750 cases with the file's settings (the module changes the list in about thr
 four) and for 400 to 700 with each of the settings named under `ok 3`, among them
 personas whose numbers are drawn anywhere inside their limits. One player in four is
 put on a limit that chance meets too seldom (new with version 3): an id whose draw for
-the age or for scouting is the buying club's number or one less, a rating at the line
+the age or for scouting is the buying club's number or one less (for a player without a
+contract: the first draw at which `STRICT_FREE` lets him pass, or one less), a rating at the line
 of his club's first team with a draw at one end of what the club keeps there, or an age
 at one end of the ages the club wants; and in the winter month, every other case is
-dated to a year in which the club's winter draw is at its limit. 600 cases use personas
-that refuse for the age and nothing else. Each run of the game's code is stopped after
+dated to a year in which the club's winter draw is at its limit. Of eight players two
+get the popularity `KNOWN_FAME` or one less and three a lower one (the field holds 0 to
+4,095, the game's numbers end near 1,100, so chance alone would make nearly every
+player famous). One player in sixteen stands on `KNOWN_FAME` itself with a contract, not
+listed, and with a scouting draw at which the club does not know him, so that only his
+name lets him through. 600 cases use personas
+that refuse for the age and nothing else; in them `strict` is 95 and `STRICT_FREE` 79,
+numbers at which a multiplication by 101 or 102 instead of 100 gives another answer. Each run of the game's code is stopped after
 100,000 instructions, which no sound case reaches.
 
 The test was tried against planted faults. Version 2: ten in the routines and the
@@ -1419,6 +1517,37 @@ was a real fault that went through; both kinds are closed now, but seven bits of
 bytes are still untried, so more of that kind may be there. The file faults were not
 run again after these last changes to the test, except the two on the limits of the
 age draw and of scouting: both made it fail.
+
+**Version 4** adds 35 bytes to that routine (1,555) and 13 faults to the list (137). What
+was tried on it is less than on version 3:
+
+- *Faults in the files:* 20 were run with the test as it is now: the 13 new ones and
+  seven older ones on the lines that version 4 changed. New in the model: popularity
+  "at or below" for "below", the popularity test left out, the popularity put one bit
+  too low in the memory, "off" (4096) stored as 0, `STRICT_FREE` used for no player,
+  for every player, for a listed player too, `strict` a point off, the draw multiplied
+  by 101. New in the Lua: "off" written as 0, the two new numbers in the other order,
+  `KNOWN_FAME` or `STRICT_FREE` beyond their limits let through. **All 20 made the test
+  fail.** The other 117 were not run on version 4.
+- *Flipped bits in the routine:* only the two new pieces of code, every bit, 2,000
+  cases after each. The first runs let through two flips that are faults: popularity
+  "above" for "at or above" and the draw times 101. No case stood on either limit. The
+  test was changed for both (the players and the two numbers named above) and the runs
+  were made again:
+
+| code | flips | noticed | not noticed |
+|---|---|---|---|
+| a famous player is known (bytes 633 to 649) | 136 | 129 | 7 |
+| `STRICT_FREE` in the age draw (bytes 986 to 1,006) | 168 | 162 | 6 |
+
+  The 13 are in `bitflips_v4.tsv`, read one by one: all do the same thing for every
+  value that can occur (a shift count above 31, a rotation or an "or" whose other bits
+  land below the 12 bits that are compared, a subtraction where only the flags are read,
+  a byte where the number is 0, 1 or 2, "above" for "not equal" against 0).
+- **The other 1,517 bytes of the routine were not flipped for version 4.** They are the
+  code of version 3 moved by up to 35 bytes, and the cases of the test changed (new
+  players, other numbers in the age-alone set), so the counts of version 3 above
+  describe them only roughly.
 
 The price ceiling of version 1 (`python3 planted_faults.py <exe> routine` and `files`; run again
 after the ceiling moved to `MLTransfers.lua`, with the same counts for the routine):
@@ -1604,7 +1733,7 @@ Read from the DLL's code and strings, not run:
   previously used by version 6 of `MLMoney.lua` and version 1 of `MLTransfers.lua` at
   `0x047d3c40`-`0x047d3dbc`). The page of `.data1` behind its code,
   `0x047d4170`-`0x047d4fff`: `MLSimMatch.lua` version 7 uses `0x047d4170`-`0x047d41ff`
-  (144 bytes) for v1–v3 config/tables; `MLTransfers.lua` version 3 uses all of
+  (144 bytes) for v1–v3 config/tables; `MLTransfers.lua` versions 3 and 4 use all of
   `0x047d4200`-`0x047d4fff` (version 2: up to `0x047d4f5f`; one window was played with
   it and that part was left alone. The last 160 bytes are zero in the file and were not
   yet used in the game). The v5 config of `MLSimMatch.lua` was first put at

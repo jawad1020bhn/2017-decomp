@@ -117,7 +117,7 @@ return address of ai_candidates, which says which of the two calls of ai_pick_ca
 this is. Only if that address is one of the two, and the level is 0 to 9, it decides at
 all; otherwise the player is added as in the game.
 
-Version 2 of MLTransfers.lua (version 1: only step 7, with wealth, premium and panic 100
+MLTransfers.lua from version 2 on (version 1: only step 7, with wealth, premium and panic 100
 and fame 0). A club has a persona: 14 numbers (GENE_NAMES), two ages and two places for
 its second search, 20 bytes at GENES_TAB. Which persona: the one CLUBS names for the club
 id (HAND_IDS, HAND_TYPES), else one of the 8 at BY_LEVEL_TAB for the level of the club's
@@ -143,8 +143,9 @@ A player is "free" if his status (+0xb4, bits 0-3) is 1 or 2, else "listed" if h
     is below it. Unless the buyer's eleven (step 3) is KEEP_BIGGER points or more above
     the eleven of his club, `keeps` is KEEP_STEP higher for each point of
     rating + KEEP_FROM - eleven of his club above 0.
- 2. Scouting (not for "listed", not for a rating of KNOWN or more): refused if a draw
-    from player and buyer is not below `knows`.
+ 2. Scouting (not for "listed", not for a rating of KNOWN or more, not for a popularity
+    of FAME_KNOWN or more: the 12 bits from bit 11 of +0xb4): refused if a draw from
+    player and buyer is not below `knows`.
  3. The player: refused if his rating is above eleven + `prestige`, eleven = (ranking
     points of the buyer x STRENGTH_A + STRENGTH_B) >> 16, kept inside the rating range of
     the level of its ranking record (WINDOW_LOW, WINDOW_TOP).
@@ -157,7 +158,7 @@ A player is "free" if his status (+0xb4, bits 0-3) is 1 or 2, else "listed" if h
     the first search did not use. The player must be of that place. Then the ages (not
     in need), moved for the club by a draw from its id, -AGE_SHIFT to AGE_SHIFT years
     (age_shift() below): outside them he is refused if a draw from player and buyer is
-    below `strict`.
+    below `strict`; for a "free" player, if 100 x the draw is below `strict` x STRICT_FREE.
  5. The rating as this club sees it: rating - fog + (h x (2 fog + 1) >> 8). Refused if
     below eleven - `ambition` (not in need).
  6. In the second search: refused if that rating is above CEILING_TOP[level].
@@ -275,6 +276,8 @@ HAND_IDS = CAVE_2 + 0x2c8       # 192 dwords: the ids of the named clubs
 RIVAL_COUNT_AT = CAVE_2 + 0x5c8  # dword: how many pairs RIVALS has
 RIVAL_PAIRS = CAVE_2 + 0x5cc    # 64 pairs of dwords: the ids of two clubs that do not trade
 CEILING_CODE = CAVE_2 + 0x7d0
+FAME_KNOWN_AT = CAVE_2 + 0xde4  # dword: a player of this popularity or more is known to every club, times 1 << 20
+STRICT_FREE_AT = CAVE_2 + 0xde8  # dword: percent of `strict` that counts for a player without a contract
 KEEP_FROM_AT = CAVE_2 + 0xdec   # dword: a player this many rating points below his club's eleven, or better, is first team
 KEEP_STEP_AT = CAVE_2 + 0xdf0   # dword: percent added to `keeps` of his club for each point he stands above that
 KEEP_BIGGER_AT = CAVE_2 + 0xdf4  # dword: not against a buyer whose eleven is this many points better than his club's
@@ -812,6 +815,10 @@ s9: cmp dword ptr [ebp - 0x30], 1
     mov eax, dword ptr [ebp - 0x24]
     cmp eax, dword ptr [{KNOWN_AT}]
     jae k9
+    mov eax, dword ptr [ebx + 0xb4]
+    shl eax, 9
+    cmp eax, dword ptr [{FAME_KNOWN_AT}]
+    jae k9
     imul ecx, dword ptr [ebp - 0x2c], {HASH_KNOWS}
     {PERCENT('ecx')}
     cmp ecx, {G('knows')}
@@ -896,7 +903,12 @@ a0: cmp dword ptr [ebp - 0x1c], 0
     jle f1
 a1: imul ecx, dword ptr [ebp - 0x2c], {HASH_AGE}
     {PERCENT('ecx')}
-    cmp ecx, {G('strict')}
+    mov eax, {G('strict')}
+    cmp dword ptr [ebp - 0x30], 0
+    jne a2
+    imul eax, dword ptr [{STRICT_FREE_AT}]
+    imul ecx, ecx, 100
+a2: cmp ecx, eax
     jb refuse
 f1: mov eax, {G('fog')}
     lea ecx, [eax*2 + 1]
@@ -1080,35 +1092,36 @@ INCOME_SCALE_BYTES = bytes.fromhex('85c07e0e52f7258c0d7b04f73554067b045ac3')
 INCOME_S_BYTES = bytes.fromhex('81c6983a00005089f0e8deffffff89c658c3')
 LEAGUE_BYTES = bytes.fromhex('31c9eb0d0fb7144d900d7b0439fa7411413b0da80d7b0472eb8b0485c0077b04c36bc91801c10fb7044db00d7b046bc064c3')
 CEILING_BYTES = bytes.fromhex(
-    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f85b0040000894dc08b48dc894dac8b4818'
-    '8b51048955bc8b09894de88b50308b128955b88b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f876e04000089'
+    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f85d3040000894dc08b48dc894dac8b4818'
+    '8b51048955bc8b09894de88b50308b128955b88b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f879104000089'
     '45e031c98b93b400000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd86955e8'
-    'b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8b20400008945ec8955b031c9518b45ec8b55'
-    'e8e86a0400005989848d70ffffff4183f90e72e6c745f80d0000006a028d45f85053e86ff007ff83c40c0fb6c08945dc8b55b0e8fb0300'
+    'b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8d50400008945ec8955b031c9518b45ec8b55'
+    'e8e88d0400005989848d70ffffff4183f90e72e6c745f80d0000006a028d45f85053e86ff007ff83c40c0fb6c08945dc8b55b0e81e0400'
     '008945cc837dd0000f84470100008365f8008d45f8508d45c45089d9e8836505ff8b45c43b0534eb4f020f84250100008b55e88b0dc847'
-    '7d0449782e3904cdcc477d04750d3914cdd0477d040f84860300003914cdcc477d0475de3904cdd0477d040f8470030000ebcf837dd002'
-    '0f85e1000000e8f40300005052e87c0300008945a85a833d5c427d040074698b4dc88b49f48b45c425ff3f00003d8d0200000f83a90000'
+    '7d0449782e3904cdcc477d04750d3914cdd0477d040f84a90300003914cdcc477d0475de3904cdd0477d040f8493030000ebcf837dd002'
+    '0f85e1000000e8170400005052e89f0300008945a85a833d5c427d040074698b4dc88b49f48b45c425ff3f00003d8d0200000f83a90000'
     '0083bc81ac070000170f869b000000817dc0b90d660375395253e867f407ff83c4045a8b4de083f9097206837db8007720837dbc017505'
-    '83f9087315837dbc04750439c1770b83f807735f807a0e08735958b90c0000008b55c4e8350300008b55cc2b55a83b15f44f7d047d178b'
-    '55dc0315ec4f7d042b55a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c10f828b'
-    '020000eb0658e983020000837dd00174248b45dc3b05f84f7d047319694dd4b1675616c1e9186bc964c1e9083b4d800f83590200008b45'
-    'cc03459c3945dc0f874a0200008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca01'
-    '8955e4837db8000f85fa0000008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740'
-    '039574ffffff39d1721c40039578ffffff39d17211837de4000f84ca0100008b55ec0fb64210837de400752b8b4dc80fb649de3b0d5442'
-    '7d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f8392010000837df00074118b55ec0fb64a1039c175040fb64a1189c8'
-    '3b45d00f8572010000837de40075536945e8b179379e69c091f44525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e907'
-    '83e13f29c18b55ec3a4a0e7c053a4a0f7e19694dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955'
-    'd4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb691'
-    '28427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba13842'
-    '7d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf00'
-    '640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce803'
-    'befdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9054595ff89ec5d5f5b83'
-    'c404e960ace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf054c427d04'
-    '030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb6040869c99301000169d2b179379e31d169'
-    'c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a'
-    '020000770c4978093902740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83'
-    'f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3')
-assert CEILING_CODE + len(CEILING_BYTES) <= KEEP_FROM_AT and CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
+    '83f9087315837dbc04750439c1770b83f807735f807a0e08735958b90c0000008b55c4e8580300008b55cc2b55a83b15f44f7d047d178b'
+    '55dc0315ec4f7d042b55a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c10f82ae'
+    '020000eb0658e9a6020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d047319694dd4b1675616c1e918'
+    '6bc964c1e9083b4d800f836b0200008b45cc03459c3945dc0f875c0200008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b'
+    '8481ac0700003b0558427d04730383ca018955e4837db8000f850c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc9'
+    '64c1e90831c08b9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837de4000f84dc0100008b55ec0fb64210'
+    '837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f83a4010000837df0007411'
+    '8b55ec0fb64a1039c175040fb64a1189c83b45d00f8584010000837de40075656945e8b179379e69c091f44525c1e8188b15fc4f7d048d'
+    '4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a0f7e2b694dd49335871bc1e9186bc964c1e9088b45a483'
+    '7dd000750a0faf05e84f7d046bc96439c10f82190100008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc83'
+    '7de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb69128427d0439d00f8fca0000008b048d00427d0483'
+    'f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000'
+    '008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1'
+    'e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce8e0bdfdff8b4dd083f902741189f8f7248d3c427d04'
+    'f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9e24495ff89ec5d5f5b83c404e93dace8fef7e139fa7303f7f7c383c8ffc3'
+    '0145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d04c1e8100fb69164427d0439d07302'
+    '89d00fb6916e427d0439d0760289d0c30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d'
+    '44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b1424'
+    '83c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379ec1e81d0fb6'
+    '84c878427d046bc01405c8427d04c3')
+assert CEILING_CODE + len(CEILING_BYTES) <= FAME_KNOWN_AT and CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
 ROUTINES = ((FEE_CODE, FEE_SOURCE, 'FEE_BYTES'), (SALARY_CODE, SALARY_SOURCE, 'SALARY_BYTES'),
             (BUDGET_T_CODE, BUDGET_T_SOURCE, 'BUDGET_T_BYTES'), (BUDGET_S_CODE, BUDGET_S_SOURCE, 'BUDGET_S_BYTES'),
             (PRIZE_CODE, PRIZE_SOURCE, 'PRIZE_BYTES'), (BONUS_R_CODE, BONUS_R_SOURCE, 'BONUS_R_BYTES'),
@@ -1142,6 +1155,8 @@ MAX_SLOPE, MAX_BASE = 0.5, 99           # STRENGTH: rating points per ranking po
 MAX_SQUAD = 32
 MAX_KEEP_FROM, MAX_KEEP_STEP, MAX_KEEP_BIGGER = 99, 100, 99      # KEEP_BEST
 MAX_KNOWN, MAX_AGE_SHIFT = 100, 5       # KNOWN_FROM, AGE_SHIFT
+MAX_KNOWN_FAME = 4096                   # KNOWN_FAME: the popularity of a player is 0 to 4095, so 4096 is "no player"
+MAX_STRICT_FREE = 100                   # STRICT_FREE, percent
 # a persona: the lowest and the highest number each entry takes (GENE_NAMES, then the two ages)
 GENE_LIMITS = {'free': (0, 100), 'listed': (0, 100), 'clubs': (0, 100), 'winter': (0, 100), 'knows': (1, 100),
                'fog': (0, 10), 'wealth': (10, 250), 'premium': (0, 250), 'panic': (0, 250), 'fame': (0, 250),
@@ -1299,7 +1314,8 @@ class Tables:
                  league_by_id=None, cup_national=None, cup_tv=None, income_wages=None, ceiling=None,
                  ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100,
                  sell=False, scouting=False, persona=None, rivals=None):
-        # persona may also hold: keep (from, step, bigger), known, shift (KEEP_BEST, KNOWN_FROM, AGE_SHIFT)
+        # persona may also hold: keep (from, step, bigger), known, shift (KEEP_BEST, KNOWN_FROM, AGE_SHIFT) and
+        # fame, strict_free (KNOWN_FAME, STRICT_FREE)
         self.value = [clamp(amount(m), 1, CAP) for m in curve(value, 0, 99, True)]
         self.age = [clamp(int(p + 0.5), 0, MAX_AGE_PERCENT) for p in curve(age, 0, 63, False)]
         self.position = [clamp(int(position[n] + 0.5), 0, MAX_POSITION_PERCENT) for n in POSITIONS] + [100] * 3
@@ -1377,6 +1393,7 @@ class Tables:
         self.by_level, self.hand = [[0] * BY_LEVEL for _ in range(LEVELS)], []
         self.persona_low, self.persona_range, self.strength_a, self.strength_b, self.winter, self.squad = 1000, 0, 0, 0, 0, 0
         self.keep_from, self.keep_step, self.keep_bigger, self.known, self.age_shift = 0, 0, 0, 0, 0
+        self.known_fame, self.strict_free = 0, 0
         if persona is not None:
             for name, numbers in persona['archetypes']:
                 record = [clamp(int(numbers[k] + 0.5), *GENE_LIMITS[k]) for k in GENE_NAMES]
@@ -1404,6 +1421,8 @@ class Tables:
                                                                 (MAX_KEEP_FROM, MAX_KEEP_STEP, MAX_KEEP_BIGGER)))
             self.known = clamp(int(persona.get('known', MAX_KNOWN) + 0.5), 0, MAX_KNOWN)
             self.age_shift = clamp(int(persona.get('shift', 0) + 0.5), 0, MAX_AGE_SHIFT)
+            self.known_fame = clamp(int(persona.get('fame', MAX_KNOWN_FAME) + 0.5), 0, MAX_KNOWN_FAME)
+            self.strict_free = clamp(int(persona.get('strict_free', MAX_STRICT_FREE) + 0.5), 0, MAX_STRICT_FREE)
 
     def sites(self):
         """The places the module changes with these settings: (name, address, old, new)."""
@@ -1474,9 +1493,12 @@ def image_2(t):
     assert CAVE_2 + len(d) <= RIVAL_PAIRS + 8 * RIVALS <= CEILING_CODE
     d = d.ljust(CEILING_CODE - CAVE_2, b'\0')
     d += CEILING_BYTES
-    assert CAVE_2 + len(d) <= KEEP_FROM_AT and AGE_SHIFT_AT + 4 == CAVE_2 + CAVE_2_SIZE
-    d = d.ljust(KEEP_FROM_AT - CAVE_2, b'\0')
-    return d + struct.pack('<5I', t.keep_from, t.keep_step, t.keep_bigger, t.known, t.age_shift)
+    assert CAVE_2 + len(d) <= FAME_KNOWN_AT and AGE_SHIFT_AT + 4 == CAVE_2 + CAVE_2_SIZE
+    d = d.ljust(FAME_KNOWN_AT - CAVE_2, b'\0')
+    # the routine compares the dword at +0xb4 of the player, moved 9 bits up (its popularity then stands in
+    # the 12 highest bits), with this number: no such dword reaches 0xffffffff
+    return d + struct.pack('<7I', min(t.known_fame << 20, M32), t.strict_free, t.keep_from, t.keep_step,
+                           t.keep_bigger, t.known, t.age_shift)
 
 
 def spread_hash(id_low, id_high):
@@ -1635,8 +1657,10 @@ def accepts(t, level, player, buyer=None, search=None, from_pick=True):
             keeps += (player['rating'] + t.keep_from - his) * t.keep_step
         if draw(club_key(seller['id']) ^ key ^ date, HASH_KEEPS) < keeps:
             return False
-    # 2. scouting: a club knows a part of the players; a listed player and a good one are known to all
-    if where != 1 and player['rating'] < t.known and draw(both, HASH_KNOWS) >= g['knows']:
+    # 2. scouting: a club knows a part of the players; a listed player, a good one and a famous one are
+    #    known to all
+    if (where != 1 and player['rating'] < t.known and player['popularity'] < t.known_fame
+            and draw(both, HASH_KNOWS) >= g['knows']):
         return False
     # 3. the player: he does not join a club too far below him
     if player['rating'] > own + g['prestige']:
@@ -1658,8 +1682,10 @@ def accepts(t, level, player, buyer=None, search=None, from_pick=True):
             first = mine[THEN_1] if mine[THEN_1] != first else mine[THEN_2]
         if first != where:
             return False
+    # the ages: for a player without a contract `strict` counts in part only
+    strict = g['strict'] * (t.strict_free if where == 0 else 100)
     if (not need and not mine[AGE_FROM] <= player['age'] - age_shift(t, buyer['id']) <= mine[AGE_TO]
-            and draw(both, HASH_AGE) < g['strict']):
+            and draw(both, HASH_AGE) * 100 < strict):
         return False
     # 5. the rating as this club sees it
     seen = player['rating'] + (high_byte(both, HASH_FOG) * (2 * g['fog'] + 1) >> 8) - g['fog']

@@ -1492,6 +1492,21 @@ money); a second season.
 Two personas were added and some numbers changed; `sider/README.md` lists them. Whether
 a played window comes out as the model says is not known.
 
+**Version 4 of `MLTransfers.lua`** (emulator only, not played). Routine of 1,555 bytes
+at `0x047d49d0`, seven numbers at `0x047d4fe4`; one byte of the page is left. Two
+additions to the routine:
+
+- A player whose popularity (the 12 bits from bit 11 of `+0xb4`) is 700 or more skips
+  the scouting step as well (`KNOWN_FAME`). In the save of 1 July the popularity runs
+  from 0 to 1,110, the median is 250, and 395 players have 700 or more; 109 of them are
+  rated under 80 and all of those have a club.
+- For a player without a contract `strict` of the buyer's persona counts 50 percent
+  (`STRICT_FREE`): he is refused for his age if 100 x the draw is below `strict` x 50.
+
+`keeps` of the personas Galactico, State-backed and Old-money is 50 (was 70, 70, 60).
+`sider/README.md` has what the model gives for these and why two other suggestions
+were not taken.
+
 ## 10 Team strength
 
 Level: **read**.
