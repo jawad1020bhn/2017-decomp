@@ -122,9 +122,12 @@ def settings(source):
             kinds.append((name, entries))
         groups = [re.findall(r'"([^"]+)"', group) for group in re.findall(r'\{([^{}]*)\}', text('PERSONA_GROUPS')[1:])]
         clubs = [(int(c, 0), name) for c, name in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *"([^"]+)" *\}', text('CLUBS'))]
+        # a file of version 2 has none of the last three: the model then does what version 2 did
+        newer = {key: read(name) for key, name, read in (('keep', 'KEEP_BEST', numbers), ('known', 'KNOWN_FROM', number),
+                                                         ('shift', 'AGE_SHIFT', number))
+                 if re.search(r'^local %s = ' % name, source, re.M)}
         return dict(archetypes=kinds, groups=groups, clubs=clubs, spread=number('PERSONA_SPREAD'),
-                    strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'),
-                    keep=numbers('KEEP_BEST'), known=number('KNOWN_FROM'), shift=number('AGE_SHIFT'))
+                    strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'), **newer)
     rivals = [(int(a, 0), int(b, 0)) for a, b in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *(0x[0-9a-fA-F]+|\d+) *\}', text('RIVALS'))]
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
     return mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
@@ -232,6 +235,7 @@ class Harness:
 
     def __init__(self, exe):
         self.g = g = Game(exe)
+        self.dice = random.Random(11)                        # choose_cases: the ids that sit on a limit
         self.v = v = {'overall': None, 'league': 17, 'age': 0, 'holders': None}
         self.mode_data = mode = g.alloc(size=0xf00000)
         holder, menu = g.alloc(size=0x40), g.alloc(size=0x40)
@@ -577,6 +581,15 @@ class Harness:
                             club_of(c)['points'], club_of(c)['level']), 'ranking'
                 self.by_id.clear()
                 bands.clear()
+                # one player in four is put on a limit that chance alone meets too seldom: an id whose
+                # draw for the age or for scouting is exactly the buyer's number (`strict`, `knows`), or
+                # a rating at the line of his club's first team (KEEP_BEST) with an id whose draw is at
+                # one end of what the club keeps there. Own dice: the other players are those of every run
+                limits = ()
+                if t is not None and t.transfers:
+                    mine = mc.persona(t, club, buyer['level'])
+                    limits = tuple((factor, mc.gene(t, mine, mc.GENE_NAMES.index(name), club))
+                                   for factor, name in ((mc.HASH_AGE, 'strict'), (mc.HASH_KNOWS, 'knows')))
                 lists, records, everyone, at = ({}, {}), [], [], self.entries
                 keys = random.sample(range(1, 0x10000), 14)      # the low word of an id: what the game finds the record by
                 for k in range(random.randint(1, 14)):
@@ -594,6 +607,26 @@ class Harness:
                                                     loan << 28 | mark << 29 | random.getrandbits(28)))
                     his = random.choice(sellers * 3 + [mc.NO_CLUB])
                     g.write(rec + 0xa8, struct.pack('<I', his))
+                    if limits and self.dice.randint(0, 3) == 0:
+                        factor, limit = self.dice.choice(limits)
+                        other = mc.club_key(club)
+                        if his != mc.NO_CLUB and self.dice.randint(0, 1):
+                            seller = club_of(his)
+                            line = mc.eleven(t, seller['points'], seller['level']) - t.keep_from
+                            above = self.dice.randint(0, 2)
+                            if 40 <= line + above <= 99:
+                                o = line + above
+                                keeps = mc.gene(t, mc.persona(t, his, seller['level']), mc.GENE_NAMES.index('keeps'), his)
+                                limit = keeps + self.dice.choice([0, above]) * t.keep_step - self.dice.randint(0, 1)
+                                factor = mc.HASH_KEEPS
+                                other = mc.club_key(his) ^ ((today[0] | today[1] << 16) * mc.HASH_A & mc.M32)
+                        for _ in range(300):
+                            new = (self.dice.getrandbits(16) << 16 | keys[k], self.dice.getrandbits(32) | 1)
+                            if mc.draw(mc.player_key(new) ^ other, factor) == limit:
+                                ident = new
+                                break
+                        g.write(rec + 0x2c, struct.pack('<II', *ident))
+                        g.write(rec + 0x300, bytes([o]))
                     bands[rec] = random.choice([0, 3, 3, 5, 6, 6, 7, 7, 8])
                     self.by_id[keys[k]] = rec
                     i = random.randint(0, 1) if how == 'pick' else which

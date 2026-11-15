@@ -1472,6 +1472,26 @@ What the second window also shows:
 Not established: the winter signings; what the fees were (the saves were not read for
 money); a second season.
 
+**Version 3 of `MLTransfers.lua`** (emulator only, not played). Same place, routine of
+1,520 bytes at `0x047d49d0`, five numbers at `0x047d4fec`; it now uses the page up to
+`0x047d4fff`. Three additions, made because of the window above:
+
+- Of the 254 players sold, 131 were among the best eleven of their club (42 more among
+  places 12 to 18): the selling club kept every player with the same chance. Now
+  `keeps` rises by 12 percent for each rating point a player stands above "eleven of
+  his club minus 4", unless the buyer's eleven is 2 or more points better
+  (`KEEP_BEST`). The rating of both elevens is worked out from the ranking points as
+  before. On the save of 1 July the model lets a club part with 25 percent of its best
+  eleven instead of 71.
+- A player rated 80 or more skips the scouting step (`KNOWN_FROM`): for the 19 best
+  players without a contract the clubs that pass every step that does not hang on a
+  slot rise from 7.4 to 19.7 on average.
+- The two ages of a persona are moved by -2 to +2 years, by a draw from the club's id
+  (`AGE_SHIFT`).
+
+Two personas were added and some numbers changed; `sider/README.md` lists them. Whether
+a played window comes out as the model says is not known.
+
 ## 10 Team strength
 
 Level: **read**.

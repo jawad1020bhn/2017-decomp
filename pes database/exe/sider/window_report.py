@@ -2,8 +2,12 @@
 """One transfer window of a Master League career, read from two saves, against the rules
 of MLTransfers.lua.
 
-    python3 window_report.py <PES2017.exe> <save before> <save after> [year month]
+    python3 window_report.py <PES2017.exe> <save before> <save after> [MLTransfers.lua]
                                                     needs: pip install lupa unicorn
+
+MLTransfers.lua: the file the window was played with, if it is not the one in this folder
+(the pair in `ML saves/2nd test/` was played with version 2: `git show
+d6f4a02:"pes database/exe/sider/MLTransfers.lua"`).
 
 The player records of a save are the last part of its data: 21,033 records of 0xe0 bytes
 as zlib chunks (big-endian: size of all records, a second number; then per chunk its
@@ -14,7 +18,7 @@ player of a club.
 
 Then every signing by a computer club is put to the steps of money_cave.accepts that need
 nothing but the two clubs, the player and the month in which the club chose (every month
-from `year month`, default 2024 7, to the month of the signing is tried): rivals, what
+from July 2024 to the month of the signing is tried): rivals, what
 the selling club keeps, scouting, prestige, the price. The steps that also hang on the
 slot of the plan (the position asked for, a status band, the second search) are taken
 with the player's own position and are shares, not proof. "By chance" is what a club that
@@ -154,10 +158,13 @@ def judge(t, before, rate, k, r, new, start):
     if w == 2 and seller:
         s = t.genes[mc.persona_index(t, seller['id'], seller['level'])]
         keeps = mc.gene(t, s, mc.GENE_NAMES.index('keeps'), seller['id'])
+        his = mc.eleven(t, seller['points'], seller['level'])
+        if own - his < t.keep_bigger and rating + t.keep_from > his:      # KEEP_BEST
+            keeps += (rating + t.keep_from - his) * t.keep_step
         out['keeps'] = any(mc.draw(mc.club_key(seller['id']) ^ key ^ stamp, mc.HASH_KEEPS) >= keeps for stamp in stamps)
         out['keeps chance'] = 100 - 100 * (min(keeps, 100) / 100.0) ** len(months)
         out['seller count'] = seller['count'] > mc.POOL_KEEPS
-    if w != 1:
+    if w != 1 and rating < t.known:                                        # KNOWN_FROM
         out['knows'] = mc.draw(both, mc.HASH_KNOWS) < g['knows']
         out['knows chance'] = min(100, g['knows'])
     out['prestige'] = rating <= own + g['prestige']
@@ -169,7 +176,7 @@ def judge(t, before, rate, k, r, new, start):
     out['price, no need'] = price <= mc.limit(t, buyer['level'], k, buyer['id'], False, numbers, popularity(r))
     # the steps that hang on the slot: counted with the player's own position, without a band
     out['small squad'] = buyer['count'] < t.squad
-    out['in age range'] = mine[mc.AGE_FROM] <= age(r) <= mine[mc.AGE_TO]
+    out['in age range'] = mine[mc.AGE_FROM] <= age(r) - mc.age_shift(t, buyer['id']) <= mine[mc.AGE_TO]
     out['age'] = out['in age range'] or mc.draw(both, mc.HASH_AGE) >= g['strict']
     out['age chance'] = 100 - g['strict']
     out['ambition'] = seen >= own - g['ambition']
@@ -298,6 +305,8 @@ def tables(t, before, after, found, sold, user):
 if __name__ == '__main__':
     if len(sys.argv) < 4:
         sys.exit(__doc__)
-    settings = test_money.settings(test_money.two_modules())
-    month = (int(sys.argv[4]), int(sys.argv[5])) if len(sys.argv) > 5 else (2024, 7)
-    tables(settings, *report(settings, sys.argv[1], sys.argv[2], sys.argv[3], month))
+    source = test_money.two_modules()
+    if len(sys.argv) > 4:
+        source = source.split(test_money.SPLIT)[0] + test_money.SPLIT + open(sys.argv[4], encoding='utf-8').read()
+    settings = test_money.settings(source)
+    tables(settings, *report(settings, sys.argv[1], sys.argv[2], sys.argv[3], (2024, 7)))

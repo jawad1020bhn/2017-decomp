@@ -185,7 +185,7 @@ FAULTS = (
     # version 3. The first team: the line one point off, kept against a bigger club too, the
     # bigger club one point off, measured from the buyer's eleven, the step left out; the star:
     # one point off, listed players not known; the ages moved the other way, by half, not at all
-    ('money_cave.py', "and player['rating'] + t.keep_from > his:", "and player['rating'] + t.keep_from >= his:"),
+    ('money_cave.py', "and player['rating'] + t.keep_from > his:", "and player['rating'] + t.keep_from > his + 1:"),
     ('money_cave.py', "if own - his < t.keep_bigger and player['rating']", "if player['rating']"),
     ('money_cave.py', "if own - his < t.keep_bigger and player['rating']", "if own - his <= t.keep_bigger and player['rating']"),
     ('money_cave.py', "keeps += (player['rating'] + t.keep_from - his) * t.keep_step", "keeps += (player['rating'] + t.keep_from - own) * t.keep_step"),
