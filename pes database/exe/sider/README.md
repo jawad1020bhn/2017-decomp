@@ -11,8 +11,8 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); version 3 has run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
-| `MLSimToDate.lua` | **changes the game.** "Sim to Date": a Master League whose date is before the date set in the file runs on to that date when you advance, and your own matches on the way are simulated the Skip Match way. Off as it comes (`SIM_YEAR = 0`). Needs no other module. Has run in the emulator only, on a small part of the game's code |
-| `test_simdate.py <PES2017.exe>` | runs `MLSimToDate.lua` on the exe in the emulator, then the game's stop test and day loop with the module's routine in, on made-up calendars (needs `pip install lupa unicorn keystone-engine capstone`) |
+| `MLSimToDate.lua` | **changes the game.** "Sim to Date": a Master League whose date is before the date set in the file runs on to that date when you advance, and your own matches on the way are simulated the Skip Match way. Off as it comes (`SIM_YEAR = 0`). From version 2 the date can also stand in a text file, `MLSimToDate.txt`, and be changed while the game runs. Needs no other module. Has run in the emulator only, on a small part of the game's code |
+| `test_simdate.py <PES2017.exe>` | runs `MLSimToDate.lua` on the exe in the emulator, then the game's stop test and day loop with the module's routine in, on made-up calendars, and the text file with the date through a stand-in for Sider's file reading (needs `pip install lupa unicorn keystone-engine capstone`) |
 | `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 7: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
 | `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5ffd`, 4,030 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
@@ -165,11 +165,15 @@ Not shown: the set-up of a career as a whole was not run, only its eight instruc
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
 
-## `MLSimToDate.lua`, version 1: "Sim to Date"
+## `MLSimToDate.lua`, version 2: "Sim to Date"
 
 **Emulator only, and less than usual: it has not run in the game, and what a day does in
 the game could not be run in the emulator either.** Try it on a copy of your save first
 (steps below).
+
+Version 2 adds one thing: the date can be changed while the game runs, through a text
+file (below, "The date while the game runs"). The routine in the game and the one changed
+call are the same bytes as in version 1.
 
 ### What it does
 
@@ -193,11 +197,47 @@ that module is installed), without a stop at each match.
   is not fully read and may stop often.
 - Master League only. In every other mode the routine does nothing.
 - **The date stays in force for every Master League you load**, a new one too. Set
-  `SIM_YEAR = 0` when you are done.
-- The date is read when the game starts. For another date: change the file, start the
-  game again. (This Sider gives a module no key event; a way to set the date while the
-  game runs is the next step, once this one is seen to work.)
+  `SIM_YEAR = 0` (or write `off` into the text file) when you are done.
+- Without the text file, the date in the Lua file is read once, when the game starts.
 - The game's year has no 29 February; the module refuses that date.
+
+### The date while the game runs (new in version 2)
+
+This Sider gives a module no key press and no menu. What it does give (read in
+`sider.dll`, see "What was looked at in `sider.dll`"): reading files, the clock, and a
+call into the module when the game looks for one of its own files. The module uses those
+three.
+
+1. Before you start the game, make a text file **`MLSimToDate.txt` next to `sider.exe`**
+   (not in `modules`). One line: a date, as `2025-03-15` or `15.3.2025`, or the word
+   `off`.
+2. If the file is there when the game starts, its date is used and the date in the Lua
+   file is not. `sider.log` says which file it looked for and whether it was found.
+3. In the game: switch to the desktop, change the date in the file, save, go back. The
+   module looks at the file again the next time the game looks for a file, at most once a
+   second. `sider.log` then gets `MLSimToDate: the date is now 15.3.2025 (from
+   MLSimToDate.txt)`. Then advance.
+4. `off` switches it off without a restart; a new date switches it on again.
+
+What to know:
+
+- **How soon the new date is seen depends on the game.** Sider keeps a list of the files
+  the game has asked for before (`address-cache.enabled = 1` in your `sider.ini`) and
+  does not call the modules again for those. A screen the game has not shown before in
+  this session calls the module; one it has shown may not. If no "the date is now" line
+  comes after you open another screen or two, set `address-cache.enabled = 0` in
+  `sider.ini`: then every file the game looks for calls the modules. That costs time for
+  all your Lua modules, not only this one; how much was not measured.
+- It needs `livecpk.enabled = 1` and `lua.enabled = 1` (your `sider.ini` has both).
+- If the file is not there when the game starts, the module does not look for it later.
+  Make the file first; it may hold `off`.
+- A file that holds neither a date nor `off`: at the start nothing is installed and the
+  log says so; while the game runs the date stays as it was and the log says so once.
+- If the folder of `sider.exe` has letters outside English in its name, the file may not
+  be found (Sider gives the folder name in another encoding than the file reading wants).
+  The log line `date file: ...  not there` shows it.
+- Changing the date while a run is going on was not looked at. Change it at a menu.
+- Only the four bytes of the date inside the routine are written, and read back.
 
 ### How
 
@@ -222,18 +262,21 @@ only while the other switch is off).
 ### Try it (copy the save first)
 
 1. Copy your Master League save (`ML00000013` or the like) to another folder.
-2. Copy `MLSimToDate.lua` into the `modules` folder next to `sider.exe`, set a date two
-   or three weeks after the date of your career (`SIM_YEAR`, `SIM_MONTH`, `SIM_DAY`), and
-   add one line to `sider.ini`:
+2. Copy `MLSimToDate.lua` into the `modules` folder next to `sider.exe` and add one line
+   to `sider.ini`:
    ```
    lua.module = "MLSimToDate.lua"
    ```
+   Make a text file `MLSimToDate.txt` next to `sider.exe` with a date two or three weeks
+   after the date of your career, for example `20.8.2024`. (Or, without the text file:
+   set `SIM_YEAR`, `SIM_MONTH`, `SIM_DAY` in the Lua file.)
 3. Start the game and look at `sider.log`:
    ```
-   MLSimToDate 1: simulate a Master League to the date set in MLSimToDate.lua
+   MLSimToDate 2: simulate a Master League to a date (MLSimToDate.lua, MLSimToDate.txt)
+   date file: C:\...\MLSimToDate.txt  found
    check: end of the stop test         at 0360b786  as expected
    ... (five check lines and "free memory ... empty")
-   RESULT: installed. A Master League before 20.8.2024 runs on to that date when you advance; your matches on the way are simulated. It stops for news.
+   RESULT: installed. A Master League before 20.8.2024 runs on to that date when you advance; your matches on the way are simulated. It stops for news. The date is read from MLSimToDate.txt while the game runs.
    ```
 4. Load the career and advance. What to look at, and to tell me:
    - does it pass your matches without the match menu, and stop on or after the date?
@@ -241,7 +284,11 @@ only while the other switch is off).
    - the squad: fatigue, injuries, bookings as after a Skip Match?
    - does the screen look stuck while it runs, and for how long?
    - any crash or a menu that does not answer.
-5. Set `SIM_YEAR = 0` (or remove the line from `sider.ini`) when done.
+5. With the game still running: write a later date into `MLSimToDate.txt`, save, go back
+   to the game, open a screen or two, and look for `MLSimToDate: the date is now ...` in
+   `sider.log`. Tell me whether the line came and after which screen.
+6. Write `off` into the text file (or set `SIM_YEAR = 0`, or remove the line from
+   `sider.ini`) when done.
 
 `RESULT: nothing written. ...` with a `DIFFERENT` or `NOT EMPTY` line: the game does not
 hold what the module expects; send the log.
@@ -256,7 +303,8 @@ ok 2: for each of the 365 days the game's own date code and the module agree on 
 ok 3: the game's stop test with the routine in: before the date it switches both on and goes on over a match, stops for news if asked to, lets the game's own test end the run (a transfer window opening, run for real); on the date both go off; other modes are as without the module
 ok 4: the game's day loop on 6 made-up calendars, 288 runs: every match of the user before the date is simulated (12562 in all) and none is passed unplayed, the stops before the date are the ones asked for, it arrives on the first day on or after the date on which the game stops, that day's match is left to the user, both switches are off at every main menu and after the date; without the module, in another mode or with a past date the loop stops at every match
 ok 5: 23 faulty settings (29 February among them) are refused before anything is read; with one byte of a checked place or of the free memory changed (208 cases) nothing is written and the place is named; if the routine does not go in the call is not changed; a second install is refused
-ok 6: with MLMoney.lua, MLTransfers.lua, MLYear.lua and MLSimMatch.lua in the same game, above, below or between them, all five are installed and the routine works
+ok 6: the date from MLSimToDate.txt: 20 ways to write a date or "off" are understood and 11 are refused; the file wins over the date in the Lua file; without the file nothing is registered; while the game runs a new date goes in on the next file load, at most once a second, and only its four bytes are written; a faulty or missing file leaves the date as it was; the day loop runs to a first date, then on to a later one (9 presses for 640 days)
+ok 7: with MLMoney.lua, MLTransfers.lua, MLYear.lua and MLSimMatch.lua in the same game, above, below or between them, all five are installed and the routine works
 ```
 
 Faults were planted one at a time and the test run on each. 22 in the module (a wrong
@@ -267,6 +315,12 @@ that comparing the two could not be what notices them (the date test turned, a s
 set or not cleared, the stop not lifted on a match day, the user's own Skip Match
 cleared, and so on): 14 failed at once; the fifteenth (the result of the replaced call
 lost) passed, two cases were added to part 3, and it fails now.
+
+For version 2, 22 more in the reading of the text file (day and month swapped, the year
+first not seen, `OFF` in capitals not understood, the file looked at on every load, the
+same date written again, the date written one byte off, a faulty file taken as `off`, an
+empty file taken as no file, another event, and so on): the test failed on all 22, and
+passed with nothing changed.
 
 ### What is not shown
 
@@ -285,6 +339,10 @@ lost) passed, two cases were added to part 3, and it fails now.
   ends the run for the day at the windows and on the last day of the season; what the
   game then shows was not seen.
 - With `STOP_FOR_NEWS = false`: what happens to an offer nobody answers.
+- **The text file in the game.** In the test, the file, the clock and Sider's call into
+  the module are Python stand-ins. That this Sider gives a module file reading and the
+  call was read in `sider.dll`, not run. How often the call comes in the menus of a
+  career is not known (see above, `address-cache.enabled`).
 - Sider, Windows, the running game.
 
 ## `MLTransfers.lua`, version 4: the selling side, club personas, scouting, rivals
@@ -1826,6 +1884,24 @@ Read from the DLL's code and strings, not run:
   `error`, `os` (`time`, `clock`, `date`), `audio`; with `luajit.ext.enabled` also
   `ffi`, `bit`, `require`. There is **no `pcall`**: an error in `init` makes Sider skip
   the module and log the error.
+- **`io` is among them** (`0x10003610`: thirteen names are copied from Lua's own globals
+  into what a module sees, `io` is the last; `os` is a new table with three functions).
+  So a module can read and write files. `ctx.sider_dir` (the folder of `sider.exe`, made
+  from a wide string into UTF-8) and `ctx.register(event, function)` are put into `ctx`
+  at `0x10003590`.
+- `ctx.register` (`0x10002c70`) knows 21 events, all about files, a match, the edit mode
+  or the replay gallery. **None for a key, the pad or a menu.**
+- `livecpk_make_key` (used by `MLSimToDate.lua` 2 as a clock tick): the three places
+  where Sider is called when the game looks for a file (`0x10007f20`, `0x10008130`,
+  `0x100082c0`; installed only with `livecpk.enabled = 1` and when Sider finds the
+  game's code for it) first ask a list of earlier lookups, by the address and the name
+  of the file (`0x10010cb0`; only with `address-cache.enabled = 1`). A lookup that is in
+  the list does not reach Lua. Any other, with `lua.enabled = 1`, goes through every
+  module that registered `livecpk_make_key` or `livecpk_get_filepath` (`0x10007ca0`) and
+  calls its `livecpk_make_key` function with `ctx` and the file name (`0x100078c0`), in a
+  protected call: an error there is logged (`lua ERROR`) and does not stop the game. A
+  function that returns nothing gives an empty key; with no `livecpk_get_filepath`
+  function the module then names no file and Sider goes on to the next module.
 - `memory.read(address, count)` makes the pages readable and writable
   (`VirtualProtect`), copies the bytes, and asks for the old protection back with a
   call that Windows refuses (no place for the old value is passed). So **a read leaves

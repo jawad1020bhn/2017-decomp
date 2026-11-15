@@ -12,10 +12,14 @@ stand-ins that follow what was read in the game's code: the day end moves the da
 next day with something on it, names the user's match of that day and asks the game's own
 stop test; the match step simulates the user's match only if the Skip Match switch is on.
 
+The text file with the date (MLSimToDate.txt) is a Python stand-in too: a table of file
+contents, a clock, and the function the module registers, called by hand.
+
 What this shows: the module's logic, that the routine is the source below, and that the
 game's loop with the routine in walks a made-up calendar the way the module promises.
-What it does not show: Sider, Windows, the running game, a real career, and whether the
-game's own switches do in the game what their code was read to do.
+What it does not show: Sider, Windows, the running game, a real career, whether the
+game's own switches do in the game what their code was read to do, and whether this Sider
+calls a module when the game loads a file in the menus of a career.
 """
 import random
 import struct
@@ -23,6 +27,8 @@ import sys
 
 import capstone
 from keystone import Ks, KS_ARCH_X86, KS_MODE_32
+
+from lupa.luajit21 import LuaRuntime
 
 import test_money as tm
 from test_money import Game, run, setting
@@ -40,6 +46,8 @@ TODAY, FLAG, SKIP, CALENDAR, MATCH = 0xc2cbb0, 0xdcb6a0, 0xdcb61c, 0xbfd52c, 0x5
 INSTALLED = 'RESULT: installed. A Master League before %d.%d.%d runs on to that date when you advance; ' \
             'your matches on the way are simulated.'
 NOTHING = 'RESULT: nothing written. '
+FILE = b'.\\MLSimToDate.txt'
+LIVE = ' The date is read from MLSimToDate.txt while the game runs.'
 BEFORE = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
 
 # The routine as written. At the call: esi = the career's data, bl = the game's answer.
@@ -104,6 +112,54 @@ def with_date(source, year, month, day, news='true', big='false'):
     return source
 
 
+def run_live(g, source, files, clock, sticky=True, sider_dir=b'.\\'):
+    """As test_money.run for one module, with what the text file needs: io.open on `files`
+    (path -> bytes), os.time from clock[0], ctx.register. -> (log lines, reads, writes,
+    registered functions by event, paths opened)"""
+    lua = LuaRuntime(encoding=None, unpack_returned_tuples=True)
+    lines, reads, writes, handlers, opened = [], [], [], {}, []
+
+    def read(address, count):
+        reads.append((int(address), int(count)))
+        return g.read(int(address), int(count))
+
+    def write(address, data):
+        writes.append((int(address), len(data)))
+        if sticky(int(address)) if callable(sticky) else sticky:
+            tm.poke(g, int(address), data)
+
+    def open_file(path):
+        opened.append(path)
+        return files.get(path)
+
+    def register(name, fn):
+        assert name not in handlers
+        handlers[name] = fn
+
+    lua.eval('''function(source, log, read, write, open, time, register, sider_dir)
+        local env = { assert = assert, table = table, pairs = pairs, ipairs = ipairs, string = string,
+                      math = math, tonumber = tonumber, tostring = tostring, unpack = unpack,
+                      error = error, _VERSION = _VERSION, type = type,
+                      os = { time = time, clock = os.clock, date = os.date },
+                      io = { open = function(path, mode)
+                          local text = open(path)
+                          if text == nil then return nil end
+                          return { close = function() end,
+                                   read = function(self, n)                 -- nil at the end, as Lua does
+                                       if text == "" then return nil end
+                                       return string.sub(text, 1, n)
+                                   end }
+                      end },
+                      log = log, memory = { read = read, write = write } }
+        local chunk = assert(loadstring(source, "module"))
+        setfenv(chunk, env)
+        local module = chunk()
+        module.init({ sider_dir = sider_dir, register = function(name, fn) register(name, fn) end })
+    end''')(source.encode(), lambda text: lines.append(text.decode()), read, write, open_file,
+            lambda: clock[0], register, sider_dir)
+    return lines, reads, writes, handlers, opened
+
+
 class World:
     """A career as far as the stop test and the day loop look at it, and a made-up calendar."""
 
@@ -143,6 +199,12 @@ def date_of(g, year, index):
     g.call(DATE_OF_DAY, [out, g.alloc(struct.pack('<I', year)), g.alloc(struct.pack('<I', index))])
     raw = g.read(out, 4)
     return (struct.unpack('<H', raw[:2])[0], raw[2], raw[3]), raw
+
+
+def date_text(g, n, base_year=2024):
+    """Day n of a made-up calendar as the text of the file, from the game's own date code."""
+    (year, month, day), _ = date_of(g, base_year + n // 365, n % 365)
+    return b'%d.%d.%d' % (day, month, year)
 
 
 def calendar(seed, days=900):
@@ -261,7 +323,8 @@ def main(exe):
 
     # 1. as it comes: off. Then: the writes, the routine, the call
     lines, reads, writes = run(image, source)
-    assert lines[-1] == NOTHING + 'SIM_YEAR is 0: the module is switched off.' and not reads and not writes
+    assert lines[-1] == NOTHING + 'SIM_YEAR is 0 and there is no MLSimToDate.txt: the module is switched off.'
+    assert not reads and not writes
     cases = 0
     for year, month, day in ((2024, 7, 1), (2025, 1, 15), (2031, 12, 31), (2000, 1, 1), (2200, 2, 28)):
         for news in ('true', 'false'):
@@ -443,7 +506,130 @@ def main(exe):
           'place is named; if the routine does not go in the call is not changed; a second install is '
           'refused' % (refused, count))
 
-    # 6. with the other four modules
+    # 6. the date from the text file
+    def probe():
+        """A match day of 31 January 2025 in a Master League: (stop, switch, Skip Match)."""
+        w = World(image)
+        image.replace(DAY_STATE, lambda game, arg: 2)
+        w.today(2025, 30)
+        w.match(True)
+        got = w.stop_test(), w.byte(FLAG), w.byte(SKIP)
+        del image.replaced[DAY_STATE]
+        return got
+
+    def date_in():
+        return struct.unpack('<I', image.read(ROUTINE + 21, 4))[0]
+
+    clock, march15 = [1000], 2025 << 16 | 73
+    assert date_of(image, 2025, 73)[0] == (2025, 3, 15)
+    fresh()
+    lines, reads, writes, handlers, opened = run_live(image, source, {}, clock)         # no file, no date
+    assert lines[-1].startswith(NOTHING + 'SIM_YEAR is 0 and there is no') and not writes and not handlers
+    assert opened == [FILE], opened
+    assert lines[1] == 'date file: .\\MLSimToDate.txt  not there, the date in MLSimToDate.lua is used'
+    lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2025, 3, 15), {}, clock)
+    assert lines[-1] == INSTALLED % (15, 3, 2025) + ' It stops for news.' and not handlers and date_in() == march15
+    fresh()
+    lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2025, 3, 15), {}, clock,
+                                                      sider_dir=b'C:\\sider')
+    assert opened == [b'C:\\sider\\MLSimToDate.txt']
+    lines, reads, writes, handlers, opened = run_live(image, source, {FILE: b'off'}, clock)
+    assert lines[1] == 'date file: .\\MLSimToDate.txt  found'
+    forms = 0
+    for text in (b'2025-03-15', b'2025-03-15\r\n', b'15.3.2025', b'15/03/2025\n', b'2025 3 15', b'  2025-3-15  ',
+                 b'\xef\xbb\xbf15.3.2025\r\n'):
+        for lua_date in ((0, 1, 1), (2031, 6, 6)):                  # the file wins over the Lua file
+            fresh()
+            lines, reads, writes, handlers, opened = run_live(image, with_date(source, *lua_date), {FILE: text}, clock)
+            assert lines[-1] == INSTALLED % (15, 3, 2025) + ' It stops for news.' + LIVE, lines[-1]
+            assert date_in() == march15 and list(handlers) == [b'livecpk_make_key'], text
+            assert writes == [(ROUTINE, SIZE), (SITE, 5)] and probe() == (0, 1, 2)
+            forms += 1
+    for text in (b'off', b'OFF\r\n', b' Off ', b'', b'0', b'  \n'):
+        fresh()
+        lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2031, 6, 6), {FILE: text}, clock)
+        assert lines[-1].startswith('RESULT: installed, switched off: MLSimToDate.txt says off.'), lines[-1]
+        assert lines[-1].endswith(LIVE) and date_in() == 0 and list(handlers) == [b'livecpk_make_key']
+        assert probe() == (1, 0, 0)                                 # in, and the game as it was
+        forms += 1
+    bad = (b'tomorrow', b'2025-02-29', b'1999-12-31', b'2201-01-01', b'32.1.2025', b'2025-13-01', b'1.2',
+           b'2025-03-15 x', b'15.3.25', b'off now', b'2025-03-00')
+    for text in bad:
+        fresh()
+        lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2031, 6, 6), {FILE: text}, clock)
+        assert lines[-1].startswith(NOTHING + 'MLSimToDate.txt holds neither a date'), (text, lines[-1])
+        assert not reads and not writes and not handlers
+
+    # while the game runs: the registered function, called as Sider would on a file load
+    fresh()
+    files = {FILE: b'off'}
+    lines, reads, writes, handlers, opened = run_live(image, source, files, clock)
+    look = handlers[b'livecpk_make_key']
+    del writes[:], opened[:]
+
+    def loaded(text, seconds=1, calls=3):
+        """The file now holds `text`; `seconds` later the game loads `calls` files.
+        -> (new log lines, writes, times the file was opened)"""
+        if text is None:
+            files.pop(FILE, None)
+        else:
+            files[FILE] = text
+        clock[0] += seconds
+        before = len(lines)
+        del writes[:], opened[:]
+        for _ in range(calls):
+            assert look({}, b'common/some/file.bin') is None            # no key of its own: Sider goes on
+        assert all(w == (ROUTINE + 21, 4) for w in writes) and all(o == FILE for o in opened)
+        return lines[before:], len(writes), len(opened)
+
+    assert loaded(b'off') == ([], 0, 1) and probe() == (1, 0, 0)
+    assert loaded(b'1.3.2025') == (['MLSimToDate: the date is now 1.3.2025 (from MLSimToDate.txt)'], 1, 1)
+    assert date_in() == 2025 << 16 | 59 and probe() == (0, 1, 2)
+    assert loaded(b'15.3.2025', seconds=0) == ([], 0, 0) and date_in() == 2025 << 16 | 59   # the same second
+    assert loaded(b'15.3.2025') == (['MLSimToDate: the date is now 15.3.2025 (from MLSimToDate.txt)'], 1, 1)
+    assert date_in() == march15
+    assert loaded(b'15.3.2025') == ([], 0, 1)                           # nothing new
+    assert loaded(b'2025-03-15\n') == ([], 0, 1) and date_in() == march15      # the same date, written otherwise
+    got = loaded(b'soon')
+    assert got[1:] == (0, 1) and len(got[0]) == 1 and 'holds neither a date nor the word off' in got[0][0]
+    assert loaded(b'soon') == ([], 0, 1) and date_in() == march15       # said once, the date stays
+    assert loaded(b'29.2.2028')[1] == 0 and date_in() == march15
+    assert loaded(None) == ([], 0, 1) and date_in() == march15          # the file is gone: the date stays
+    assert loaded(b'31.12.2024') == (['MLSimToDate: the date is now 31.12.2024 (from MLSimToDate.txt)'], 1, 1)
+    assert date_in() == 2024 << 16 | 364 and probe() == (1, 0, 0)       # a date that is past
+    assert loaded(b'off') == (['MLSimToDate: switched off (from MLSimToDate.txt)'], 1, 1) and date_in() == 0
+    as_written = assembled(march15, False, True)
+    assert image.read(ROUTINE, SIZE) == as_written[:21] + bytes(4) + as_written[25:]    # only the date changed
+    fresh()
+    files = {FILE: b'off'}
+    lines, reads, writes, handlers, opened = run_live(image, source, files, clock, sticky=lambda a: a != ROUTINE + 21)
+    look = handlers[b'livecpk_make_key']
+    assert loaded(b'1.3.2025') == (['MLSimToDate: the new date did not go in; send this log'], 1, 1)
+
+    # a run, a new date, a second run: the game's day loop on a made-up calendar
+    kinds, events, big = calendar(3)
+    fresh()
+    files = {FILE: date_text(image, 200)}
+    lines, reads, writes, handlers, opened = run_live(image, with_date(source, 0, 1, 1, news='false'), files, clock)
+    look = handlers[b'livecpk_make_key']
+    day, presses = 0, 0
+    for target in (200, 201, 520, 100, 640):
+        if target != 200:
+            assert len(loaded(date_text(image, target))[0]) == 1
+        while True:
+            menus, played, seen, faults = walk(World(image), kinds, events, big, day, 1)
+            assert not faults and (menus, played) == promised(kinds, events, big, day, target, False, False, 1)
+            day, presses = menus[0], presses + 1
+            if day >= target:
+                break
+    assert day >= 640 and presses < 40
+    print('ok 6: the date from MLSimToDate.txt: %d ways to write a date or "off" are understood and %d are '
+          'refused; the file wins over the date in the Lua file; without the file nothing is registered; '
+          'while the game runs a new date goes in on the next file load, at most once a second, and only '
+          'its four bytes are written; a faulty or missing file leaves the date as it was; the day loop '
+          'runs to a first date, then on to a later one (%d presses for 640 days)' % (forms, len(bad), presses))
+
+    # 7. with the other four modules
     mine = with_date(source, 2025, 3, 1)
     others = [open(p, encoding='utf-8').read() for p in OTHERS]
     for order in ([mine] + others, others + [mine], others[:2] + [mine] + others[2:]):
@@ -458,7 +644,7 @@ def main(exe):
         w.today(2025, 30)
         w.match(True)
         assert w.stop_test() == 0 and w.byte(FLAG) == 1 and w.byte(SKIP) == 2
-    print('ok 6: with MLMoney.lua, MLTransfers.lua, MLYear.lua and MLSimMatch.lua in the same game, above, '
+    print('ok 7: with MLMoney.lua, MLTransfers.lua, MLYear.lua and MLSimMatch.lua in the same game, above, '
           'below or between them, all five are installed and the routine works')
 
 
