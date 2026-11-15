@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 2: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 3: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -16,9 +16,11 @@
 --     him, how good a player must be for it, how good a player still comes to it, and how
 --     many of its own players it keeps. The big clubs are named one by one (CLUBS); the
 --     others draw a character that fits their place in the ranking. Two clubs of one
---     character still differ a little (PERSONA_SPREAD).
+--     character still differ a little (PERSONA_SPREAD, AGE_SHIFT). A club holds on to
+--     its first team, except against a clearly bigger club (KEEP_BEST).
 --   * scouting (SCOUTING): a club knows only a part of the players (how many is a number
---     of its persona). Players a club has put on its list are known to all.
+--     of its persona). Players a club has put on its list are known to all, and so are
+--     the good ones (KNOWN_FROM).
 --   * rivals (RIVALS): two clubs that are rivals do not buy each other's players.
 -- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
 -- did.
@@ -146,11 +148,34 @@ local PERSONA = true
 -- club knows every player. Needs PERSONA.
 local SCOUTING = true
 
--- Two clubs of one persona are not the same: each number of a persona (but not the ages
--- and the order of the places) is, for each club, up to this many percent lower or
--- higher. Fixed by the club, so a club keeps its character for the whole career.
--- 0 to 50. 0: all clubs of a persona are alike.
+-- A player of this rating or more is known to every club: nobody overlooks a star.
+-- Below it SCOUTING counts as above. 0 to 100; 100: no player is known to all (version 2).
+local KNOWN_FROM = 80
+
+-- A club holds on to its first team. Three numbers:
+--   1. a player counts as first team if his rating is at most this many points below
+--      the rating of his club's first eleven (STRENGTH below), or better. 0 to 99.
+--   2. for each point he stands above that line, this many percent are added to `keeps`
+--      of his club's persona. With { 4, 12, 2 }: a reserve five points below the eleven
+--      goes as `keeps` says; a player as good as the eleven stays 48 percent more often;
+--      one four points better than the eleven nearly always stays. 0 to 100; 0: off, all
+--      players of a club go alike (version 2).
+--   3. none of this holds against a buyer whose first eleven is at least this many
+--      points better than the eleven of the player's club: a club cannot hold a player
+--      against a clearly bigger one. 0 to 99; 99: it holds against every buyer.
+-- Players a club has listed are not kept. Needs PERSONA.
+local KEEP_BEST = { 4, 12, 2 }
+
+-- Two clubs of one persona are not the same: each number of a persona (but not the
+-- order of the places; for the ages see AGE_SHIFT) is, for each club, up to this many
+-- percent lower or higher. Fixed by the club, so a club keeps its character for the
+-- whole career. 0 to 50. 0: all clubs of a persona are alike.
 local PERSONA_SPREAD = 20
+
+-- The ages of a persona are moved for each club by up to this many years, down or up
+-- (both ages by the same number, fixed by the club): with 2, clubs of a persona with
+-- ages 24 to 28 want 22 to 26, 23 to 27, ... or 26 to 30. 0 to 5; 0: off (version 2).
+local AGE_SHIFT = 2
 
 -- How good a club's first eleven is taken to be: rating = first number x the club's
 -- points in the game's club ranking + second number, kept inside the rating range of the
@@ -200,10 +225,10 @@ local SQUAD_NEED = 23
 -- and prestige: 0 to 99; ages 0 to 63).
 local ARCHETYPES = {
     { "Galactico", free = 20, listed = 5, clubs = 75, second = { "clubs", "free" }, winter = 30,
-      age = { 24, 30 }, strict = 80, knows = 70, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
+      age = { 22, 30 }, strict = 70, knows = 70, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
       ambition = 4, prestige = 12, keeps = 70 },
     { "State-backed", free = 20, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 40,
-      age = { 22, 29 }, strict = 80, knows = 75, fog = 2, wealth = 200, premium = 200, panic = 150, fame = 25,
+      age = { 22, 29 }, strict = 80, knows = 75, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
       ambition = 4, prestige = 10, keeps = 70 },
     { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 30,
       age = { 20, 24 }, strict = 85, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
@@ -221,17 +246,23 @@ local ARCHETYPES = {
       age = { 24, 28 }, strict = 50, knows = 50, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
       ambition = 8, prestige = 4, keeps = 40 },
     { "Survival churner", free = 40, listed = 35, clubs = 25, second = { "free", "listed" }, winter = 80,
-      age = { 28, 34 }, strict = 70, knows = 40, fog = 3, wealth = 90, premium = 120, panic = 200, fame = 5,
+      age = { 28, 34 }, strict = 70, knows = 40, fog = 3, wealth = 90, premium = 80, panic = 200, fame = 5,
       ambition = 9, prestige = 4, keeps = 30 },
     { "Crisis", free = 60, listed = 35, clubs = 5, second = { "free", "listed" }, winter = 70,
       age = { 17, 36 }, strict = 20, knows = 30, fog = 3, wealth = 50, premium = 30, panic = 100, fame = 0,
-      ambition = 12, prestige = 2, keeps = 0 },
+      ambition = 12, prestige = 2, keeps = 10 },
     { "New-money", free = 45, listed = 0, clubs = 55, second = { "clubs", "free" }, winter = 60,
-      age = { 25, 32 }, strict = 60, knows = 50, fog = 3, wealth = 180, premium = 200, panic = 150, fame = 30,
-      ambition = 5, prestige = 3, keeps = 60 },
+      age = { 25, 32 }, strict = 60, knows = 50, fog = 3, wealth = 250, premium = 200, panic = 150, fame = 30,
+      ambition = 5, prestige = 8, keeps = 60 },
     { "Selling farm", free = 20, listed = 20, clubs = 30, second = { "listed", "free" }, winter = 30,
       age = { 18, 22 }, strict = 85, knows = 60, fog = 2, wealth = 60, premium = 40, panic = 50, fame = 0,
-      ambition = 12, prestige = 4, keeps = 0 },
+      ambition = 12, prestige = 4, keeps = 10 },
+    { "Youth elite", free = 8, listed = 12, clubs = 65, second = { "clubs", "listed" }, winter = 20,
+      age = { 19, 24 }, strict = 70, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
+      ambition = 6, prestige = 8, keeps = 60 },
+    { "Retirement team", free = 40, listed = 10, clubs = 40, second = { "free", "clubs" }, winter = 40,
+      age = { 31, 37 }, strict = 60, knows = 60, fog = 3, wealth = 250, premium = 150, panic = 60, fame = 200,
+      ambition = 6, prestige = 10, keeps = 60 },
 }
 
 -- The personas a club without an entry in CLUBS draws from, by its place in the game's
@@ -240,19 +271,23 @@ local ARCHETYPES = {
 -- start until 8 are filled. Which one a club draws is fixed by the club.
 local PERSONA_GROUPS = {
     { "Galactico", "Old-money", "State-backed", "Elite trader" },                                       -- 1-10
-    { "Old-money", "Elite trader", "Moneyball", "New-money", "Old-money", "Academy purist" },           -- 11-20
-    { "Mid-table", "Moneyball", "Elite trader", "Old-money", "New-money", "Academy purist",
+    { "Old-money", "Elite trader", "Moneyball", "Youth elite", "Old-money", "Academy purist" },         -- 11-20
+    { "Mid-table", "Moneyball", "Elite trader", "Old-money", "Elite trader", "Academy purist",
       "Mid-table", "Selling farm" },                                                                    -- 21-50
     { "Mid-table", "Mid-table", "Moneyball", "Academy purist", "Selling farm", "Survival churner",
       "Old-money", "New-money" },                                                                       -- 51-80
     { "Mid-table", "Mid-table", "Survival churner", "Selling farm", "Academy purist", "Moneyball",
-      "Crisis", "Survival churner" },                                                                   -- 81-120
+      "Mid-table", "Survival churner" },                                                                -- 81-120
     { "Mid-table", "Survival churner", "Survival churner", "Selling farm", "Academy purist", "Crisis",
       "Mid-table", "Moneyball" },                                                                       -- 121-170
-    { "Mid-table", "Survival churner", "Survival churner", "Selling farm", "Academy purist", "Crisis" },  -- 171-220
-    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner" },  -- 221-260
-    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner" },  -- 261-300
-    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner" },  -- others
+    { "Mid-table", "Survival churner", "Selling farm", "Academy purist", "Mid-table", "Survival churner",
+      "Moneyball", "Survival churner" },                                                                -- 171-220
+    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner",
+      "Mid-table", "Mid-table" },                                                                       -- 221-260
+    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Mid-table", "Survival churner",
+      "Survival churner", "Selling farm" },                                                             -- 261-300
+    { "Survival churner", "Mid-table", "Selling farm", "Academy purist", "Crisis", "Survival churner",
+      "Survival churner", "Mid-table" },                                                                -- others
 }
 
 -- The clubs with a persona of their own: the game's id of the club, the persona. At most
@@ -274,7 +309,7 @@ local CLUBS = {
     { 0x002b002a, "Old-money" },         -- Club Atlético de Madrid
     { 0x001dc01c, "Old-money" },         -- Internazionale Milano
     { 0x0019000d, "Galactico" },         -- Manchester United
-    { 0x00198006, "Elite trader" },      -- Chelsea FC
+    { 0x00198006, "Youth elite" },       -- Chelsea FC
     { 0x002cc011, "Moneyball" },         -- Tottenham Hotspur FC
     { 0x0051c021, "Old-money" },         -- SSC Napoli
     { 0x001f8075, "Elite trader" },      -- Borussia Dortmund
@@ -313,7 +348,7 @@ local CLUBS = {
     { 0x0044417a, "Old-money" },         -- Beşiktaş JK
     { 0x0036804b, "Elite trader" },      -- Stade Rennais FC
     { 0x002d8040, "Moneyball" },         -- RC Lens
-    { 0x028441d3, "New-money" },         -- Al Nassr FC
+    { 0x028441d3, "Retirement team" },   -- Al Nassr FC
     { 0x002280ae, "Old-money" },         -- CA River Plate
     { 0x0022c09e, "Old-money" },         -- CA Boca Juniors
     { 0x005a802f, "Survival churner" },  -- Getafe CF
@@ -327,10 +362,10 @@ local CLUBS = {
     { 0x01ed8064, "Selling farm" },      -- Sporting Braga
     { 0x0020c161, "Elite trader" },      -- Celtic FC
     { 0x0222c10d, "Moneyball" },         -- Girona FC
-    { 0x059a80cc, "New-money" },         -- Inter Miami CF
+    { 0x059a80cc, "Retirement team" },   -- Inter Miami CF
     { 0x015141ca, "New-money" },         -- Al Ahli Saudi FC
     { 0x00434148, "Elite trader" },      -- Club Brugge KV
-    { 0x015181cf, "New-money" },         -- Al Ittihad Club
+    { 0x015181cf, "Retirement team" },   -- Al Ittihad Club
     { 0x002b8144, "Selling farm" },      -- RSC Anderlecht
     { 0x003c804f, "Selling farm" },      -- AZ
     { 0x012cc191, "Selling farm" },      -- GNK Dinamo Zagreb
@@ -450,7 +485,7 @@ local CLUBS = {
     { 0x059a01aa, "New-money" },         -- Atlanta United FC
     { 0x040fc0d4, "Selling farm" },      -- Philadelphia Union
     { 0x040f80d2, "Elite trader" },      -- New York Red Bulls
-    { 0x041341ce, "New-money" },         -- Al Sadd SC
+    { 0x041341ce, "Retirement team" },   -- Al Sadd SC
 }
 
 -- Rivals do not trade: the two clubs of a pair never take each other's player onto a
@@ -544,7 +579,7 @@ local RIVALS = {
 -- ========================= end of settings =========================
 
 local CAVE = 0x047d4200         -- unused end of a page of the game's code: the tables and the routine
-local CAVE_SIZE = 0xd60
+local CAVE_SIZE = 0xe00
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
 -- the rating range a computer club searches first, smallest clubs first (the game's numbers)
 local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
@@ -554,6 +589,8 @@ local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 86, 99 }
 -- the pairs (money_cave.py has the list)
 local NUMBERS_AT, RANGES_AT, GROUPS_AT, PERSONAS_AT, CLUB_TYPES_AT, CLUB_IDS_AT = 0x34, 0x64, 0x78, 0xc8, 0x208, 0x2c8
 local RIVALS_AT = 0x5c8
+-- the last five numbers of that memory: KEEP_BEST (three), KNOWN_FROM, AGE_SHIFT
+local LAST_AT = 0xdec
 local MOST_PERSONAS, MOST_CLUBS, PER_GROUP, MOST_RIVALS = 15, 192, 8, 64
 -- the numbers of a persona in the order of the memory, with the lowest and highest of each
 local GENES = { { "free", 0, 100 }, { "listed", 0, 100 }, { "clubs", 0, 100 }, { "winter", 0, 100 },
@@ -565,38 +602,40 @@ local PLACE = { free = 0, listed = 1, clubs = 2 }
 local NEUTRAL = "64000064ff0064646400ffff0000003fffff0000"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
 local ROUTINE = { 0x7d0, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
-      .. "0c81f9b90d66030f8582040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
-      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87400400008945e031c98b93b400"
+      .. "0c81f9b90d66030f85b0040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
+      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f876e0400008945e031c98b93b400"
       .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
-      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e847040000"
-      .. "8945ec8955b031c9518b45ec8b55e8e8ff0300005989848d70ffffff4183f90e72e6837dd0000f8414010000"
-      .. "8365f8008d45f8508d45c45089d9e8aa6505ff8b45c43b0534eb4f020f84f20000008b55e88b0dc8477d0449"
-      .. "782e3904cdcc477d04750d3914cdd0477d040f847f0300003914cdcc477d0475de3904cdd0477d040f846903"
-      .. "0000ebcf837dd0020f85ae000000e8b003000050833d5c427d040074658b4dc88b49f48b45c425ff3f00003d"
-      .. "8d0200000f838000000083bc81ac070000177676817dc0b90d660375395253e89cf407ff83c4045a8b4de083"
-      .. "f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f807733a807a0e08733458b9"
-      .. "0c0000008b55c4e8ff020000694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c10f82"
-      .. "b7020000eb0658e9af020000837dd0017419694dd4b1675616c1e9186bc964c1e9083b4d800f8390020000c7"
-      .. "45f80d0000006a028d45f85053e832ef07ff83c40c0fb6c08945dc8b55b00fb64a0e83f9097605b909000000"
-      .. "0fb742080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d07602"
-      .. "89d08945cc03459c3945dc0f87260200008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481"
-      .. "ac0700003b0558427d04730383ca018955e4837db8000f85d60000008b55ec807a10ff0f8494000000694db4"
-      .. "6bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39"
-      .. "d17211837de4000f84a60100008b55ec0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4"
-      .. "512d9eccc1e9186bc964c1e9083b8d7cffffff0f836e010000837df00074118b55ec0fb64a1039c175040fb6"
-      .. "4a1189c83b45d00f854e010000837de400752f8b4b1cc1e90783e13f8b55ec3a4a0e72053a4a0f7619694dd4"
-      .. "9335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955d4656b54e6c1ea180faf"
-      .. "cac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb6"
-      .. "9128427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945"
-      .. "fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8c"
-      .. "e887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e9"
-      .. "0b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce831befdff8b4dd083f90274"
-      .. "1189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9334595ff89ec5d5f5b"
-      .. "83c404e98eace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb6040869c99301000169d2b1"
-      .. "79379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52"
-      .. "f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483c4048b0d6042"
-      .. "7d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379ec1"
-      .. "e81d0fb684c878427d046bc01405c8427d04c3" }
+      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8b2040000"
+      .. "8945ec8955b031c9518b45ec8b55e8e86a0400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
+      .. "45f85053e86ff007ff83c40c0fb6c08945dc8b55b0e8fb0300008945cc837dd0000f84470100008365f8008d"
+      .. "45f8508d45c45089d9e8836505ff8b45c43b0534eb4f020f84250100008b55e88b0dc8477d0449782e3904cd"
+      .. "cc477d04750d3914cdd0477d040f84860300003914cdcc477d0475de3904cdd0477d040f8470030000ebcf83"
+      .. "7dd0020f85e1000000e8f40300005052e87c0300008945a85a833d5c427d040074698b4dc88b49f48b45c425"
+      .. "ff3f00003d8d0200000f83a900000083bc81ac070000170f869b000000817dc0b90d660375395253e867f407"
+      .. "ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f80773"
+      .. "5f807a0e08735958b90c0000008b55c4e8350300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d04"
+      .. "2b55a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c1"
+      .. "0f828b020000eb0658e983020000837dd00174248b45dc3b05f84f7d047319694dd4b1675616c1e9186bc964"
+      .. "c1e9083b4d800f83590200008b45cc03459c3945dc0f874a0200008b55b88b4dc88b49f48b45e825ff3f0000"
+      .. "3d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85fa0000008b55ec807a10"
+      .. "ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1"
+      .. "721c40039578ffffff39d17211837de4000f84ca0100008b55ec0fb64210837de400752b8b4dc80fb649de3b"
+      .. "0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f8392010000837df00074118b55ec"
+      .. "0fb64a1039c175040fb64a1189c83b45d00f8572010000837de40075536945e8b179379e69c091f44525c1e8"
+      .. "188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a0f7e1969"
+      .. "4dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955d4656b54e6c1ea18"
+      .. "0fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f"
+      .. "0fb69128427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba000000"
+      .. "8945fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b"
+      .. "4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000"
+      .. "c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce803befdff8b4dd083f9"
+      .. "02741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9054595ff89ec5d"
+      .. "5f5b83c404e960ace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b909"
+      .. "0000000fb742080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439"
+      .. "d0760289d0c30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e90803"
+      .. "0d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c497809"
+      .. "3902740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb6"
+      .. "4a0e83f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
 local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8be4e170190909090" }
@@ -815,6 +854,12 @@ local function persona_fault()
         return "WINTER_MONTH is not a whole number from 0 to 12"
     end
     if not is_number(SQUAD_NEED, 0, 32) then return "SQUAD_NEED is not a number from 0 to 32" end
+    if not is_number(KNOWN_FROM, 0, 100) then return "KNOWN_FROM is not a number from 0 to 100" end
+    if not is_number(AGE_SHIFT, 0, 5) then return "AGE_SHIFT is not a number from 0 to 5" end
+    if type(KEEP_BEST) ~= "table" or #KEEP_BEST ~= 3 or not is_number(KEEP_BEST[1], 0, 99)
+        or not is_number(KEEP_BEST[2], 0, 100) or not is_number(KEEP_BEST[3], 0, 99) then
+        return "KEEP_BEST is not { 0 to 99, 0 to 100, 0 to 99 }"
+    end
     if type(ARCHETYPES) ~= "table" or #ARCHETYPES < 1 or #ARCHETYPES > MOST_PERSONAS then
         return "ARCHETYPES is not a list of 1 to " .. MOST_PERSONAS .. " personas"
     end
@@ -951,8 +996,8 @@ local function persona_image()
 end
 
 -- what goes into the memory: the ceilings, the highest rating of the second search by
--- club level (255: none), the tables of persona_image, the routine. nil: the module file
--- is damaged
+-- club level (255: none), the tables of persona_image, the routine, the last five
+-- numbers (0 without PERSONA). nil: the module file is damaged
 local function image()
     local parts = {}
     for _, v in ipairs(values()) do parts[#parts + 1] = u32(v) end
@@ -961,11 +1006,16 @@ local function image()
     end
     local out = table.concat(parts)
     out = out .. string.rep("\0", NUMBERS_AT - #out) .. persona_image()
-    if #out > ROUTINE[1] or #unhex(NEUTRAL) ~= 20 or ROUTINE[1] + #ROUTINE[2] / 2 > CAVE_SIZE then
+    if #out > ROUTINE[1] or #unhex(NEUTRAL) ~= 20 or ROUTINE[1] + #ROUTINE[2] / 2 > LAST_AT then
         return nil
     end
     out = out .. string.rep("\0", ROUTINE[1] - #out) .. unhex(ROUTINE[2])
-    return out .. string.rep("\0", CAVE_SIZE - #out)
+    out = out .. string.rep("\0", LAST_AT - #out)
+    local last = PERSONA and { round(KEEP_BEST[1]), round(KEEP_BEST[2]), round(KEEP_BEST[3]), round(KNOWN_FROM),
+                               round(AGE_SHIFT) } or { 0, 0, 0, 0, 0 }
+    for _, v in ipairs(last) do out = out .. u32(v) end
+    if #out ~= CAVE_SIZE then return nil end
+    return out
 end
 
 -- one line of the log for a piece of memory that is compared: -> is it as expected?
@@ -1004,6 +1054,24 @@ local function report_persona()
     log(string.format("club personas: %d personas, %d clubs named, the others by their place in the club "
         .. "ranking; each number up to %d percent lower or higher from club to club", #ARCHETYPES, #CLUBS,
         round(PERSONA_SPREAD)))
+    local seen, twice = {}, 0
+    for _, c in ipairs(CLUBS) do
+        if seen[c[1]] then twice = twice + 1 end
+        seen[c[1]] = true
+    end
+    if twice > 0 then
+        log(string.format("  note: %d entries of CLUBS name a club that a later entry names again; the last entry of "
+            .. "a club counts", twice))
+    end
+    if round(KEEP_BEST[2]) > 0 then
+        log(string.format("  a club keeps its first team: for each rating point a player stands above its eleven "
+            .. "minus %d, %d percent more often; not against a buyer whose eleven is %d or more points better",
+            round(KEEP_BEST[1]), round(KEEP_BEST[2]), round(KEEP_BEST[3])))
+    else
+        log("  a club keeps its first team no more often than its other players (KEEP_BEST is off)")
+    end
+    log(string.format("  players rated %d or more are known to every club; the ages of a persona are moved by up "
+        .. "to %d years from club to club", round(KNOWN_FROM), round(AGE_SHIFT)))
     for _, a in ipairs(ARCHETYPES) do
         log(string.format("  %-17s looks first: free %d, listed %d, clubs %d percent, second search %s, %s; winter %d; ages "
             .. "%d-%d (%d); knows %s; fog %d; wealth %d, premium %d, panic %d, fame %d; ambition %d, prestige %d; "
@@ -1015,7 +1083,7 @@ local function report_persona()
 end
 
 function m.init(ctx)
-    log("MLTransfers 2: the transfers of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 3: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then
@@ -1067,8 +1135,8 @@ function m.init(ctx)
     local there = memory.read(SITE[2], #SITE[3] / 2)
     if there ~= nil and string.sub(hex(there), 1, 2) == "e8" and hex(there) ~= SITE[3] then
         log("RESULT: nothing written. The game's choosing code is changed already: by an MLMoney.lua of "
-            .. "version 6 with CEILING on (replace it with version 7), by version 1 of this module, or this "
-            .. "module stands twice in sider.ini.")
+            .. "version 6 with CEILING on (replace it with version 7), by an older version of this module, or "
+            .. "this module stands twice in sider.ini.")
         return
     end
     if not (good and empty) then

@@ -1366,8 +1366,10 @@ are those of 13.
 | signings by the 498 computer clubs | 511 |
 | of them players without a contract | 506 |
 | of them from another club | 5 |
-| players with mark 29 or 30 before / after | 816 / 1,547 |
+| players with mark 29 or 30 before / after | 816 / 1,548 |
 | marked players who moved | 0 |
+
+(Two of the 511 and of the 5 were bought from the user's club.)
 
 So nearly every signing is a free agent and the lists of 9.3 grow without being used.
 The reading of 9.5 and 9.6 gives two causes; neither is the price ceiling:
@@ -1406,9 +1408,89 @@ club (`fcn_0382b087`), his band (`fcn_0385400e`) and the ranking record
 steps and every address are written out at the top of `sider/money_cave.py`;
 `sider/README.md` has the settings.
 
-**Run in the emulator** as in 9.10, against `money_cave.accepts`. **Not run in the
-game.** Not established: how many signings the settings give in a window, and whether
-the running game leaves the memory at `0x047d4200` alone.
+**Run in the emulator** as in 9.10, against `money_cave.accepts`, and **in the game**:
+a second pair of saves (`ML saves/2nd test/`, a new career with SSC Napoli, 1 July and
+after the window, `MLMoney.lua` 7 and `MLTransfers.lua` 2 with the settings of the
+file). `python3 sider/window_report.py <exe> <before> <after>` reads a pair; the
+numbers below are its output for the two pairs. Computer clubs only; what they took
+from the user's club is counted apart (2 and 4 players).
+
+| | version 1 | version 2 |
+|---|---|---|
+| signings by the 498 computer clubs | 509 | 430 |
+| players without a contract | 506 | 176 |
+| listed (mark 29 or 30) | 0 | 40 |
+| other players of clubs | 3 | 214 |
+| clubs that signed / clubs that sold | 230 / 3 | 221 / 172 |
+| marked players before / after | 816 / 1,548 | 816 / 1,288 |
+| mean age / mean rating of the signed | 30.1 / 75.2 | 27.3 / 71.4 |
+| rating minus the rating of the buyer's eleven, mean | +3.9 | +0.3 |
+| the 19 or 20 players without a contract of 80 and more: signed by a computer club | 14 | 2 |
+| signings by the first twenty clubs | 8 | 5 |
+| clubs with fewer than 23 players before / after | 49 / 25 | 49 / 26 |
+
+That the routine decided the second window is seen in the steps that need nothing but
+the two clubs and the player. "By chance" is the number a club that does not look
+would pass; the first window, played without these steps, is the control.
+
+| step | version 2: passed | by chance | version 1 (control) |
+|---|---|---|---|
+| scouting, players without a contract | 176 of 176 | 75 | 241 of 506 (chance 248) |
+| scouting, other players of clubs | 203 of 214 | 119 | |
+| the seller keeps, signed in July | 95 of 98 | 75 | |
+| prestige (rating not above eleven + `prestige`) | 430 of 430 | | 195 of 509 |
+| price under the ceiling, club in need | 428 of 430 | | 381 of 509 |
+| age outside the range | 42, all 42 at clubs under 23 players | | 234, 49 of them |
+| a pair of `RIVALS` | 0 of 254 | 0 to 1 | |
+
+16 of the 430 (4 %) fail scouting or the seller's share; all 16 had a contract and were
+not marked on 1 July. The saves do not say why. Two readings fit: 724 players were
+marked during the window and a marked player skips both steps; or the choosing code was
+entered from a caller other than `ai_pick_candidate`, which the routine lets pass.
+The last signing is dated 30 August, so the memory at `0x047d4200` held through the
+window.
+
+What the second window also shows:
+
+- **Squads of 32.** 99 of the 498 computer clubs, 15 of the 19 among the first twenty,
+  start with 32 players, the most a club holds. Such a club signed nobody in the first
+  window (0 signings, 2 players lost). In the second these 99 clubs lost 88 players
+  and signed 4. This is the database, not the routine.
+- **No player of 85 or more moved** in either window. Of the 130 players of 84 and
+  more on 1 July, 111 are at clubs of level 8 or 9, which the rule of 9.11 above does
+  not let sell, 3 have no contract.
+- **The best players without a contract stay without a club.** For a player of 84, 49
+  clubs pass `prestige`, 35 of them the price, 24 of those know him, 12 of those have
+  fewer than 32 players, 7 of those pass the age step; then come the draw of the place
+  and the slots of the plan.
+- 185 of the 254 moves between computer clubs go to a club lower in the ranking, 69 to
+  a higher one; 25 sellers are of level 8 or 9.
+- The 816 players marked on 1 July are weak (none above 74, 658 below 65), so only the
+  lowest clubs take them: 31 of the 40 went to clubs of level 0.
+- Donyell Malen went from AS Roma to FC Bayern München in both windows.
+
+Not established: the winter signings; what the fees were (the saves were not read for
+money); a second season.
+
+**Version 3 of `MLTransfers.lua`** (emulator only, not played). Same place, routine of
+1,520 bytes at `0x047d49d0`, five numbers at `0x047d4fec`; it now uses the page up to
+`0x047d4fff`. Three additions, made because of the window above:
+
+- Of the 254 players sold, 131 were among the best eleven of their club (42 more among
+  places 12 to 18): the selling club kept every player with the same chance. Now
+  `keeps` rises by 12 percent for each rating point a player stands above "eleven of
+  his club minus 4", unless the buyer's eleven is 2 or more points better
+  (`KEEP_BEST`). The rating of both elevens is worked out from the ranking points as
+  before. On the save of 1 July the model lets a club part with 25 percent of its best
+  eleven instead of 71.
+- A player rated 80 or more skips the scouting step (`KNOWN_FROM`): for the 19 best
+  players without a contract the clubs that pass every step that does not hang on a
+  slot rise from 7.4 to 19.7 on average.
+- The two ages of a persona are moved by -2 to +2 years, by a draw from the club's id
+  (`AGE_SHIFT`).
+
+Two personas were added and some numbers changed; `sider/README.md` lists them. Whether
+a played window comes out as the model says is not known.
 
 ## 10 Team strength
 
@@ -1500,17 +1582,31 @@ and on 15 September of its first season). `python3 tools/savefile.py unpack <sav
 
 The ranking stands at mode data `+0xcc84cc` in the code, so for this part of the file
 `file offset = mode-data offset - 0x3a5ea0`. That rule does **not** hold for the
-whole file: the player records (21,033 of `0xe0` bytes) are not at the offset it
-gives, which lies beyond the end of the file. They were compared between the two saves
-in an earlier pass, but the file offset used then was not written down and a later
-search did not find it again (player names are not stored as plain text; club ids are
-densest around `0x160000`, `0x750000` and `0x920000`). **The file offset of the player
-records is open.**
+whole file: **the player records are stored packed, as the last part of the data**
+(seen in four saves; in all of them the numbers below start at `0xb24664` and the
+block ends with the data). All numbers of the block are big-endian:
 
-Fields of a player record used in that pass, **from the saves, not from the code**:
-club id at `+0xa8`; `+0xb4`: status in bits 0-3, deal in bits 4-5, popularity taken to
-be bits 11-22; `+0xb8`: marks 29 and 30 (9.3), bit 28 loan. Ratings and ages worked
-out from the records can be off by 1 or 2.
+| | |
+|---|---|
+| `0x0047e3e0` | size of the records: 21,033 x `0xe0` |
+| one dword | differs per save, close to the packed size; not used |
+| per chunk: `0x00040000` | its size unpacked (the last chunk: the rest) |
+| per chunk: one dword | its size packed |
+| per chunk: one dword | a running offset; not used |
+| per chunk | a zlib stream (`78 da`) |
+
+18 chunks. `player_block` in `sider/window_report.py` unpacks it. This is why a search
+of the data for player names or club ids finds nothing. The order and the offsets of
+a record are those of the running game (`+0x2c` is the number of the record, `+0x30`
+and `+0x34` the player id, the name from `+0x38`), so the game's own rating function
+can be run on a record of a save (`Rater` in the same file).
+
+Fields of a player record, **from the saves, not from the code**: club id at `+0xa8`
+(`0xffffffff`: none); `+0xb4`: status in bits 0-3 (1 or 2: no contract), deal in bits
+4-5 (3 after a signing in the window), popularity in bits 11-22; `+0xb8`: marks 29 and
+30 (9.3), bit 28 loan (set in no record of the four saves); `+0xd8` the day the
+contract began (the day of the signing), `+0xb0` its end. Age (`+0x1c`, bits 7-12)
+and position (`+0x04`, bits 28-31) as in the code.
 
 One consequence of section 2: a career keeps its own player and team records in the
 mode data. That is read from the look-up functions (they search tables inside the mode

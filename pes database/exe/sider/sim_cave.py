@@ -57,9 +57,11 @@ PES 2017 (sha256 44b0caaa...):
 
 Memory caves used (all verified zeroed in PES2017.exe, zero overlap with MLMoney.lua,
 MLTransfers.lua, or MLYear.lua):
-  - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3fff (<= 1456 B)
+  - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3fdf (<= 1424 B)
+  - CAVE_D2 (.xcode page end) : 0x047d3fe0..0x047d3fff (32 / 32 B, RWX)
   - CAVE_D  (.data1 mid-gap)  : 0x047d4170..0x047d41ff (144 / 144 B)
-  - CAVE_D2 (.data1 post-MLT) : 0x047d4f60..0x047d4f7f (32 / 160 B, RWX)
+MLTransfers.lua 3 uses all of 0x047d4200..0x047d4fff, so CAVE_D2 is not behind it
+any more (it was at 0x047d4f60 and the two modules could not be installed together).
   - CAVE_ET (.reloc page)     : 0x047d5040..0x047d5fff (<= 4032 B)
   - CAVE_PK (.link page)      : 0x047d6030..0x047d6fff (<= 4048 B)
   - CAVE_C  (.trace tail)     : 0x047b0060..0x047b01fd (<= 414 B)
@@ -73,16 +75,16 @@ import sys
 # =====================================================================
 
 CAVE = 0x047d3a50
-CAVE_END = 0x047d4000
-CAVE_SIZE_MAX = CAVE_END - CAVE  # 1456 bytes
+CAVE_END = 0x047d3fe0             # CAVE_D2 has the last 32 bytes of the page
+CAVE_SIZE_MAX = CAVE_END - CAVE  # 1424 bytes
 
 CAVE_D = 0x047d4170
 CAVE_D_END = 0x047d4200
 CAVE_D_MAX = CAVE_D_END - CAVE_D  # 144 bytes
 
-CAVE_D2 = 0x047d4f60
-CAVE_D2_END = 0x047d5000
-CAVE_D2_MAX = CAVE_D2_END - CAVE_D2  # 160 bytes post-MLTransfers (.data1 RWX)
+CAVE_D2 = 0x047d3fe0
+CAVE_D2_END = 0x047d4000
+CAVE_D2_MAX = CAVE_D2_END - CAVE_D2  # 32 bytes, the end of the .xcode page (RWX)
 
 CAVE_ET = 0x047d5040
 CAVE_ET_END = 0x047d6000
@@ -215,7 +217,7 @@ CARD_POS_W = CAVE_D + 0x86          # 10 bytes (pos 0..9)
 CAVE_D_SIZE = 0x90                  # 144 bytes
 
 # =====================================================================
-# CAVE_D2 (.data1 post-MLTransfers RWX) layout: 32 bytes
+# CAVE_D2 (end of the .xcode page, RWX) layout: 32 bytes
 # =====================================================================
 CFG_V5_COND_STRENGTH = CAVE_D2 + 0x00   # u32 (0/1)
 CFG_V5_FATIGUE_THRESH = CAVE_D2 + 0x04  # u32 (40..100)
@@ -1908,7 +1910,7 @@ CODE_PARTS = {
     "score": (
         0x047d3c78,
         "89d98b5030b8dc3b7d04ffd084c0750c8b45088b00b971607003ffe18b4508"
-        "8b1083fa020f84a0000000833d604f7d0400741a5289d98b530ce88a13000089"
+        "8b1083fa020f84a0000000833de03f7d0400741a5289d98b530ce88a13000089"
         "c689d98b5310e87e13000089c75a5289f00305543a7d0429f885d27402f7d831"
         "f683f8fa7e1f4683f8ff7e194683f8037e134683f8077e0d4683f80b7e074683"
         "f80f7e01466bf61581c6463b7d04b9ff000000b8603c7d04ffd031c90fb6140e"
@@ -1943,15 +1945,15 @@ CODE_PARTS = {
     "eff_strength": (
         0x047d5040,
         "5589e583ec58535657c745fc060000008955f80fb7018945f4c745dc0d0000"
-        "006a008d45fc508d45f850e89b0a09ff83c40c0fb6d8833d604f7d04000f84"
+        "006a008d45fc508d45f850e89b0a09ff83c40c0fb6d8833de03f7d04000f84"
         "80010000e85e7004ff8b40308945f0ff75f889c1e8d2d804ff85c00f846301"
         "00008b9028030000c1ea0983e27f0f845101000083fa207605ba2000000089"
         "55ec05f80000008945d88d7da831c0b90b000000f3ab8945e8895dd431f63b"
         "75ec0f83d20000008b45d88b088b500483c0088945d8894de08955e452518b"
         "4df0e862d504ff85c00f84a600000089c78d45f4508d45e050e8596608ff83"
         "c40884c00f848c0000006a028d45dc508d45e050e8e63a06ff83c40c0fb6d8"
-        "8b471c89c1c1e91583e10783f90477090fbe91784f7d0401d383e07f8b0d64"
-        "4f7d0439c8731789ca29c20faf15684f7d0489c8d1e801d031d2f7f129c383"
+        "8b471c89c1c1e91583e10783f90477090fbe91f83f7d0401d383e07f8b0de4"
+        "3f7d0439c8731789ca29c20faf15e83f7d0489c8d1e801d031d2f7f129c383"
         "fb1e7d05bb1e00000083fb6d7e05bb6d00000031c931ff8b55a84183f90b73"
         "0e8b448da839d07df289c289cfebec39d37e04895cbda8ff45e846e925ffff"
         "ff8b55e885d275058b45d4eb4331c031c903448da84183f90b72f683fa0b73"
@@ -1970,7 +1972,7 @@ CODE_PARTS = {
     ),
     "outcome": (
         0x047d52d0,
-        "89f189fab8dc3b7d04ffd084c0750b0fb67df3b85d7d7003ffe0833d604f7d"
+        "89f189fab8dc3b7d04ffd084c0750b0fb67df3b85d7d7003ffe0833de03f7d"
         "0400741a89f18b560ce843fdffff89c389f18b5610e837fdffff29c3eb0e0f"
         "b645f3837de8007402f7d889c38b45ec837de8007402f7d88b0d583a7d0485"
         "c9740599f7f901c383fbe77d05bbe7ffffff83fb197e05bb1900000083c319"
@@ -1995,32 +1997,32 @@ CODE_PARTS = {
     ),
     "fatigue": (
         0x047d6150,
-        "833d6c4f7d040075088d4df8e981f607ff8b450c8b1885db0f8ed200000083"
+        "833dec3f7d040075088d4df8e981f607ff8b450c8b1885db0f8ed200000083"
         "fb5a77348b45100fb7003dffff000074275089f1e8b7c904ff85c0741b8d8e"
         "4c156f0039c874118a50150a50180a50160a5019740383c31e8b4718c1e807"
         "83e07f7505b84b00000083f8287d05b82800000083f8637e05b863000000b9"
-        "4b00000029c10faf0d704f7d0489c899b90a000000f7f983c06483f8327d05"
+        "4b00000029c10faf0df03f7d0489c899b90a000000f7f983c06483f8327d05"
         "b8320000003d960000007e05b8960000006bdb030fafc305f401000031d2b9"
         "e8030000f7f18b4f04c1e91c85c9751085c0740c6bc00931d2b90a000000f7"
         "f18b4f1c83e17f29c1790231c9516a5f89f9e8701f05ffe975f607ff",
     ),
     "injury": (
         0x047d6248,
-        "803d744f7d04000f84210100008b023b42040f83160100005356575589e583"
-        "ec508b328b7a04b964000000e8e8d9ffff3a05744f7d040f83ec000000e85c"
+        "803df43f7d04000f84210100008b023b42040f83160100005356575589e583"
+        "ec508b328b7a04b964000000e8e8d9ffff3a05f43f7d040f83ec000000e85c"
         "5e04ff8b583031c9894dfc894df839fe0f838400000083f90b737f51ff7604"
         "ff3689d9e8b5c304ff5989448dcc31d285c0745380780200754dff45fc8b50"
         "04c1ea1c74420fb6502383e20383fa027605ba02000000b80300000029d08b"
         "548dcc8b521c83e27f83fa647605ba6400000050b86400000029d031d251b9"
         "19000000f7f1595a01c20155f88b45f86689444db44183c60ce974ffffff89"
         "4db0837dfc0776478b4df885c97440e82bd9ffff31c98b55b04a39d1730a66"
-        "3b444db4720341ebf28b5c8dcc85db741f0fb60d764f7d04e803d9ffff0fb6"
-        "0d754f7d0401c8506a5e89d9e8401e05ff89ec5d5f5e5bc3",
+        "3b444db4720341ebf28b5c8dcc85db741f0fb60df63f7d04e803d9ffff0fb6"
+        "0df53f7d0401c8506a5e89d9e8401e05ff89ec5d5f5e5bc3",
     ),
     "cards": (
         0x047b0060,
-        "565753e87dc006ff8b503089f1e86a3b020084c07437803d774f7d04007415"
-        "8d45d450e8300000008d45e450e82700000083c408803d744f7d040074108d"
+        "565753e87dc006ff8b503089f1e86a3b020084c07437803df73f7d04007415"
+        "8d45d450e8300000008d45e450e82700000083c408803df43f7d040074108d"
         "55d4e8a36102008d55e4e89b6102005b5f5e8d55d4e9938ef5fe5589e55356"
         "5783ec488b45088b388b400439c70f830601000031db31c939c7734483fb0b"
         "733f50515789f1e8db34f5fe5989449c1c85c0741c8b500cc1ea0e83e20f83"
