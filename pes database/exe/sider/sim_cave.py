@@ -65,9 +65,9 @@ PES 2017 (sha256 44b0caaa...):
 
 Memory caves used (all verified zeroed in PES2017.exe, zero overlap with MLMoney.lua,
 MLTransfers.lua, or MLYear.lua):
-  - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3fff (<= 1456 B)
+  - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3fd7 (<= 1416 B)
+  - CAVE_D2 (.xcode page end) : 0x047d3fd8..0x047d3fff (40 / 40 B, RWX)
   - CAVE_D  (.data1 mid-gap)  : 0x047d4170..0x047d41ff (144 / 144 B)
-  - CAVE_D2 (.data1 post-MLT) : 0x047d4f60..0x047d4f87 (40 / 160 B, RWX)
   - CAVE_ET (.reloc page)     : 0x047d5040..0x047d5fff (<= 4032 B)
   - CAVE_PK (.link page)      : 0x047d6030..0x047d6fff (<= 4048 B)
   - CAVE_C  (.trace tail)     : 0x047b0060..0x047b01fd (<= 414 B)
@@ -81,16 +81,16 @@ import sys
 # =====================================================================
 
 CAVE = 0x047d3a50
-CAVE_END = 0x047d4000
-CAVE_SIZE_MAX = CAVE_END - CAVE  # 1456 bytes
+CAVE_END = 0x047d3fd8             # CAVE_D2 has the last 40 bytes of the page
+CAVE_SIZE_MAX = CAVE_END - CAVE  # 1416 bytes
 
 CAVE_D = 0x047d4170
 CAVE_D_END = 0x047d4200
 CAVE_D_MAX = CAVE_D_END - CAVE_D  # 144 bytes
 
-CAVE_D2 = 0x047d4f60
-CAVE_D2_END = 0x047d5000
-CAVE_D2_MAX = CAVE_D2_END - CAVE_D2  # 160 bytes post-MLTransfers (.data1 RWX)
+CAVE_D2 = 0x047d3fd8
+CAVE_D2_END = 0x047d4000
+CAVE_D2_MAX = CAVE_D2_END - CAVE_D2  # 40 bytes, the end of the .xcode page (RWX)
 
 CAVE_ET = 0x047d5040
 CAVE_ET_END = 0x047d6000
@@ -229,7 +229,7 @@ CARD_POS_W = CAVE_D + 0x86          # 10 bytes (pos 0..9)
 CAVE_D_SIZE = 0x90                  # 144 bytes
 
 # =====================================================================
-# CAVE_D2 (.data1 post-MLTransfers RWX) layout: 40 bytes
+# CAVE_D2 (end of the .xcode page, RWX) layout: 40 bytes
 # =====================================================================
 CFG_V5_COND_STRENGTH = CAVE_D2 + 0x00   # u32 (0/1)
 CFG_V5_FATIGUE_THRESH = CAVE_D2 + 0x04  # u32 (40..100)
@@ -2213,7 +2213,7 @@ CODE_PARTS = {
     "score": (
         0x047d3c78,
         "89d98b5030b8dc3b7d04ffd084c0750c8b45088b00b971607003ffe18b4508"
-        "8b1083fa020f84a4000000a1604f7d040b05844f7d04741a5289d98b530ce886"
+        "8b1083fa020f84a4000000a1d83f7d040b05fc3f7d04741a5289d98b530ce886"
         "13000089c689d98b5310e87a13000089c75a5289f00305543a7d0429f885d274"
         "02f7d831f683f8fa7e1f4683f8ff7e194683f8037e134683f8077e0d4683f80b"
         "7e074683f80f7e01466bf61581c6463b7d04b9ff000000b8603c7d04ffd031c9"
@@ -2248,10 +2248,10 @@ CODE_PARTS = {
     "eff_strength": (
         0x047d5040,
         "5589e583ec68535657c745fc060000008955f80fb7018945f46a008d45fc50"
-        "8d45f850e8a20a09ff83c40c0fb6d8a1604f7d040b05844f7d040f84e70200"
+        "8d45f850e8a20a09ff83c40c0fb6d8a1d83f7d040b05fc3f7d040f84e70200"
         "00e8617004ff8b40308945f0ff75f889c1e8d5d804ff85c00f84ca0200008b"
         "9028030000c1ea0983e27f0f84b802000083fa207605ba200000008955ec89"
-        "45dc05f80000008945d8895dd4833d844f7d04000f84bc01000083fa0b0f82"
+        "45dc05f80000008945d8895dd4833dfc3f7d04000f84bc01000083fa0b0f82"
         "b30100008d45e0508b4ddce8ad2c94feff75e4ff75e08b4df0e830d904ff85"
         "c00f84910100008b55f081c264ea5f0039d00f848001000031d231c90fb6bc"
         "08480200003b7dec0f836b0100000fa3fa0f82620100000fabfa4183f90b72"
@@ -2277,15 +2277,15 @@ CODE_PARTS = {
     ),
     "player_eff_ovr": (
         0x047d5370,
-        "5356575089ce89e06a025052e8973806ff83c40c0fb6d8833d604f7d040074"
-        "418b461c89c1c1e91583e10783f90477090fbe91784f7d0401d383e07f8b0d"
-        "644f7d0485c9741b39c8731789ca29c20faf15684f7d0489c8d1e801d031d2"
+        "5356575089ce89e06a025052e8973806ff83c40c0fb6d8833dd83f7d040074"
+        "418b461c89c1c1e91583e10783f90477090fbe91f03f7d0401d383e07f8b0d"
+        "dc3f7d0485c9741b39c8731789ca29c20faf15e03f7d0489c8d1e801d031d2"
         "f7f129c383fb1e7d05bb1e00000083fb6d7e05bb6d00000089d883c4045f5e"
         "5bc3",
     ),
     "smart_subs": (
         0x047d53f0,
-        "833d804f7d0400745a8b4d088b95a0feffffe8d5e7ffff84c074488b8db4fe"
+        "833df83f7d0400745a8b4d088b95a0feffffe8d5e7ffff84c074488b8db4fe"
         "ffff8d955cfeffffb80d000000e84fffffff50c785b4feffff040000008d85"
         "bbfeffff508d85b4feffff50e8590508ff83c4085901c83dff0000007616b8"
         "ff000000eb0fc785b4feffff64000000e8360508ffe9812cf3fe",
@@ -2302,8 +2302,8 @@ CODE_PARTS = {
     ),
     "outcome": (
         0x047d552c,
-        "89f189fab8dc3b7d04ffd084c0750b0fb67df3b85d7d7003ffe0a1604f7d04"
-        "0b05844f7d04741a89f18b560ce8e3faffff89c389f18b5610e8d7faffff29"
+        "89f189fab8dc3b7d04ffd084c0750b0fb67df3b85d7d7003ffe0a1d83f7d04"
+        "0b05fc3f7d04741a89f18b560ce8e3faffff89c389f18b5610e8d7faffff29"
         "c3eb0e0fb645f3837de8007402f7d889c38b45ec837de8007402f7d88b0d58"
         "3a7d0485c9740599f7f901c383fbe77d05bbe7ffffff83fb197e05bb190000"
         "0083c3190fb7349d603a7d040fb73c9d623a7d04b9e8030000b8603c7d04ff"
@@ -2327,32 +2327,32 @@ CODE_PARTS = {
     ),
     "fatigue": (
         0x047d6150,
-        "833d6c4f7d040075088d4df8e981f607ff8b450c8b1885db0f8ed200000083"
+        "833de43f7d040075088d4df8e981f607ff8b450c8b1885db0f8ed200000083"
         "fb5a77348b45100fb7003dffff000074275089f1e8b7c904ff85c0741b8d8e"
         "4c156f0039c874118a50150a50180a50160a5019740383c31e8b4718c1e807"
         "83e07f7505b84b00000083f8287d05b82800000083f8637e05b863000000b9"
-        "4b00000029c10faf0d704f7d0489c899b90a000000f7f983c06483f8327d05"
+        "4b00000029c10faf0de83f7d0489c899b90a000000f7f983c06483f8327d05"
         "b8320000003d960000007e05b8960000006bdb030fafc305f401000031d2b9"
         "e8030000f7f18b4f04c1e91c85c9751085c0740c6bc00931d2b90a000000f7"
         "f18b4f1c83e17f29c1790231c9516a5f89f9e8701f05ffe975f607ff",
     ),
     "injury": (
         0x047d6248,
-        "803d744f7d04000f84210100008b023b42040f83160100005356575589e583"
-        "ec508b328b7a04b964000000e8e8d9ffff3a05744f7d040f83ec000000e85c"
+        "803dec3f7d04000f84210100008b023b42040f83160100005356575589e583"
+        "ec508b328b7a04b964000000e8e8d9ffff3a05ec3f7d040f83ec000000e85c"
         "5e04ff8b583031c9894dfc894df839fe0f838400000083f90b737f51ff7604"
         "ff3689d9e8b5c304ff5989448dcc31d285c0745380780200754dff45fc8b50"
         "04c1ea1c74420fb6502383e20383fa027605ba02000000b80300000029d08b"
         "548dcc8b521c83e27f83fa647605ba6400000050b86400000029d031d251b9"
         "19000000f7f1595a01c20155f88b45f86689444db44183c60ce974ffffff89"
         "4db0837dfc0776478b4df885c97440e82bd9ffff31c98b55b04a39d1730a66"
-        "3b444db4720341ebf28b5c8dcc85db741f0fb60d764f7d04e803d9ffff0fb6"
-        "0d754f7d0401c8506a5e89d9e8401e05ff89ec5d5f5e5bc3",
+        "3b444db4720341ebf28b5c8dcc85db741f0fb60dee3f7d04e803d9ffff0fb6"
+        "0ded3f7d0401c8506a5e89d9e8401e05ff89ec5d5f5e5bc3",
     ),
     "cards": (
         0x047b0060,
-        "565753e87dc006ff8b503089f1e86a3b020084c07437803d774f7d04007415"
-        "8d45d450e8300000008d45e450e82700000083c408803d744f7d040074108d"
+        "565753e87dc006ff8b503089f1e86a3b020084c07437803def3f7d04007415"
+        "8d45d450e8300000008d45e450e82700000083c408803dec3f7d040074108d"
         "55d4e8a36102008d55e4e89b6102005b5f5e8d55d4e9938ef5fe5589e55356"
         "5783ec488b45088b388b400439c70f830601000031db31c939c7734483fb0b"
         "733f50515789f1e8db34f5fe5989449c1c85c0741c8b500cc1ea0e83e20f83"
