@@ -19,7 +19,9 @@
 --     character still differ a little (PERSONA_SPREAD).
 --   * scouting (SCOUTING): a club knows only a part of the players (how many is a number
 --     of its persona). Players a club has put on its list are known to all.
--- With every switch off but CEILING the module works as its version 1 did.
+--   * rivals (RIVALS): two clubs that are rivals do not buy each other's players.
+-- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
+-- did.
 --
 -- What it cannot do: no money is booked for a computer club, there are no offers, wages
 -- or loans between computer clubs, and no club remembers anything. The module only
@@ -451,18 +453,108 @@ local CLUBS = {
     { 0x041341ce, "New-money" },         -- Al Sadd SC
 }
 
+-- Rivals do not trade: the two clubs of a pair never take each other's player onto a
+-- list, as long as he has a contract (a player on his club's list too). A player whose
+-- contract has run out goes where he likes, to the rival as well. It works by itself,
+-- whatever the switches above say. Each line is one pair of club ids, the same ids as in
+-- CLUBS (club_ids.tsv next to this file lists all of them); for three clubs that are all
+-- rivals write three pairs. At most 64 pairs. { } : no rivals.
+-- The pairs are my choice of well-known rivalries: delete or add as you see them. The
+-- club you play is in it like any other (if the game lets a computer club go for your
+-- players, a rival will not). What you yourself buy is never touched by this module.
+local RIVALS = {
+    -- England
+    { 0x0019000d, 0x0019c00b },  -- Manchester United, Liverpool FC
+    { 0x0019000d, 0x002b400c },  -- Manchester United, Manchester City FC
+    { 0x0019000d, 0x001a000a },  -- Manchester United, Leeds United FC
+    { 0x00194000, 0x002cc011 },  -- Arsenal FC, Tottenham Hotspur FC
+    { 0x0019c00b, 0x002c4008 },  -- Liverpool FC, Everton FC
+    { 0x001a800e, 0x00630010 },  -- Newcastle United FC, Sunderland AFC
+    { 0x001ac001, 0x003240ec },  -- Aston Villa FC, Birmingham City FC
+    { 0x005f8007, 0x005e4004 },  -- Crystal Palace FC, Brighton & Hove Albion FC
+    { 0x001a40f2, 0x0060c0f6 },  -- West Ham United FC, Millwall FC
+    { 0x0061400f, 0x005fc0f1 },  -- Nottingham Forest FC, Derby County FC
+    { 0x0033c0fe, 0x044340f9 },  -- Southampton FC, Portsmouth FC
+    { 0x041880fc, 0x006280fd },  -- Sheffield United FC, Sheffield Wednesday FC
+    { 0x00608013, 0x006100f7 },  -- Ipswich Town FC, Norwich City FC
+    -- Spain
+    { 0x001b4036, 0x001b002b },  -- Real Madrid CF, FC Barcelona
+    { 0x001b4036, 0x002b002a },  -- Real Madrid CF, Club Atlético de Madrid
+    { 0x001b002b, 0x0040c02e },  -- FC Barcelona, RCD Espanyol
+    { 0x00424039, 0x00308035 },  -- Sevilla FC, Real Betis Balompié
+    { 0x00408029, 0x00310038 },  -- Athletic Club de Bilbao, Real Sociedad de Fútbol
+    { 0x001b803a, 0x005b8031 },  -- Valencia CF, Levante UD
+    { 0x0030c02c, 0x001bc030 },  -- RC Celta de Vigo, Deportivo La Coruña
+    { 0x04290113, 0x005ac117 },  -- Real Oviedo, Real Sporting de Gijón
+    -- Italy
+    { 0x001dc01c, 0x001e4020 },  -- Internazionale Milano, AC Milan
+    { 0x001dc01c, 0x001e001d },  -- Internazionale Milano, Juventus FC
+    { 0x001f4024, 0x001e801e },  -- AS Roma, S.S. Lazio
+    { 0x001e001d, 0x00534026 },  -- Juventus FC, Torino FC
+    { 0x0050c01a, 0x003c013f },  -- Genoa CFC, UC Sampdoria
+    -- Germany
+    { 0x0020407a, 0x002e4082 },  -- Hamburger SV, SV Werder Bremen
+    { 0x0020407a, 0x040ac078 },  -- Hamburger SV, FC St. Pauli
+    { 0x040a407c, 0x00384076 },  -- 1. FC Köln, VfL Borussia M’gladbach
+    { 0x040a407c, 0x00200073 },  -- 1. FC Köln, Bayer 04 Leverkusen
+    -- France
+    { 0x001c804a, 0x001c4044 },  -- Paris Saint-Germain, Olympique de Marseille
+    { 0x002d4043, 0x0068812a },  -- Olympique Lyonnais, AS Saint-Étienne
+    { 0x002d8040, 0x00354041 },  -- RC Lens, LOSC Lille
+    { 0x00360123, 0x0036804b },  -- FC Nantes, Stade Rennais FC
+    -- Portugal
+    { 0x002fc063, 0x0030006c },  -- SL Benfica, FC Porto
+    { 0x002fc063, 0x0030406f },  -- SL Benfica, Sporting CP
+    { 0x0030006c, 0x0030406f },  -- FC Porto, Sporting CP
+    -- Netherlands
+    { 0x001d004e, 0x001d4051 },  -- Ajax, Feyenoord
+    { 0x001d004e, 0x001d805a },  -- Ajax, PSV
+    -- Scotland
+    { 0x0020c161, 0x0021016a },  -- Celtic FC, Rangers FC
+    -- Turkey
+    { 0x0020817f, 0x0031417e },  -- Galatasaray SK, Fenerbahçe SK
+    { 0x0020817f, 0x0044417a },  -- Galatasaray SK, Beşiktaş JK
+    { 0x0031417e, 0x0044417a },  -- Fenerbahçe SK, Beşiktaş JK
+    { 0x0031417e, 0x01e64189 },  -- Fenerbahçe SK, Trabzonspor
+    -- Belgium
+    { 0x002b8144, 0x00434148 },  -- RSC Anderlecht, Club Brugge KV
+    { 0x002b8144, 0x012b4150 },  -- RSC Anderlecht, Royal Standard de Liège
+    -- Denmark
+    { 0x012dc157, 0x01ca0155 },  -- F.C. København, Brøndby IF
+    -- Argentina
+    { 0x0022c09e, 0x002280ae },  -- CA Boca Juniors, CA River Plate
+    { 0x013540ad, 0x013600a7 },  -- Racing Club Avellaneda, CA Independiente
+    { 0x013680af, 0x013640ab },  -- CA Rosario Central, CA Newell's Old Boys
+    { 0x013580a2, 0x0135c0a4 },  -- Club Estudiantes LP, Gimnasia y Esgrima LP
+    { 0x0136c0b0, 0x01e080a6 },  -- CA San Lorenzo Almagro, CA Huracán
+    -- Brazil
+    { 0x0138008c, 0x0138408d },  -- CR Flamengo, Fluminense FC
+    { 0x0138008c, 0x00220096 },  -- CR Flamengo, CR Vasco da Gama
+    { 0x0137c089, 0x00224091 },  -- SC Corinthians Paulista, SE Palmeiras
+    { 0x0138808e, 0x0139008f },  -- Grêmio FBPA, SC Internacional
+    { 0x01374085, 0x0044808b },  -- Atlético Mineiro, Cruzeiro EC
+    { 0x02654086, 0x01e44097 },  -- EC Bahia, EC Vitória
+    -- Saudi Arabia
+    { 0x017441c3, 0x028441d3 },  -- Al Hilal SFC, Al Nassr FC
+    { 0x015181cf, 0x015141ca },  -- Al Ittihad Club, Al Ahli Saudi FC
+    -- United States
+    { 0x040ec0cd, 0x059b40ce },  -- Los Angeles Galaxy, Los Angeles FC
+}
+
 -- ========================= end of settings =========================
 
 local CAVE = 0x047d4200         -- unused end of a page of the game's code: the tables and the routine
-local CAVE_SIZE = 0xb10
+local CAVE_SIZE = 0xd60
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
 -- the rating range a computer club searches first, smallest clubs first (the game's numbers)
 local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
 local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 86, 99 }
 -- offsets in that memory: the twelve numbers, the two ranges, the personas by group, the
--- personas, the personas of the named clubs, their ids (money_cave.py has the list)
+-- personas, the personas of the named clubs, their ids, the number of pairs of rivals and
+-- the pairs (money_cave.py has the list)
 local NUMBERS_AT, RANGES_AT, GROUPS_AT, PERSONAS_AT, CLUB_TYPES_AT, CLUB_IDS_AT = 0x34, 0x64, 0x78, 0xc8, 0x208, 0x2c8
-local MOST_PERSONAS, MOST_CLUBS, PER_GROUP = 15, 192, 8
+local RIVALS_AT = 0x5c8
+local MOST_PERSONAS, MOST_CLUBS, PER_GROUP, MOST_RIVALS = 15, 192, 8, 64
 -- the numbers of a persona in the order of the memory, with the lowest and highest of each
 local GENES = { { "free", 0, 100 }, { "listed", 0, 100 }, { "clubs", 0, 100 }, { "winter", 0, 100 },
                 { "knows", 1, 100 }, { "fog", 0, 10 }, { "wealth", 10, 250 }, { "premium", 0, 250 },
@@ -472,40 +564,42 @@ local PLACE = { free = 0, listed = 1, clubs = 2 }
 -- persona 0: a club as in version 1 (what every club is with PERSONA = false)
 local NEUTRAL = "64000064ff0064646400ffff0000003fffff0000"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
-local ROUTINE = { 0x5c8, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
-      .. "0c81f9b90d66030f853e040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
-      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87fc0300008945e031c98b93b400"
+local ROUTINE = { 0x7d0, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
+      .. "0c81f9b90d66030f8582040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
+      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87400400008945e031c98b93b400"
       .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
-      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e803040000"
-      .. "8945ec8955b031c9518b45ec8b55e8e8bb0300005989848d70ffffff4183f90e72e6837dd0020f85d0000000"
-      .. "8365f8008d45f8508d45c45089d9e8b26705ff8b45c43b0534eb4f020f84ae000000e8b003000050833d5c42"
-      .. "7d040074658b4dc88b49f48b45c425ff3f00003d8d0200000f838000000083bc81ac070000177676817dc0b9"
-      .. "0d660375395253e8e8f607ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc"
-      .. "04750439c1770b83f807733a807a0e08733458b90c0000008b55c4e8ff020000694dc4b179379e334dd8334d"
-      .. "ac69c92febd427c1e9186bc964c1e90839c10f82b7020000eb0658e9af020000837dd0017419694dd4b16756"
-      .. "16c1e9186bc964c1e9083b4d800f8390020000c745f80d0000006a028d45f85053e87ef107ff83c40c0fb6c0"
-      .. "8945dc8b55b00fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d04c1e8100fb69164"
-      .. "427d0439d0730289d00fb6916e427d0439d0760289d08945cc03459c3945dc0f87260200008b55b88b4dc88b"
-      .. "49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85"
-      .. "d60000008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d172"
-      .. "2740039574ffffff39d1721c40039578ffffff39d17211837de4000f84a60100008b55ec0fb64210837de400"
-      .. "752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f836e0100"
-      .. "00837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f854e010000837de400752f8b4b1cc1e9"
-      .. "0783e13f8b55ec3a4a0e72053a4a0f7619694dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45"
-      .. "848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc"
-      .. "0f8ce50000008b4de08b45dc837df000740f0fb69128427d0439d00f8fca0000008b048d00427d0483f8ff0f"
-      .. "84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c"
-      .. "388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf0064"
-      .. "0000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000"
-      .. "e8500000008b45dce87dc0fdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089"
-      .. "ec5d5f5b588b4d245650e97f4795ff89ec5d5f5b83c404e9daaee8fef7e139fa7303f7f7c383c8ffc30145fc"
-      .. "7304834dfcffc30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908"
-      .. "030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978"
-      .. "093902740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0f"
-      .. "b64a0e83f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
+      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e847040000"
+      .. "8945ec8955b031c9518b45ec8b55e8e8ff0300005989848d70ffffff4183f90e72e6837dd0000f8414010000"
+      .. "8365f8008d45f8508d45c45089d9e8aa6505ff8b45c43b0534eb4f020f84f20000008b55e88b0dc8477d0449"
+      .. "782e3904cdcc477d04750d3914cdd0477d040f847f0300003914cdcc477d0475de3904cdd0477d040f846903"
+      .. "0000ebcf837dd0020f85ae000000e8b003000050833d5c427d040074658b4dc88b49f48b45c425ff3f00003d"
+      .. "8d0200000f838000000083bc81ac070000177676817dc0b90d660375395253e89cf407ff83c4045a8b4de083"
+      .. "f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f807733a807a0e08733458b9"
+      .. "0c0000008b55c4e8ff020000694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c10f82"
+      .. "b7020000eb0658e9af020000837dd0017419694dd4b1675616c1e9186bc964c1e9083b4d800f8390020000c7"
+      .. "45f80d0000006a028d45f85053e832ef07ff83c40c0fb6c08945dc8b55b00fb64a0e83f9097605b909000000"
+      .. "0fb742080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d07602"
+      .. "89d08945cc03459c3945dc0f87260200008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481"
+      .. "ac0700003b0558427d04730383ca018955e4837db8000f85d60000008b55ec807a10ff0f8494000000694db4"
+      .. "6bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39"
+      .. "d17211837de4000f84a60100008b55ec0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4"
+      .. "512d9eccc1e9186bc964c1e9083b8d7cffffff0f836e010000837df00074118b55ec0fb64a1039c175040fb6"
+      .. "4a1189c83b45d00f854e010000837de400752f8b4b1cc1e90783e13f8b55ec3a4a0e72053a4a0f7619694dd4"
+      .. "9335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955d4656b54e6c1ea180faf"
+      .. "cac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb6"
+      .. "9128427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945"
+      .. "fc8b45e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8c"
+      .. "e887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e9"
+      .. "0b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce831befdff8b4dd083f90274"
+      .. "1189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9334595ff89ec5d5f5b"
+      .. "83c404e98eace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb6040869c99301000169d2b1"
+      .. "79379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52"
+      .. "f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483c4048b0d6042"
+      .. "7d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379ec1"
+      .. "e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
-local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8b64c170190909090" }
+local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8be4e170190909090" }
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {
@@ -771,12 +865,30 @@ local function persona_fault()
     return nil
 end
 
+local function is_club_id(v)
+    return is_number(v, 0, 4294967295) and v == math.floor(v)
+end
+
+-- nil, or what is wrong with RIVALS
+local function rivals_fault()
+    if type(RIVALS) ~= "table" or #RIVALS > MOST_RIVALS then
+        return "RIVALS is not a list of at most " .. MOST_RIVALS .. " pairs"
+    end
+    for i, pair in ipairs(RIVALS) do
+        if type(pair) ~= "table" or #pair ~= 2 or not is_club_id(pair[1]) or not is_club_id(pair[2])
+            or pair[1] == pair[2] then
+            return "RIVALS: entry " .. i .. " is not a pair of two different club ids"
+        end
+    end
+    return nil
+end
+
 -- nil, or what is wrong with the settings
 local function settings_fault()
     if type(WRITE) ~= "boolean" then return "WRITE is not true or false" end
     if type(SELL_SIDE) ~= "boolean" then return "SELL_SIDE is not true or false" end
     if type(PERSONA) ~= "boolean" then return "PERSONA is not true or false" end
-    return ceiling_fault() or persona_fault()
+    return ceiling_fault() or persona_fault() or rivals_fault()
 end
 
 -- the highest value by club level 0 to 9 (CEILING starts with the best clubs, level 9;
@@ -801,7 +913,7 @@ local function persona_bytes(a)
 end
 
 -- the part of the memory after the ceilings: twelve numbers, the two rating ranges, the
--- personas by club level, the personas, the named clubs
+-- personas by club level, the personas, the named clubs, the rivals
 local function persona_image()
     local ceiling = (CEILING ~= false)
     local numbers = { ceiling and round(CEILING_STRETCH) or 0, ceiling and round(CEILING_NEED) or 0,
@@ -832,7 +944,10 @@ local function persona_image()
     out = out .. table.concat(groups)
     out = out .. string.rep("\0", PERSONAS_AT - NUMBERS_AT - #out) .. table.concat(personas)
     out = out .. string.rep("\0", CLUB_TYPES_AT - NUMBERS_AT - #out) .. table.concat(types)
-    return out .. string.rep("\0", CLUB_IDS_AT - NUMBERS_AT - #out) .. table.concat(ids)
+    out = out .. string.rep("\0", CLUB_IDS_AT - NUMBERS_AT - #out) .. table.concat(ids)
+    out = out .. string.rep("\0", RIVALS_AT - NUMBERS_AT - #out) .. u32(#RIVALS)
+    for _, pair in ipairs(RIVALS) do out = out .. u32(pair[1]) .. u32(pair[2]) end
+    return out
 end
 
 -- what goes into the memory: the ceilings, the highest rating of the second search by
@@ -907,9 +1022,9 @@ function m.init(ctx)
         log("RESULT: nothing written. Settings: " .. fault)
         return
     end
-    if CEILING == false and not SELL_SIDE and not PERSONA then
-        log("RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off: the computer clubs choose as in "
-            .. "the game.")
+    if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then
+        log("RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off and RIVALS is empty: the "
+            .. "computer clubs choose as in the game.")
         return
     end
     local memory_image = image()
@@ -997,6 +1112,10 @@ function m.init(ctx)
         report_persona()
         changed[#changed + 1] = "club personas"
         if SCOUTING then changed[#changed + 1] = "scouting" end
+    end
+    if #RIVALS > 0 then
+        log(string.format("rivals: %d pairs of clubs do not buy each other's players who have a contract", #RIVALS))
+        changed[#changed + 1] = "rivals"
     end
     log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
 end

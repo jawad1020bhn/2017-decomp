@@ -1328,7 +1328,7 @@ The reading of 9.5 and 9.6 gives two causes; neither is the price ceiling:
   the three may go, nobody is signed for the slot.
 
 Version 2 of `MLTransfers.lua` works at the same place as 9.10 (`0x0365fb0d`) with a
-longer routine (1,345 bytes at `0x047d47c8`, tables from `0x047d4200`, in the unused
+longer routine (1,413 bytes at `0x047d49d0`, tables from `0x047d4200`, in the unused
 rest of the page of section `.data1`). Before the ceiling it
 
 1. asks the question above, and the pool's count of more than 23, before the player is
@@ -1340,7 +1340,9 @@ rest of the page of section `.data1`). Before the ceiling it
    in the next place; ages; a rating seen with an error; a lowest and a highest rating
    against the rating of its first eleven, which is worked out from the points of its
    ranking record (mean of the best eleven of the 499 ranked clubs of the save ≈
-   0.0533 x points + 9.45).
+   0.0533 x points + 9.45);
+4. before all of these, refuses a player with a contract whose club id and the buyer's
+   club id are one of up to 64 pairs (`RIVALS`).
 
 The persona is named per club id or drawn by level. All it needs beyond 9.10 is read
 from the frame of `ai_candidates` (date `[ebp - 0x24]`, pool `[ebp - 0xc]`, mode data

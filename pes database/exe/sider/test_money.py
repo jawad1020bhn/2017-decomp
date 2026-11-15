@@ -67,10 +67,10 @@ ALL_SITES = tuple((at, len(old)) for _, at, old, _ in mc.SITES)
 INSTALLED = 'RESULT: installed. Changed: '
 CEILING_LABEL = 'price ceiling of the computer clubs'
 # the RESULT lines of MLTransfers.lua
-LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting')
+LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting', 'rivals')
 INSTALLED_T = INSTALLED + ', '.join(LABELS_T) + '.'
-OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off: the computer clubs choose as in '
-         'the game.')
+OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off and RIVALS is empty: the computer clubs '
+         'choose as in the game.')
 NO_MONEY = 'RESULT: nothing written. MLMoney.lua is not installed'
 OTHER_MONEY = 'RESULT: nothing written. The MLMoney.lua that is installed is not the version'
 ALREADY = "RESULT: nothing written. The game's choosing code is changed already"
@@ -124,6 +124,7 @@ def settings(source):
         clubs = [(int(c, 0), name) for c, name in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *"([^"]+)" *\}', text('CLUBS'))]
         return dict(archetypes=kinds, groups=groups, clubs=clubs, spread=number('PERSONA_SPREAD'),
                     strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'))
+    rivals = [(int(a, 0), int(b, 0)) for a, b in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *(0x[0-9a-fA-F]+|\d+) *\}', text('RIVALS'))]
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
     return mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
                      knots('SALARY_AGE'), number('BUDGET_TRANSFER'), number('BUDGET_SALARY'), cup(),
@@ -132,12 +133,12 @@ def settings(source):
                      number('TALENT_MAX'), number('TALENT_CAP'), number('INCOME'), by_id(), numbers('CUP_NATIONAL'),
                      knots('CUP_TV'), number('INCOME_WAGES'), numbers('CEILING'), text('CEILING_RATING') == 'true',
                      number('CEILING_STRETCH'), number('CEILING_NEED'), number('CEILING_LISTED'), number('CEILING_FREE'),
-                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona())
+                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals)
 
 
 def installed_t(t):
     """The RESULT line of MLTransfers.lua for these settings."""
-    parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting), LABELS_T) if on]
+    parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting, bool(t.rivals)), LABELS_T) if on]
     return INSTALLED + ', '.join(parts) + '.' if parts else OFF_T
 
 
@@ -469,7 +470,8 @@ class Harness:
         contract, listed, in a deal and on loan, of clubs in and out of the club ranking and
         of no club, with any status band; slots that ask for a status band, plans of every
         kind, any day of the year; buying and selling clubs with random places in the club
-        ranking (some named in CLUBS, some missing from the ranking, a ranking with a count
+        ranking (some named in CLUBS, some in RIVALS and then often with a rival among the
+        selling clubs, some missing from the ranking, a ranking with a count
         that cannot be) and random numbers of players in the pool. The players listed must
         be those of money_cave.candidates.
         -> (cases in which the module changed the list, players refused by it)."""
@@ -504,6 +506,8 @@ class Harness:
         frame, changed, refused = self.pick_frame, 0, 0
         ranking = self.mode_data + mc.RANK_TABLE
         named = [club for club, _ in t.hand] if t is not None else []
+        rivals = t.rivals if t is not None else []
+        in_pairs = sorted({c for pair in rivals for c in pair})
         ceilings = t.ceiling[:] if t is not None else None
         try:
             for case in range(n):
@@ -524,10 +528,18 @@ class Harness:
                     """an id: most with a place among the clubs the pool counts, a few beyond it"""
                     if named and random.randint(0, 3) == 0:
                         return random.choice(named)
+                    if in_pairs and random.randint(0, 3) == 0:
+                        return random.choice(in_pairs)
                     return random.getrandbits(18) << 14 | random.choice([random.randint(1, mc.POOL_CLUBS - 1)] * 9 + [
                         mc.POOL_CLUBS, random.randint(mc.POOL_CLUBS, 0x3fff), random.choice([0xff, 0x1ff])])
                 club = some_club()
                 sellers = [some_club() for _ in range(4)]
+                # every other time a buyer that has rivals finds one of them among the sellers, and
+                # a rival of that club which is none of its own
+                partners = [a if b == club else b for a, b in rivals if club in (a, b)]
+                if partners and random.randint(0, 1):
+                    sellers[0] = random.choice(partners)
+                    sellers[1] = random.choice([a if b == sellers[0] else b for a, b in rivals if sellers[0] in (a, b)])
                 sellers = [c for c in sellers if c != club] or [club ^ 0x4000]
                 # the pool: how many players it counts for each club
                 g.write(self.pool, b'\0' * 0x780)
@@ -988,7 +1000,7 @@ def main(exe):
           'the club\'s limit for him and 1 below that; three cases in eight with ai_pick_candidate itself run '
           'up to the end of its two searches, so that level, range, the mark of the second search and the '
           'place each search returns to are where the game puts them): it lists the players of '
-          'money_cave.candidates (selling side, scouting, the persona of the buying club and of the selling '
+          'money_cave.candidates (rivals, selling side, scouting, the persona of the buying club and of the selling '
           'club, the price), passes over the others and goes on, leaves stack, registers, player records and '
           'plan as the game does, and entered from anywhere else it lists as the game' % (
               n, n, cups, leagues, n // 5, max(160, n // 4)))
@@ -996,14 +1008,14 @@ def main(exe):
     # 3. the switches, and settings at their limits
     optional = ('SALARY', 'BUDGET_TRANSFER', 'BUDGET_SALARY', 'CUP', 'LEAGUE', 'LEAGUE_2', 'PRIZE_TO_BUDGET',
                 'PAY_GAP', 'BONUS', 'YOUNG_YEARS', 'TALENT', 'INCOME', 'LEAGUE_BY_ID', 'CUP_NATIONAL', 'CUP_TV',
-                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA')
+                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS')
 
     def only(**kept):
         """The module with every optional part off but the ones named (None: as in the file)."""
         text = source
         for name in optional:
             if name not in kept:
-                text = setting(text, name, 'false')
+                text = setting(text, name, '{ }' if name == 'RIVALS' else 'false')
             elif kept[name] is not None:
                 text = setting(text, name, kept[name])
         return text
@@ -1024,7 +1036,7 @@ def main(exe):
              ('INCOME', '150', 'yearly income'), ('INCOME_WAGES', None, 'yearly income'),
              ('CUP_NATIONAL', None, 'national cup prizes'), ('CEILING', None, 'price ceiling of the computer clubs'),
              # the two other parts of MLTransfers.lua: MLMoney.lua reports nothing for them
-             ('SELL_SIDE', None, None), ('PERSONA', None, None),
+             ('SELL_SIDE', None, None), ('PERSONA', None, None), ('RIVALS', None, None),
              # these three change no place of their own: the talent bonus is part of the fee
              # routine, a list by league needs LEAGUE, television money needs CUP
              ('TALENT', None, None), ('LEAGUE_BY_ID', None, None), ('CUP_TV', None, None))
@@ -1102,16 +1114,35 @@ def main(exe):
             ('0', '{ 0.0533, 9.45 }', '0', '0', 'true'), ('50', '{ 0.5, 99 }', '12', '32', 'false'),
             ('20', '{ 0, 0 }', '1', '23', 'true'), ('33.4', '{ 0.02, 40 }', '9', '25', 'true'),
             ('20', '{ 0.0533, 9.45 }', '9', '23', 'false'))):
-        text = only(PERSONA=None, **dict(([('CEILING', None)] if case % 2 else []) + ([('SELL_SIDE', None)] if case % 3 else [])))
+        text = only(PERSONA=None, **dict(([('CEILING', None)] if case % 2 else []) + ([('SELL_SIDE', None)] if case % 3 else [])
+                                         + ([] if case % 2 else [('RIVALS', None)])))
         for name, new in (('PERSONA_SPREAD', spread), ('STRENGTH', strength), ('WINTER_MONTH', winter), ('SQUAD_NEED', squad),
                           ('SCOUTING', scouting)):
             text = setting(text, name, new)
         t, lines = install(text, 'values, ' + CEILING_LABEL if case % 2 else 'values')
         assert (t.has_ceiling, t.sell, t.has_persona, t.scouting) == (bool(case % 2), bool(case % 3), True, scouting == 'true')
+        assert len(t.rivals) == (0 if case % 2 else 61)
         assert (t.persona_range, t.winter, t.squad) == (20 * int(float(spread) + 0.5), int(winter), int(squad))
         assert len(t.genes) == 12 and len(t.hand) == 180 and t.genes[0] == mc.NEUTRAL
         assert all(record[mc.GENE_NAMES.index('knows')] == 255 for record in t.genes) == (scouting == 'false')
         assert h.choose_cases(500, t)[0] > 0
+    # the rivals alone and with each other part: 64 pairs among 12 clubs (every club has many
+    # rivals, and many pairs stand twice or the other way round), one pair, 64 pairs of 128 clubs
+    def some_rivals(pairs, clubs):
+        ids = random.sample(range(1, mc.POOL_CLUBS), clubs)
+        ids = [random.getrandbits(18) << 14 | c for c in ids]
+        return '{\n%s\n}' % '\n'.join('    { %s, %s },' % tuple(
+            random.choice(['0x%08x', '%d']) % c for c in (random.sample(ids, 2) if clubs < 2 * pairs else ids[2 * k:2 * k + 2]))
+            for k in range(pairs))
+    for case, (pairs, clubs) in enumerate(((64, 12), (1, 2), (64, 128), (64, 12), (20, 9), (64, 30))):
+        others = (), ('CEILING',), ('SELL_SIDE',), ('PERSONA',), ('CEILING', 'SELL_SIDE'), ('CEILING', 'SELL_SIDE', 'PERSONA')
+        t, lines = install(only(RIVALS=some_rivals(pairs, clubs), **{name: None for name in others[case]}),
+                           'values, ' + CEILING_LABEL if 'CEILING' in others[case] else 'values')
+        assert len(t.rivals) == pairs and t.transfers and (t.has_ceiling, t.sell, t.has_persona) == tuple(
+            name in others[case] for name in ('CEILING', 'SELL_SIDE', 'PERSONA'))
+        assert ('rivals: %d pairs of clubs do not buy each other\'s players who have a contract' % pairs) in lines
+        chosen = h.choose_cases(600, t)
+        assert chosen[0] > (0 if pairs == 1 else 20), chosen
     # 1 to 15 personas with any numbers, lists of 1 to 8 names for the ten groups, 0 to 192 named clubs
     for count, clubs in ((15, 192), (1, 0), (7, 1), (15, 40)):
         kinds = some_archetypes(count)
@@ -1136,6 +1167,8 @@ def main(exe):
         'percent lower or higher from club to club']
     assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 11
     assert 'selling side: a player whose club does not let him go takes no place on a buyer\'s list' in lines
+    assert 'rivals: 61 pairs of clubs do not buy each other\'s players who have a contract' in lines and len(t.rivals) == 61
+    assert len({frozenset(pair) for pair in t.rivals}) == 61 and all(a != b for a, b in t.rivals)
     t = settings(setting(source, 'CEILING', '{ 9999, 0.01, 0, 0.5, 1, 2, 3, 9999, 0.01, 0.02 }'))
     assert t.ceiling == [200, 100, 99990000, 30000, 20000, 10000, 5000, mc.NO_CEILING, 100, 99990000]
     both = setting(setting(source, 'BUDGET_SALARY', '2.5'), 'BUDGET_TRANSFER', '0.1')
@@ -1200,7 +1233,8 @@ def main(exe):
           'and money_cave.py still agree; the ceiling without the rating rule, with groups without a ceiling, '
           'with none at all (the rating rule alone) and with the lowest amount everywhere; the hard ceiling of '
           'version 5 (CEILING_STRETCH = 0, CEILING_NEED = 0, CEILING_LISTED = CEILING_FREE = 100), each of the '
-          'four alone, and all four at their limits; MLTransfers.lua with the personas alone, with the selling '
+          'four alone, and all four at their limits; the rivals alone and with each other part, 1 to 64 pairs '
+          'among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling '
           'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH and '
           'SQUAD_NEED at their limits; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
           'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each' % (
@@ -1394,7 +1428,18 @@ def main(exe):
            ('CLUBS is not a list of at most 192 clubs', setting(source, 'CLUBS', 'true')),
            ('CLUBS: entry 2 names a persona', source.replace('{ 0x001b4036, "Galactico" }', '{ 0x001b4036, "Galactic" }')),
            ('CLUBS: entry 1 does not start with a club id', source.replace('{ 0x001c804a, "State-backed" }', '{ "x", "State-backed" }')),
-           ('CLUBS: entry 3 does not start with a club id', source.replace('{ 0x001b002b, "Old-money" }', '{ 0.5, "Old-money" }')))
+           ('CLUBS: entry 3 does not start with a club id', source.replace('{ 0x001b002b, "Old-money" }', '{ 0.5, "Old-money" }')),
+           ('RIVALS is not a list of at most 64 pairs', setting(source, 'RIVALS', '{\n%s\n}' % '\n'.join(
+               '    { %d, %d },' % (i, i + 1) for i in range(65)))),
+           ('RIVALS is not a list of at most 64 pairs', setting(source, 'RIVALS', 'true')),
+           ('RIVALS: entry 1 is not a pair of two different club ids',
+            source.replace('{ 0x0019000d, 0x0019c00b }', '{ 0x0019000d, 0x0019000d }')),
+           ('RIVALS: entry 2 is not a pair of two different club ids',
+            source.replace('{ 0x0019000d, 0x002b400c }', '{ 0x0019000d, 0x002b400c, 0x0019c00b }')),
+           ('RIVALS: entry 3 is not a pair of two different club ids', source.replace('{ 0x0019000d, 0x001a000a }', '{ 0x0019000d }')),
+           ('RIVALS: entry 3 is not a pair of two different club ids', source.replace('{ 0x0019000d, 0x001a000a }', '{ 0x0019000d, 1.5 }')),
+           ('RIVALS: entry 2 is not a pair of two different club ids', source.replace('{ 0x0019000d, 0x002b400c }', '{ -1, 0x002b400c }')),
+           ('RIVALS: entry 1 is not a pair of two different club ids', source.replace('{ 0x0019000d, 0x0019c00b }', '"x"')))
     for part, faulty in enumerate((bad, bad_t)):
         for name, text in faulty:
             assert text != source, name
@@ -1414,7 +1459,7 @@ def main(exe):
           'without it; run without MLMoney.lua, before it, with a mark that is not MLMoney.lua\'s, with a changed '
           'byte at %d places of the value routine and the two numbers it uses, or a second time: it writes nothing; with '
           'another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE '
-          'and PERSONA off it does not look at the game at all' % (flips, len(bad), flips_t, len(bad_t), needed))
+          'and PERSONA off and RIVALS empty it does not look at the game at all' % (flips, len(bad), flips_t, len(bad_t), needed))
 
     # 5. the one player we have screen numbers of
     assert money.fee(72597, 89, 955) * mc.UNIT == 36743200

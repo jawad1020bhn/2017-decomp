@@ -13,10 +13,12 @@ put into the memory for it. Printed: the flips after which all cases still passe
 files: one line of MLTransfers.lua or money_cave.py is changed in a copy of this folder and
 the whole test is run there. It must fail every time.
 
-Last run (version 2 of MLTransfers.lua): files, 92 of 92 noticed (about 100 minutes).
-routine, one bit of each of the 1,345 bytes (`routine 0 1345 8`, about 70 minutes of
-processor time): 1,283 noticed after the test was made stricter with what the first run
-showed; the 62 others are in bitflips_v2.tsv and are sorted in README.md.
+Last runs (version 2 of MLTransfers.lua). files: 92 of 92 noticed before the rivals were
+added (about 100 minutes); with them the list has 106, of which the 14 new ones and eight
+others were run (numbers 11 12 16 17 23 32 33 35 to 49): 22 of 22 noticed.
+routine, with the rivals, one bit of each of the 1,413 bytes (`routine 0 1413 8`, about 55
+minutes of processor time, then `routine again` for the flips not noticed): 1,354 noticed;
+the 59 others are in bitflips_v2.tsv and are sorted in README.md.
 """
 import gc
 import os
@@ -55,7 +57,7 @@ FAULTS = (
      'local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 85, 99 }'),
     ('MLTransfers.lua', 'local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }',
      'local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 82 }'),
-    ('MLTransfers.lua', 'local CAVE_SIZE = 0xb10', 'local CAVE_SIZE = 0xb0c'),
+    ('MLTransfers.lua', 'local CAVE_SIZE = 0xd60', 'local CAVE_SIZE = 0xd5c'),
     ('MLTransfers.lua', 'local CAVE = 0x047d4200 ', 'local CAVE = 0x047d41f8 '),
     # the numbers of the limit: the two discounts swapped, a negative number let through
     ('MLTransfers.lua', 'ceiling and round(CEILING_FREE) or 100, ceiling and round(CEILING_LISTED) or 100',
@@ -82,7 +84,31 @@ FAULTS = (
     ('MLTransfers.lua', '#CLUBS > MOST_CLUBS then', '#CLUBS > MOST_CLUBS + 1 then'),
     ('MLTransfers.lua', 'types[i] = string.char(persona_number(c[2]))', 'types[i] = string.char(persona_number(c[2]) - 1)'),
     ('MLTransfers.lua', 'if persona_number(c[2]) == nil then', 'if false then'),
-    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA then', 'if CEILING == false then'),
+    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then',
+     'if CEILING == false and #RIVALS == 0 then'),
+    # the rivals: the part alone writes nothing, the last pair is left out, the table one dword
+    # too high, one pair too many let through, a club that is its own rival, three clubs in a
+    # pair or a faulty RIVALS let through, not named in the RESULT line
+    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then',
+     'if CEILING == false and not SELL_SIDE and not PERSONA then'),
+    ('MLTransfers.lua', '.. u32(#RIVALS)\n', '.. u32(#RIVALS - 1)\n'),
+    ('MLTransfers.lua', 'local RIVALS_AT = 0x5c8', 'local RIVALS_AT = 0x5cc'),
+    ('MLTransfers.lua', '#RIVALS > MOST_RIVALS then', '#RIVALS > MOST_RIVALS + 1 then'),
+    ('MLTransfers.lua', '\n            or pair[1] == pair[2] then', ' then'),
+    ('MLTransfers.lua', 'if type(pair) ~= "table" or #pair ~= 2 or', 'if type(pair) ~= "table" or'),
+    ('MLTransfers.lua', 'not is_club_id(pair[1]) or not is_club_id(pair[2])', 'not is_club_id(pair[1])'),
+    ('MLTransfers.lua', 'return ceiling_fault() or persona_fault() or rivals_fault()', 'return ceiling_fault() or persona_fault()'),
+    ('MLTransfers.lua', 'changed[#changed + 1] = "rivals"', 'changed[#changed + 1] = "rival"'),
+    # the same in the model: listed players left out, players without a contract taken in, one
+    # direction only, the part alone not counted as on
+    ('money_cave.py', "if where != 0 and seller is not None and ((buyer['id'], seller['id']) in t.rivals",
+     "if where == 2 and seller is not None and ((buyer['id'], seller['id']) in t.rivals"),
+    ('money_cave.py', "if where != 0 and seller is not None and ((buyer['id'], seller['id']) in t.rivals",
+     "if seller is not None and ((buyer['id'], seller['id']) in t.rivals"),
+    ('money_cave.py', "or (seller['id'], buyer['id']) in t.rivals):", "):"),
+    ('money_cave.py', "if where != 0 and seller is not None and ((buyer['id'], seller['id']) in t.rivals",
+     "if where != 0 and seller is not None and ((seller['id'], seller['id']) in t.rivals"),
+    ('money_cave.py', 'self.has_ceiling or self.sell or self.has_persona or bool(self.rivals)', 'self.has_ceiling or self.sell or self.has_persona'),
     # the two files: MLTransfers.lua does not look for MLMoney.lua, looks at the wrong place,
     # does not compare the value routine, does not see that the place is changed already,
     # writes with WRITE = false
@@ -183,24 +209,30 @@ def routine(exe):
             text = tm.setting(text, name, new)
         return tm.settings(text)
     # the settings of the files and five other sets, each with its number of cases: the selling
-    # side alone, the ceiling alone (version 1), made-up personas for made-up clubs without the
-    # selling side, the file's personas without scouting and the ceiling, with other numbers,
-    # the made-up personas with the highest ceilings (amounts that do not fit 32 bits)
+    # side alone, the ceiling alone (version 1, no rivals), made-up personas for made-up clubs
+    # without the selling side and with 64 pairs of rivals among 12 clubs, the file's personas
+    # without scouting and the ceiling, with other numbers, the made-up personas with the
+    # highest ceilings (amounts that do not fit 32 bits) and 64 pairs of rivals among 128 clubs
     random.seed(5)
     kinds = tm.some_archetypes(15)
     groups = '{\n%s\n}' % '\n'.join('    { %s },' % ', '.join('"P%d"' % random.randint(1, 15) for _ in range(random.randint(1, 8)))
                                     for _ in range(10))
     named = '{\n%s\n}' % '\n'.join('    { 0x%08x, "P%d" },' % (random.getrandbits(18) << 14 | random.randint(1, mc.POOL_CLUBS - 1),
                                                                random.randint(1, 15)) for _ in range(192))
+    def some_rivals(clubs):
+        ids = [random.getrandbits(18) << 14 | c for c in random.sample(range(1, mc.POOL_CLUBS), clubs)]
+        return '{\n%s\n}' % '\n'.join('    { 0x%08x, 0x%08x },' % tuple(random.sample(ids, 2) if clubs < 128 else ids[2 * k:2 * k + 2])
+                                        for k in range(64))
+    dense, wide = some_rivals(12), some_rivals(128)
     sets = ((t, 500),
             (changed(('CEILING', 'false'), ('PERSONA', 'false')), 300),
-            (changed(('SELL_SIDE', 'false'), ('PERSONA', 'false')), 200),
+            (changed(('SELL_SIDE', 'false'), ('PERSONA', 'false'), ('RIVALS', '{ }')), 200),
             (changed(('SELL_SIDE', 'false'), ('ARCHETYPES', tm.archetypes_text(kinds)),
-                     ('PERSONA_GROUPS', groups), ('CLUBS', named), ('PERSONA_SPREAD', '50')), 400),
+                     ('PERSONA_GROUPS', groups), ('CLUBS', named), ('PERSONA_SPREAD', '50'), ('RIVALS', dense)), 400),
             (changed(('CEILING', 'false'), ('SCOUTING', 'false'), ('STRENGTH', '{ 0.02, 40 }'), ('SQUAD_NEED', '32'),
                      ('WINTER_MONTH', '12'), ('PERSONA_SPREAD', '0')), 200),
             (changed(('CEILING', '{ %s }' % ', '.join(['9999'] * 10)), ('CEILING_STRETCH', '300'), ('CEILING_NEED', '300'),
-                     ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named)), 200))
+                     ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named), ('RIVALS', wide)), 200))
     tables = [mc.image_2(u)[:mc.CEILING_CODE - mc.CAVE_2] for u, _ in sets]
     random.seed(1)
     print('without a fault: %d of 400 lists changed by the module, %d players refused' % h.choose_cases(400, t))

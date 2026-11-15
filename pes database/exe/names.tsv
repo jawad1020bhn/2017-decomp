@@ -150,4 +150,4 @@ address	name	topic	note
 0x0382b087	player_club	master league	(this = mode data; player id, 2 dwords) -> club id of the player, 0xffffffff for none; thiscall, ret 8; read; called by MLTransfers.lua 2
 0x031b1c34	ranking_record	master league	(club id) -> record of the club ranking (16 bytes: club id, place, points at +8, level at +0xe; table at mode data +0xcc84cc); the first record when the club is not ranked; read; the same search is done by MLTransfers.lua 2
 0x0365d775	club_level	master league	(club id) -> level 0 to 9 from the ranking record; read; compared by MLTransfers.lua 2
-0x047d4200	mltransfers_memory	module	not the game's: 2,832 bytes written by sider/MLTransfers.lua 2 into the unused rest of the page of section .data1 (tables, then the routine at 0x047d47c8); zero in the exe file; not yet seen in the running game
+0x047d4200	mltransfers_memory	module	not the game's: 3,424 bytes written by sider/MLTransfers.lua 2 into the unused rest of the page of section .data1 (tables, then the routine at 0x047d49d0); zero in the exe file; not yet seen in the running game

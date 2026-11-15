@@ -130,6 +130,8 @@ of the 14 numbers is, for a club, the persona's number x (PERSONA_LOW + (h x PER
 A player is "free" if his status (+0xb4, bits 0-3) is 1 or 2, else "listed" if he has mark
 29 or 30 of +0xb8, else "clubs". In order (accepts() below is the same in Python):
 
+ 0. Rivals (for "listed" and "clubs", if the player has a club): refused if the buyer's
+    id and his club's id are a pair of RIVAL_PAIRS, in either order.
  1. The selling club (only for "clubs", and if the player has a club). With SELL_SIDE: the
     pool object counts more than 23 players for it (dword at +0x7ac + 4 x the low 14 bits
     of its id, as the game's own pool function asks), and, in the second call of
@@ -245,7 +247,7 @@ CAVE_LIMIT = 0x047b1000
 # a second piece, the unused rest of the page of the section .data1 (it follows .xcode in
 # memory): the tables and the routine of MLTransfers.lua (only written when a part of it is on)
 CAVE_2 = 0x047d4200
-CAVE_2_SIZE = 0xb10
+CAVE_2_SIZE = 0xd60
 CAVE_2_LIMIT = 0x047d5000
 CEILING_TAB = CAVE_2            # 10 dwords, by club level 0-9: the value a club of that level takes for sure
 CEILING_TOP = CAVE_2 + 0x28     # 10 bytes, by club level: the highest rating it takes in the second, wide search
@@ -267,11 +269,13 @@ BY_LEVEL_TAB = CAVE_2 + 0x78    # 10 rows of 8 bytes, by club level: the persona
 GENES_TAB = CAVE_2 + 0xc8       # 16 personas of 20 bytes (GENE_NAMES, then first age, last age, two channels)
 HAND_TYPES = CAVE_2 + 0x208     # 192 bytes: the persona of each named club
 HAND_IDS = CAVE_2 + 0x2c8       # 192 dwords: the ids of the named clubs
-CEILING_CODE = CAVE_2 + 0x5c8
+RIVAL_COUNT_AT = CAVE_2 + 0x5c8  # dword: how many pairs RIVALS has
+RIVAL_PAIRS = CAVE_2 + 0x5cc    # 64 pairs of dwords: the ids of two clubs that do not trade
+CEILING_CODE = CAVE_2 + 0x7d0
 NO_CEILING = 0xffffffff         # in CEILING_TAB: this level takes any value
 NO_TOP = 0xff                   # in CEILING_TOP: this level takes any rating
 LEVELS = 10
-PERSONAS, PERSONA_BYTES, BY_LEVEL, HAND = 16, 20, 8, 192
+PERSONAS, PERSONA_BYTES, BY_LEVEL, HAND, RIVALS = 16, 20, 8, 192, 64
 # the numbers of a persona that are changed a little from club to club (bytes 0 to 13 of its 20)
 GENE_NAMES = ('free', 'listed', 'clubs', 'winter', 'knows', 'fog', 'wealth', 'premium', 'panic', 'fame', 'ambition',
               'prestige', 'keeps', 'strict')
@@ -690,8 +694,8 @@ c3: push ecx
     inc ecx
     cmp ecx, {GENES}
     jb c3
-    cmp dword ptr [ebp - 0x30], 2
-    jne s9
+    cmp dword ptr [ebp - 0x30], 0
+    je s9
     and dword ptr [ebp - 8], 0
     lea eax, [ebp - 8]
     push eax
@@ -702,6 +706,21 @@ c3: push ecx
     mov eax, dword ptr [ebp - 0x3c]
     cmp eax, dword ptr [{NO_CLUB_AT}]
     je s9
+    mov edx, dword ptr [ebp - 0x18]
+    mov ecx, dword ptr [{RIVAL_COUNT_AT}]
+v1: dec ecx
+    js v3
+    cmp dword ptr [ecx*8 + {RIVAL_PAIRS}], eax
+    jne v2
+    cmp dword ptr [ecx*8 + {RIVAL_PAIRS + 4}], edx
+    je refuse
+v2: cmp dword ptr [ecx*8 + {RIVAL_PAIRS}], edx
+    jne v1
+    cmp dword ptr [ecx*8 + {RIVAL_PAIRS + 4}], eax
+    je refuse
+    jmp v1
+v3: cmp dword ptr [ebp - 0x30], 2
+    jne s9
     call persona
     push eax
     cmp dword ptr [{SELL_AT}], 0
@@ -1021,31 +1040,32 @@ INCOME_SCALE_BYTES = bytes.fromhex('85c07e0e52f7258c0d7b04f73554067b045ac3')
 INCOME_S_BYTES = bytes.fromhex('81c6983a00005089f0e8deffffff89c658c3')
 LEAGUE_BYTES = bytes.fromhex('31c9eb0d0fb7144d900d7b0439fa7411413b0da80d7b0472eb8b0485c0077b04c36bc91801c10fb7044db00d7b046bc064c3')
 CEILING_BYTES = bytes.fromhex(
-    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f853e040000894dc08b48dc894dac8b4818'
-    '8b51048955bc8b09894de88b50308b128955b88b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87fc03000089'
+    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f8582040000894dc08b48dc894dac8b4818'
+    '8b51048955bc8b09894de88b50308b128955b88b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f874004000089'
     '45e031c98b93b400000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd86955e8'
-    'b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8030400008945ec8955b031c9518b45ec8b55'
-    'e8e8bb0300005989848d70ffffff4183f90e72e6837dd0020f85d00000008365f8008d45f8508d45c45089d9e8b26705ff8b45c43b0534'
-    'eb4f020f84ae000000e8b003000050833d5c427d040074658b4dc88b49f48b45c425ff3f00003d8d0200000f838000000083bc81ac0700'
-    '00177676817dc0b90d660375395253e8e8f607ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc047504'
-    '39c1770b83f807733a807a0e08733458b90c0000008b55c4e8ff020000694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1'
-    'e90839c10f82b7020000eb0658e9af020000837dd0017419694dd4b1675616c1e9186bc964c1e9083b4d800f8390020000c745f80d0000'
-    '006a028d45f85053e87ef107ff83c40c0fb6c08945dc8b55b00fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d'
-    '04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d08945cc03459c3945dc0f87260200008b55b88b4dc88b49f48b'
-    '45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85d60000008b55ec807a10ff0f8494'
-    '000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837d'
-    'e4000f84a60100008b55ec0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7c'
-    'ffffff0f836e010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f854e010000837de400752f8b4b1cc1e90783e1'
-    '3f8b55ec3a4a0e72053a4a0f7619694dd49335871bc1e9186bc964c1e9083b4da40f82190100008b45848d0c45010000006955d4656b54'
-    'e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc837df000740f0fb69128427d04'
-    '39d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d'
-    '90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e8'
-    '6d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce87dc0fdff8b'
-    '4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e97f4795ff89ec5d5f5b83c404e9da'
-    'aee8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf'
-    '0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902'
-    '740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069'
-    'c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3')
+    'b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8470400008945ec8955b031c9518b45ec8b55'
+    'e8e8ff0300005989848d70ffffff4183f90e72e6837dd0000f84140100008365f8008d45f8508d45c45089d9e8aa6505ff8b45c43b0534'
+    'eb4f020f84f20000008b55e88b0dc8477d0449782e3904cdcc477d04750d3914cdd0477d040f847f0300003914cdcc477d0475de3904cd'
+    'd0477d040f8469030000ebcf837dd0020f85ae000000e8b003000050833d5c427d040074658b4dc88b49f48b45c425ff3f00003d8d0200'
+    '000f838000000083bc81ac070000177676817dc0b90d660375395253e89cf407ff83c4045a8b4de083f9097206837db8007720837dbc01'
+    '750583f9087315837dbc04750439c1770b83f807733a807a0e08733458b90c0000008b55c4e8ff020000694dc4b179379e334dd8334dac'
+    '69c92febd427c1e9186bc964c1e90839c10f82b7020000eb0658e9af020000837dd0017419694dd4b1675616c1e9186bc964c1e9083b4d'
+    '800f8390020000c745f80d0000006a028d45f85053e832ef07ff83c40c0fb6c08945dc8b55b00fb64a0e83f9097605b9090000000fb742'
+    '080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d08945cc03459c3945dc0f8726'
+    '0200008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85d6'
+    '0000008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39d1721c'
+    '40039578ffffff39d17211837de4000f84a60100008b55ec0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9e'
+    'ccc1e9186bc964c1e9083b8d7cffffff0f836e010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f854e01000083'
+    '7de400752f8b4b1cc1e90783e13f8b55ec3a4a0e72053a4a0f7619694dd49335871bc1e9186bc964c1e9083b4da40f82190100008b4584'
+    '8d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945dc0f8ce50000008b4de08b45dc'
+    '837df000740f0fb69128427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45'
+    'e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9'
+    '180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e848000000e8'
+    '500000008b45dce831befdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e933'
+    '4595ff89ec5d5f5b83c404e98eace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb6040869c99301000169d2b179379e'
+    '31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa0280000'
+    '81f98a020000770c4978093902740883c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb6'
+    '4a0e83f9097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3')
 assert CEILING_CODE + len(CEILING_BYTES) <= CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
 ROUTINES = ((FEE_CODE, FEE_SOURCE, 'FEE_BYTES'), (SALARY_CODE, SALARY_SOURCE, 'SALARY_BYTES'),
             (BUDGET_T_CODE, BUDGET_T_SOURCE, 'BUDGET_T_BYTES'), (BUDGET_S_CODE, BUDGET_S_SOURCE, 'BUDGET_S_BYTES'),
@@ -1226,14 +1246,15 @@ class Tables:
     a dict with archetypes [(name, {entry: number, 'age': (first, last), 'second': (channel,
     channel)})], groups (10 lists of names, best clubs first), clubs [(club id, name)],
     spread (percent), strength (rating points per ranking point, rating at 0 points),
-    winter (month or 0), squad (players)."""
+    winter (month or 0), squad (players); rivals: None, or [(club id, club id)]: the two
+    clubs of a pair do not buy each other's players who have a contract (RIVALS)."""
 
     def __init__(self, value, age, position, spread, fame, salary, salary_age, budget_transfer, budget_salary,
                  cup=None, league=None, league_2=None, prize_share=None, pay_gap=None, bonus=None,
                  young_years=None, talent=None, talent_step=0, talent_max=0, talent_cap=0, income=None,
                  league_by_id=None, cup_national=None, cup_tv=None, income_wages=None, ceiling=None,
                  ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100,
-                 sell=False, scouting=False, persona=None):
+                 sell=False, scouting=False, persona=None, rivals=None):
         self.value = [clamp(amount(m), 1, CAP) for m in curve(value, 0, 99, True)]
         self.age = [clamp(int(p + 0.5), 0, MAX_AGE_PERCENT) for p in curve(age, 0, 63, False)]
         self.position = [clamp(int(position[n] + 0.5), 0, MAX_POSITION_PERCENT) for n in POSITIONS] + [100] * 3
@@ -1303,7 +1324,9 @@ class Tables:
         # MLTransfers.lua writes only if one of its parts is on
         self.sell, self.has_persona = bool(sell), persona is not None
         self.scouting = bool(scouting) and self.has_persona
-        self.transfers = self.has_ceiling or self.sell or self.has_persona
+        self.rivals = [(int(a), int(b)) for a, b in rivals or ()]
+        assert len(self.rivals) <= RIVALS
+        self.transfers = self.has_ceiling or self.sell or self.has_persona or bool(self.rivals)
         # the personas: number 0 is the club of version 1, the others are ARCHETYPES in their order
         self.genes, self.names = [NEUTRAL], ['']
         self.by_level, self.hand = [[0] * BY_LEVEL for _ in range(LEVELS)], []
@@ -1395,7 +1418,10 @@ def image_2(t):
     assert CAVE_2 + len(d) == GENES_TAB
     d = (d + b''.join(t.genes)).ljust(HAND_TYPES - CAVE_2, b'\0')
     d = (d + bytes(index for _, index in t.hand)).ljust(HAND_IDS - CAVE_2, b'\0')
-    d = (d + struct.pack('<%dI' % len(t.hand), *[club for club, _ in t.hand])).ljust(CEILING_CODE - CAVE_2, b'\0')
+    d = (d + struct.pack('<%dI' % len(t.hand), *[club for club, _ in t.hand])).ljust(RIVAL_COUNT_AT - CAVE_2, b'\0')
+    d += struct.pack('<I%dI' % (2 * len(t.rivals)), len(t.rivals), *[club for pair in t.rivals for club in pair])
+    assert CAVE_2 + len(d) <= RIVAL_PAIRS + 8 * RIVALS <= CEILING_CODE
+    d = d.ljust(CEILING_CODE - CAVE_2, b'\0')
     d += CEILING_BYTES
     assert len(d) <= CAVE_2_SIZE
     return d.ljust(CAVE_2_SIZE, b'\0')
@@ -1530,6 +1556,10 @@ def accepts(t, level, player, buyer=None, search=None, from_pick=True):
     # 1. the selling club: the rule by which ai_pick_candidate lets a player with a contract go
     #    (a player it would refuse must not take one of the three places), then what the club keeps
     seller = player.get('club')
+    # 0. rivals: a club does not sell to its rival. A player without a contract goes where he likes
+    if where != 0 and seller is not None and ((buyer['id'], seller['id']) in t.rivals
+                                              or (seller['id'], buyer['id']) in t.rivals):
+        return False
     if where == 2 and seller is not None:
         if t.sell:
             if seller['count'] is None or seller['count'] <= POOL_KEEPS:
