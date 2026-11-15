@@ -20,6 +20,8 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `money_cave.py` | what the two modules write (13 small routines, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
 | `window_report.py <PES2017.exe> <save before> <save after>` | reads one transfer window from two Master League saves: who signed whom, from where, by persona and by level, and whether the signings follow the rules of `MLTransfers.lua` (needs `pip install lupa unicorn`) |
+| `window_transfers.py <PES2017.exe> <save>` | **changes nothing.** Writes the transfers of the current window of one Master League save into a `.csv` file, the most expensive first: price, player, age, position, rating, club left, club joined, date (needs `pip install lupa unicorn`) |
+| `test_transfers.py <PES2017.exe>` | checks `window_transfers.py` against the four saves of `../ML saves/` |
 
 ## Install and run `MLCheck.lua`
 
@@ -164,6 +166,78 @@ the test failed on each of the sixteen.
 Not shown: the set-up of a career as a whole was not run, only its eight instructions,
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
+
+## `window_transfers.py`: the transfers of the current window, the most expensive first
+
+It reads a save file. It does not touch the game or the save.
+
+```
+pip install lupa unicorn
+python3 window_transfers.py <PES2017.exe> <save>
+```
+
+1. In the game, save the career **while the window is open**. Its last day (31 August,
+   31 January) is fine.
+2. Run the line above on the save file (`ML00000013` or the like, in the `save` folder
+   of the game). The exe is only read: the game's own rating code runs on each player.
+3. It writes `<save>.transfers.csv` next to the save (or to a third argument) and
+   prints the 20 most expensive. The file opens in Excel or LibreOffice.
+
+`../ML saves/2nd test/ML00000013 (after).transfers.csv` is the file for the save of that
+folder (31 August 2024, 438 transfers). Its first lines:
+
+```
+price,how,player,age,position,rating,from,to,date
+55263500,paid,Endrick,20,CF,80,Real Madrid CF,SSC Napoli,2024-07-20
+52344600,formula,Donyell Malen,27,CF,83,AS Roma,FC Bayern München,2024-07-19
+41722000,formula,Angelo Stiller,25,DMF,83,VfB Stuttgart,TSG 1899 Hoffenheim,2024-08-01
+32752800,paid,David Neres,29,RWF,81,SSC Napoli,CR Flamengo,2024-07-17
+```
+
+**The price, and what `how` says.** The game keeps a price only for the deals of your
+own club. A computer club has no money: the game works a fee out and drops it
+(`../MASTER_LEAGUE.md`, 9.7).
+
+| `how` | the price is |
+|---|---|
+| `paid` | a deal of your club: the amount of its line in your accounts. Exact |
+| `free` | the player had no club: 0 |
+| `formula` | worked out again the way the game did, with the settings of the `MLMoney.lua` **in this folder**. The game then moved it up or down by up to 19 percent at random; that part is lost. Rating, age and popularity are those of the save, not of the day of the move |
+
+For the six deals of the save above in which your club bought from or sold to a club,
+what was paid is 0.97 to 1.21 times what the formula gives. So `formula` is the right
+size, not the exact number. If you changed settings in your copy of `MLMoney.lua`, put
+your copy into this folder first. A career played without `MLMoney.lua` has other
+prices; that case is not built.
+
+**Where it comes from in the save** (all seen in the four saves of `../ML saves/`, see
+`../MASTER_LEAGUE.md`, 13): a transfer is a player with a club whose contract began
+inside the window (1 July to 31 August, or January) that holds the date of the save.
+The club he left stands in his record while the window is open.
+
+**After the window has closed** the game clears the club left for nearly all players
+(in the save of 15 September it is still there for 5 of 511). The script then says
+`CLOSED`, writes `?` as the club left and gives every signing a price by the formula,
+because a free signing can no longer be told from a bought one. Save before the window
+closes.
+
+`python3 test_transfers.py <PES2017.exe>` (8 seconds):
+
+```
+ok 1: the save of 31 August alone gives the 438 moves that the saves of 1 July and 31 August show together, each with the club left and the club joined; 254 have a price by the formula, 176 were without a club and cost nothing, 8 are deals of SSC Napoli with the amounts of its account lines; the most expensive is first (Endrick, 55,263,500)
+ok 2: the save of 15 September, after the window: the same 511 players as its two saves show, each with the club joined; the club left is still in the save for 5 of them and is "?" for the others, and none is called free
+ok 3: a save of the first day of a new career lists nothing (the 19,921 contracts dated that day are not signings); the window is January up to 30 June and July to August after; the file has the nine columns and the 438 rows, the most expensive first
+```
+
+18 faults were planted in the script one at a time (cheapest first, a wrong place in
+the save, the sign of an amount kept, free signings priced, your deals by the formula,
+the first day of a career counted, and so on). The test failed on 16. The two it cannot
+notice are two guards that no save here needs: "a player without a club is not a
+signing" and "not after the last day of the window".
+
+Not shown: a January window, a second season (whether a renewed contract gets a new
+start day and so looks like a signing is not known), a loan, a save from a career
+without `MLMoney.lua`, and Windows (it ran on Linux only).
 
 ## `MLSimToDate.lua`, version 2: "Sim to Date"
 

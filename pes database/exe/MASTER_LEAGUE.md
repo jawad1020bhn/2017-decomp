@@ -1678,6 +1678,22 @@ Fields of a player record, **from the saves, not from the code**: club id at `+0
 contract began (the day of the signing), `+0xb0` its end. Age (`+0x1c`, bits 7-12)
 and position (`+0x04`, bits 28-31) as in the code.
 
+Three more places, again **from the saves** (`sider/window_transfers.py` reads them):
+
+| where | what | how it was recognised |
+|---|---|---|
+| player record `+0xd0` | the club the player left, while the window is open; `0xffffffff` otherwise | in the save of 31 August it is the club of the save of 1 July for all 260 players who moved from a club, and empty for the 178 who had none and for every player who did not move. `do_transfer` writes a club id there in three of its cases. In the save of 15 September only 5 of 511 still carry it; what clears it was not found |
+| file `0x75bea8` | today: day of the year (16 bits, 0 = 1 January), year (16 bits) | 181 / 2024 in both saves of 1 July, 242 in the save of 31 August, 257 in that of 15 September; the only place with those four values |
+| file `0x868144` | the user's deals: 100 lines of `0x28` bytes: player id (8 bytes), amount at `+0x20` (minus: paid), kind at `+0x24` (1 bought, 5 sold) | the list of `fcn_038a9c7a` (9.7): eight lines for the eight deals of the user's club in that window, zero for the two players signed without a club. A line is written into the first empty place; when all 100 are used nothing is written. What empties the list was not found |
+
+The deal bits of `+0xb4` are 3 for all 438 signings in the save of 31 August and 0 for
+all 511 in the save of 15 September: the mark lasts as long as the window.
+
+`do_transfer` also hands the fee to `fcn_038e5185` when the user's club is one of the
+two: it puts player id, day, fee and a kind (1 transfer, 3 loan) on top of a list of
+ten (`fcn_0382e61b`, object `+0xb74`, 20 bytes each, the oldest drops out). For a move
+between two computer clubs the fee goes nowhere.
+
 One consequence of section 2: a career keeps its own player and team records in the
 mode data. That is read from the look-up functions (they search tables inside the mode
 data), not checked with a save. It means a change of the edit file reaches a running
