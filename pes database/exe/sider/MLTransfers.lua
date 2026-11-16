@@ -273,11 +273,11 @@ local NEED_BETTER = 1
 -- At most 15 personas. Numbers without a range given: 0 to 100 (knows: 1 to 100; ambition
 -- and prestige: 0 to 99; ages 0 to 63).
 local ARCHETYPES = {
-    { "Galactico", free = 25, listed = 10, clubs = 65, second = { "clubs", "free" }, winter = 45,
-      age = { 21, 31 }, strict = 60, knows = 85, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
+    { "Galactico", free = 5, listed = 10, clubs = 85, second = { "clubs", "free" }, winter = 45,
+      age = { 21, 31 }, strict = 70, knows = 85, fog = 0, wealth = 150, premium = 150, panic = 100, fame = 40,
       ambition = 7, prestige = 12, keeps = 30 },
     { "State-backed", free = 25, listed = 15, clubs = 60, second = { "clubs", "listed" }, winter = 50,
-      age = { 21, 30 }, strict = 70, knows = 85, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
+      age = { 21, 30 }, strict = 70, knows = 85, fog = 1, wealth = 160, premium = 150, panic = 150, fame = 25,
       ambition = 7, prestige = 10, keeps = 20 },
     { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 35,
       age = { 19, 29 }, strict = 75, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
@@ -310,7 +310,7 @@ local ARCHETYPES = {
       age = { 18, 25 }, strict = 45, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
       ambition = 8, prestige = 8, keeps = 30 },
     { "Retirement team", free = 0, listed = 30, clubs = 65, second = { "listed", "clubs" }, winter = 70,
-      age = { 32, 40 }, strict = 75, knows = 80, fog = 2, wealth = 250, premium = 250, panic = 150, fame = 250,
+      age = { 32, 40 }, strict = 95, knows = 80, fog = 0, wealth = 250, premium = 250, panic = 150, fame = 250,
       ambition = 4, prestige = 22, keeps = 5 },
 }
 
