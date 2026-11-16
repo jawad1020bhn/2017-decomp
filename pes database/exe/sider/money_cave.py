@@ -296,6 +296,21 @@ NEED_GAP_AT = CAVE_3            # dword: the weakest of the eleven is in need th
 NEED_MORE_AT = CAVE_3 + 4       # dword: NEED_BETTER - 1: the search looks above his rating plus this
 NEED_PLAN_CODE = CAVE_3 + 0x10
 NEED_PICK_CODE = CAVE_3 + 0x120
+# a fourth piece, in the same unused page right after the need piece: the chooser of the
+# club that makes an offer for one of the user's players (MLTransfers.lua, INCOMING). It
+# is entered at fcn_0381e2eb, the look-up that answers which club sits at slot n of the
+# competition in hand; the routine of fcn_03652df0 that creates an offer asks it for the
+# buying club, so answering another club there redirects the offer with everything the
+# game does afterwards (the room test, the salary, the news) staying consistent.
+INCOMING_CODE = CAVE_3 + 0x150
+INCOMING_SITE = 0x0381e2eb
+INCOMING_SITE_OLD = bytes.fromhex('5589e583ec14')
+INCOMING_BACK = INCOMING_SITE + len(INCOMING_SITE_OLD)
+INCOMING_SITE_NEW = b'\xe9' + struct.pack('<i', INCOMING_CODE - (INCOMING_SITE + 5)) + b'\x90'
+MODE_OBJECT_AT = 0x026503e0   # dword: the mode object; its +0x30 is the mode data
+CURRENT_CLUB_AT = 0x0251f85c  # dword: the club of the player being handled
+INCOMING_KEY = 0x02100a66     # byte: the slot the look-up resolves
+CLUB_TABLE, CLUB_TABLE_COUNT, CLUB_STRIDE = 0x481be0, 0x5fece0, 0x520
 NO_CEILING = 0xffffffff         # in CEILING_TAB: this level takes any value
 NO_TOP = 0xff                   # in CEILING_TOP: this level takes any rating
 LEVELS = 10
@@ -370,6 +385,7 @@ AI_TAKEN = 0x0365fb16                           # the instruction after the repl
 AI_PICK_RETURNS = (0x03660d58, 0x03660db9)      # where ai_candidates returns to: its two calls in ai_pick_candidate
 TAKE = 0x041293c0                               # adds an id pair to a list (thiscall, one argument)
 RATING = 0x03853b42                             # (player record, -> position or 13, kind) -> rating in al
+FIND_PLAYER = 0x03822835                        # (player id low, id high), ecx = mode data -> the player record
 # club_squad_plan (fcn_036602e5), the end of its work on one club: mov eax, [ebp - 0x48]
 SQUAD_PLAN = 0x036602e5
 NEED_PLAN_SITE, NEED_PLAN_SITE_OLD = 0x03660b93, bytes.fromhex('8b85b8ffffff')
@@ -378,6 +394,7 @@ NEED_PICK_SITE, NEED_PICK_SITE_OLD = 0x03660c83, bytes.fromhex('8b45188b10')
 AI_FILL_SLOTS = 0x03661b15                      # the only caller of ai_pick_candidate
 LINEUP_RATINGS = 0x03894bcf                     # squad_needs: the loop that puts player and rating into each entry
 PLAN_RECORDS, PLAN_SIZE, PLAN_SLOTS = 0xccb80c, 0x118, 16    # mode data: one record per computer club; slots from +8
+PLAN_COUNT = 0xd06434                            # mode data: how many plan records there are (up to 851)
 NO_POSITION = 13                                # in a slot: it looks for nobody
 # two bytes of a plan record that the game leaves alone (they follow the byte +0x108 and are 0 in
 # every record of every save looked at): the position of the need slot + 1 (0: the club has none)
@@ -1465,6 +1482,8 @@ def clamp(v, lo, hi):
 
 
 class Tables:
+    incoming = False                # version 7 of MLTransfers.lua: the offers for the user's players
+
     """The settings of MLMoney.lua as the module stores them.
 
     value, age: lists of (x, y) knots; position: {name: percent}; spread: percent;
@@ -1575,7 +1594,8 @@ class Tables:
         self.need = need is not None
         self.need_gap, self.need_more = (clamp(int(need[0] + 0.5), 1, MAX_NEED_GAP),
                                          clamp(int(need[1] + 0.5), 1, MAX_NEED_BETTER) - 1) if self.need else (0, 0)
-        self.transfers = self.has_ceiling or self.sell or self.has_persona or bool(self.rivals) or self.need
+        self.transfers = (self.has_ceiling or self.sell or self.has_persona or bool(self.rivals) or self.need
+                          or self.incoming)
         # the personas: number 0 is the club of version 1, the others are ARCHETYPES in their order
         self.genes, self.names = [NEUTRAL], ['']
         self.by_level, self.hand = [[0] * BY_LEVEL for _ in range(LEVELS)], []
@@ -1633,6 +1653,8 @@ class Tables:
             elif not on[name]:
                 continue
             used.append((name, at, old, new))
+        if self.incoming:
+            used.append(('incoming', INCOMING_SITE, INCOMING_SITE_OLD, INCOMING_SITE_NEW))
         return used
 
 
@@ -1936,6 +1958,94 @@ def candidates(t, level, lists, lowest, highest, passes=lambda p: True, most=3, 
     return out
 
 
+def offer_need(plan, position, rating):
+    """Is this club short of the player's position? plan: what the chooser reads of a plan
+    record, ([(position, state) of the 16 slots], (the byte +0x109, the byte +0x10a), the
+    ranking points of the club, its level) or None. A free slot (state 0) or one the club
+    gave up (state 7) that looks for his position, or the position need of MLTransfers.lua
+    marked that position and wants someone above the rating it stands at."""
+    if not plan:
+        return False
+    slots, need = plan[0], plan[1]
+    for looks, state, kind in slots:
+        if kind and looks == position and state in (0, 7):
+            return True
+    return need[0] == position + 1 and rating > need[1]
+
+
+def offer_wants(t, player, buyer, plan=None, seller=None):
+    """Would this club take this player? The rules of the chooser of the offers for the
+    user's players (incoming.c), in the order of accepts():
+
+    player: dict with rating, age, popularity, position, id (two parts), status (+0xb4 bits
+    0-3) and listed (a mark of +0xb8); buyer: dict with id, level, points (its ranking
+    record); plan: as offer_need()
+    takes it; seller: the club the player is at (the user's, `[0x0251f85c]`).
+
+    No part of MLTransfers.lua on: the neutral persona, the ceiling of none and a plan with
+    a free slot are what the module writes, so the rules still run on the game's own numbers.
+    """
+    if seller is not None and ((buyer['id'], seller) in t.rivals or (seller, buyer['id']) in t.rivals):
+        return False
+    level = buyer['level']
+    record = persona(t, buyer['id'], level)
+    numbers = [gene(t, record, i, buyer['id']) for i in range(GENES)]
+    g = dict(zip(GENE_NAMES, numbers))
+    own = eleven(t, buyer['points'], level)
+    both = player_key(player['id']) ^ club_key(buyer['id'])
+    if player['rating'] > own + g['prestige']:                  # he does not join a club far below him
+        return False
+    seen = player['rating'] + (high_byte(both, HASH_FOG) * (2 * g['fog'] + 1) >> 8) - g['fog']
+    if seen + g['ambition'] < own:                              # as this club sees him
+        return False
+    status = player.get('status', 0) & 0xf
+    where = 0 if status in (1, 2) else 1 if player.get('listed') else 2
+    age = player['age'] - age_shift(t, buyer['id'])
+    if not record[AGE_FROM] <= age <= record[AGE_TO]:
+        strict = g['strict'] * (t.strict_free if where == 0 else 100)
+        if draw(both, HASH_AGE) * 100 < strict:
+            return False
+    if not offer_need(plan, player['position'], player['rating']):   # it buys for that position at all
+        return False
+    if t.ceiling[min(level, LEVELS - 1)] == NO_CEILING:
+        return True
+    price = value(t, seen & M32, player['age'], player['popularity'], player['position'], player['id'])
+    if where != 2:
+        price = muldiv(price, (t.ceiling_free, t.ceiling_listed)[where], 100)
+    return price <= limit(t, min(level, LEVELS - 1), player['id'], buyer['id'], True, numbers,
+                          player['popularity'])
+
+
+def offer_pick(t, key, player, clubs, seller):
+    """The club the chooser of the offers for the user's players answers, 0 when the game's
+    own answer stands. clubs: [(id, slot, flagged, plan)] in the order of the game's club
+    table; slot: [club + 0x314] >> 7 and 0xff; flagged: [club + 0x31e] & 7 == 1, a club the
+    game skips; plan: as offer_need() takes it. The game's own answer (the club whose slot is
+    the key) stands when it passes; else the club whose slot is nearest among those that pass;
+    else the game's own answer again."""
+    def buyer(club, plan):
+        return dict(id=club, level=plan[3] if plan else 0, points=plan[2] if plan else 0)
+
+    game = 0
+    for club, slot, flagged, plan in clubs:
+        if not club or club == seller or flagged:
+            continue
+        if slot == key:
+            game = (club, plan)
+            break
+    if game and offer_wants(t, player, buyer(game[0], game[1]), game[1], seller):
+        return 0
+    best, best_slot = 0, 0x100
+    for club, slot, flagged, plan in clubs:
+        if not club or club == seller or flagged:
+            continue
+        if not offer_wants(t, player, buyer(club, plan), plan, seller):
+            continue
+        if abs(slot - key) < best_slot:
+            best, best_slot = club, abs(slot - key)
+    return best
+
+
 def fee(t, rating, age, popularity, position=5, player=(0, 0), base=0, percent=0, keep=False):
     """The transfer fee with MLMoney.lua in place (stored amount; the screen shows 100 times it).
     position: 0 GK ... 12 CF (the edit file's order); player: the two parts of the player's id;
@@ -2097,6 +2207,634 @@ def budgets(t, fees, salaries, wage_bill):
     return limit(mean(fees) * bt // 100), limit(wage_bill + mean(salaries) * bs // 100)
 
 
+# INCOMING_SOURCE. Entered at fcn_0381e2eb in the place of its prologue: the look-up the
+# offer creator (fcn_03652df0) asks for the buying club, a byte of the mode data turned into
+# a club id. Only the key 0x02100a66 is touched; every other call runs the game's own code.
+# The entry below hands the mode data, the frame of the caller and the slot to pick(), which
+# is the routine of incoming.c (assembled by offer_source.py): it answers 0 when the game's
+# own answer stands, else the club to answer with (the club nearest to the game's own slot
+# among those that would take the player: no rival, its persona wants him, its plan has a
+# place for him, and it can afford him). All registers and flags are left as they were.
+INCOMING_STUB_SOURCE = f'''
+    pushfd
+    pushad
+    sub  esp, 0x18
+    mov  eax, dword ptr [esp + 0x44]
+    cmp  eax, {INCOMING_KEY:#x}
+    jne  original
+    mov  eax, dword ptr [esp + 0x30]
+    test eax, eax
+    jz   original
+    movzx ecx, byte ptr [{INCOMING_KEY:#x}]
+    mov  edx, dword ptr [esp + 0x20]
+    push ecx
+    push edx
+    push eax
+    call pick
+    add  esp, 0xc
+    test eax, eax
+    jz   original
+    mov  edx, dword ptr [esp + 0x40]
+    mov  dword ptr [edx], eax
+    mov  eax, edx
+    add  esp, 0x18
+    popad
+    popfd
+    ret  0xc
+
+original:
+    add  esp, 0x18
+    popad
+    popfd
+    push ebp
+    mov  ebp, esp
+    sub  esp, 0x14
+    jmp  {INCOMING_BACK:#x}
+
+'''
+# What gcc makes of incoming.c (offer_source.py), cleaned of its directives: the three
+# thunks that enter the game's own routines, muldiv, the tables, the rules and pick().
+INCOMING_BODY_SOURCE = '''
+value_oracle:
+    push ebp
+    push ebx
+    push edi
+    sub esp, 0x20
+    mov ebp, esp
+    mov ebx, [ebp + 0x30]
+    mov eax, [ebp + 0x34]
+    call 0x047b0c90
+    mov eax, edi
+    add esp, 0x20
+    pop edi
+    pop ebx
+    pop ebp
+    ret
+rating_oracle:
+    push esi
+    push edi
+    mov eax, [esp + 0xc]
+    mov ecx, [esp + 0x10]
+    mov dword ptr [ecx], 13
+    push 2
+    push ecx
+    push eax
+    call 0x03853b42
+    add esp, 12
+    movzx eax, al
+    pop edi
+    pop esi
+    ret
+player_oracle:
+    mov eax, [esp + 4]
+    mov edx, [esp + 8]
+    mov ecx, [esp + 0xc]
+    push edx
+    push eax
+    call 0x03822835
+    ret
+muldiv:
+	push	ebp
+	mov	ebp, esp
+	sub	esp, 28
+	mov	DWORD PTR [ebp-20], eax
+	mov	DWORD PTR [ebp-24], edx
+	mov	DWORD PTR [ebp-28], ecx
+	mov eax, DWORD PTR [ebp-20]
+	mul DWORD PTR [ebp-24]
+	cmp edx, DWORD PTR [ebp-28]
+	jae muldiv_over11
+	div DWORD PTR [ebp-28]
+	jmp muldiv_done11
+muldiv_over11:
+	mov eax, -1
+muldiv_done11:
+	mov DWORD PTR [ebp-4], eax
+	mov	eax, DWORD PTR [ebp-4]
+	leave
+	ret
+wants:
+	push	ebp
+	mov	ebp, esp
+	push	edi
+	push	esi
+	push	ebx
+	sub	esp, 124
+	mov	DWORD PTR [ebp-124], eax
+	mov	eax, DWORD PTR [edx]
+	mov	edx, DWORD PTR [38926428]
+	mov	DWORD PTR [ebp-112], ecx
+	mov	ecx, 64
+	mov	DWORD PTR [ebp-108], eax
+	mov	eax, DWORD PTR [75319240]
+	cmp	eax, ecx
+	cmova	eax, ecx
+	lea	esi, [75319244+eax*8]
+	mov	eax, 75319244
+L4:
+	cmp	eax, esi
+	je	L65
+	mov	ebx, DWORD PTR [eax]
+	mov	ecx, DWORD PTR [eax+4]
+	cmp	DWORD PTR [ebp-108], ebx
+	jne	L42
+	cmp	edx, ecx
+	je	L5
+L42:
+	add	eax, 8
+	cmp	edx, ebx
+	jne	L4
+	cmp	DWORD PTR [ebp-108], ecx
+	jne	L4
+	jmp	L5
+L12:
+	mov	esi, DWORD PTR [edx]
+	lea	ebx, [edx+16]
+	cmp	DWORD PTR [ebp-108], esi
+	je	L11
+	mov	edx, ebx
+L37:
+	cmp	edx, eax
+	jne	L12
+	mov	edx, ecx
+L11:
+	movzx	eax, WORD PTR [edx+8]
+	mov	DWORD PTR [ebp-132], eax
+	movzx	eax, BYTE PTR [edx+14]
+	mov	edx, 192
+	mov	DWORD PTR [ebp-116], eax
+	mov	eax, DWORD PTR [75317856]
+	cmp	eax, edx
+	cmova	eax, edx
+L13:
+	mov	edx, eax
+	sub	eax, 1
+	jb	L66
+	mov	ecx, DWORD PTR [75318472+eax*4]
+	cmp	DWORD PTR [ebp-108], ecx
+	jne	L13
+	movzx	eax, BYTE PTR [edx+75318279]
+L63:
+	imul	eax, eax, 20
+	xor	ebx, ebx
+	add	eax, 75317960
+	mov	DWORD PTR [ebp-120], eax
+	imul	eax, DWORD PTR [ebp-108], -1640531535
+	mov	DWORD PTR [ebp-128], eax
+L16:
+	imul	edx, ebx, 16777619
+	mov	edi, DWORD PTR [ebp-128]
+	mov	ecx, DWORD PTR [75317828]
+	mov	esi, DWORD PTR [75317832]
+	mov	eax, DWORD PTR [ebp-120]
+	xor	edx, edi
+	add	eax, ebx
+	imul	edx, edx, -2048144789
+	movzx	eax, BYTE PTR [eax]
+	shr	edx, 24
+	imul	edx, esi
+	shr	edx, 8
+	add	edx, ecx
+	mov	ecx, 1000
+	call	muldiv
+	mov	DWORD PTR [ebp-104+ebx*4], eax
+	inc	ebx
+	cmp	ebx, 20
+	jne	L16
+	mov	eax, DWORD PTR [75317836]
+	mov	esi, DWORD PTR [ebp-132]
+	mov	edx, 9
+	cmp	DWORD PTR [ebp-116], edx
+	cmovbe	edx, DWORD PTR [ebp-116]
+	imul	esi, eax
+	mov	ecx, DWORD PTR [75317840]
+	mov	eax, esi
+	add	eax, ecx
+	movzx	ecx, BYTE PTR [edx+75317860]
+	shr	eax, 16
+	cmp	eax, ecx
+	jnb	L17
+	movzx	eax, BYTE PTR [edx+75317860]
+L17:
+	movzx	ecx, BYTE PTR [edx+75317870]
+	cmp	ecx, eax
+	jnb	L18
+	movzx	eax, BYTE PTR [edx+75317870]
+L18:
+	mov	edi, DWORD PTR [ebp-112]
+	mov	ecx, DWORD PTR [ebp-60]
+	mov	esi, DWORD PTR [edi+8]
+	add	ecx, eax
+	mov	edx, DWORD PTR [edi+4]
+	cmp	ecx, esi
+	jnb	L67
+L5:
+	xor	eax, eax
+	jmp	L3
+L65:
+	mov	eax, DWORD PTR [ebp-124]
+	mov	edx, 650
+	lea	ecx, [eax+13403340]
+	mov	eax, DWORD PTR [eax+10400]
+	cmp	eax, edx
+	cmova	eax, edx
+	mov	edx, ecx
+	sal	eax, 4
+	add	eax, ecx
+	jmp	L37
+L66:
+	mov	eax, 9
+	cmp	DWORD PTR [ebp-116], eax
+	cmovbe	eax, DWORD PTR [ebp-116]
+	imul	edx, DWORD PTR [ebp-108], -1640531535
+	shr	edx, 29
+	lea	eax, [edx+75317880+eax*8]
+	movzx	eax, BYTE PTR [eax]
+	jmp	L63
+L67:
+	mov	ebx, DWORD PTR [ebp-128]
+	mov	ecx, DWORD PTR [ebp-84]
+	xor	ebx, edx
+	lea	edx, [ecx+ecx]
+	mov	DWORD PTR [ebp-128], ebx
+	imul	ebx, ebx, -430675099
+	inc	edx
+	shr	ebx, 24
+	imul	edx, ebx
+	mov	ebx, esi
+	sub	ebx, ecx
+	shr	edx, 8
+	lea	edi, [edx+ebx]
+	mov	edx, DWORD PTR [ebp-64]
+	mov	DWORD PTR [ebp-132], edi
+	add	edx, edi
+	cmp	edx, eax
+	jb	L5
+	mov	eax, DWORD PTR [75321340]
+	imul	ecx, DWORD PTR [ebp-108], -551706303
+	mov	edi, DWORD PTR [ebp-112]
+	mov	edx, DWORD PTR [75321340]
+	add	eax, eax
+	inc	eax
+	shr	ecx, 24
+	add	edx, DWORD PTR [edi+20]
+	imul	eax, ecx
+	shr	eax, 8
+	sub	edx, eax
+	mov	eax, DWORD PTR [ebp-120]
+	movzx	eax, BYTE PTR [eax+14]
+	cmp	edx, eax
+	jb	L19
+	mov	eax, DWORD PTR [ebp-120]
+	movzx	eax, BYTE PTR [eax+15]
+	cmp	eax, edx
+	jnb	L20
+L19:
+	mov	eax, DWORD PTR [ebp-112]
+	mov	edx, DWORD PTR [ebp-52]
+	mov	ecx, 100
+	cmp	DWORD PTR [eax+28], 0
+	jne	L21
+	mov	ecx, DWORD PTR [75321320]
+L21:
+	imul	eax, DWORD PTR [ebp-128], 461845907
+	imul	edx, ecx
+	shr	eax, 24
+	imul	eax, eax, 100
+	shr	eax, 8
+	imul	eax, eax, 100
+	cmp	eax, edx
+	jb	L5
+L20:
+	mov	eax, DWORD PTR [ebp-112]
+	mov	edi, DWORD PTR [ebp-124]
+	mov	ecx, 851
+	mov	eax, DWORD PTR [eax+12]
+	mov	edx, DWORD PTR [edi+13657140]
+	mov	DWORD PTR [ebp-120], eax
+	mov	eax, DWORD PTR [ebp-124]
+	add	eax, 13416460
+	cmp	edx, ecx
+	cmova	edx, ecx
+	imul	edx, edx, 280
+	add	edx, eax
+L22:
+	cmp	edx, eax
+	je	L5
+	mov	ebx, DWORD PTR [eax]
+	lea	ecx, [eax+280]
+	cmp	DWORD PTR [ebp-108], ebx
+	je	L23
+	mov	eax, ecx
+	jmp	L22
+L23:
+	test	eax, eax
+	je	L5
+	lea	edi, [eax+272]
+	lea	ecx, [eax+16]
+	mov	DWORD PTR [ebp-108], edi
+	mov	edi, 129
+L27:
+	mov	edx, DWORD PTR [ecx]
+	test	edx, 4177920
+	je	L25
+	mov	ebx, edx
+	shr	ebx, 7
+	and	ebx, 127
+	cmp	DWORD PTR [ebp-120], ebx
+	jne	L25
+	shr	edx, 22
+	bt	edi, edx
+	jc	L26
+L25:
+	add	ecx, 16
+	cmp	DWORD PTR [ebp-108], ecx
+	jne	L27
+	mov	ecx, DWORD PTR [ebp-120]
+	movzx	edx, BYTE PTR [eax+265]
+	inc	ecx
+	cmp	edx, ecx
+	jne	L5
+	movzx	eax, BYTE PTR [eax+266]
+	cmp	eax, esi
+	jnb	L5
+L26:
+	mov	ebx, DWORD PTR [ebp-116]
+	mov	eax, 1
+	add	ebx, 18829440
+	mov	edx, DWORD PTR [0+ebx*4]
+	inc	edx
+	je	L3
+	push	eax
+	push	eax
+	mov	eax, DWORD PTR [ebp-112]
+	push	DWORD PTR [ebp-132]
+	push	DWORD PTR [eax]
+	call	value_oracle
+	add	esp, 16
+	mov	esi, eax
+	mov	eax, DWORD PTR [ebp-112]
+	mov	eax, DWORD PTR [eax+28]
+	cmp	eax, 2
+	je	L28
+	test	eax, eax
+	jne	L29
+	mov	edx, DWORD PTR [75317820]
+	jmp	L30
+L29:
+	mov	edx, DWORD PTR [75317824]
+L30:
+	mov	eax, esi
+	mov	ecx, 100
+	call	muldiv
+	mov	esi, eax
+L28:
+	mov	eax, DWORD PTR [0+ebx*4]
+	mov	edx, DWORD PTR [ebp-80]
+	mov	ecx, 100
+	or	edi, -1
+	call	muldiv
+	mov	edx, DWORD PTR [ebp-72]
+	mov	ebx, eax
+	mov	eax, DWORD PTR [75317816]
+	call	muldiv
+	lea	edx, [eax+100]
+	mov	eax, ebx
+	call	muldiv
+	mov	edx, DWORD PTR [ebp-76]
+	mov	ebx, eax
+	mov	eax, DWORD PTR [75317812]
+	call	muldiv
+	imul	edx, DWORD PTR [ebp-128], -2048144789
+	mov	ecx, 25600
+	shr	edx, 24
+	imul	edx, eax
+	mov	eax, ebx
+	call	muldiv
+	mov	ecx, 100000
+	add	ebx, eax
+	mov	eax, DWORD PTR [ebp-112]
+	cmovc	ebx, edi
+	mov	edx, DWORD PTR [eax+24]
+	imul	edx, DWORD PTR [ebp-68]
+	mov	eax, ebx
+	call	muldiv
+	add	ebx, eax
+	cmovc	ebx, edi
+	xor	eax, eax
+	cmp	ebx, esi
+	setnb	al
+L3:
+	lea	esp, [ebp-12]
+	pop	ebx
+	pop	esi
+	pop	edi
+	pop	ebp
+	ret
+pick:
+	push	ebp
+	mov	ebp, esp
+	push	edi
+	push	esi
+	push	ebx
+	sub	esp, 60
+	cmp	DWORD PTR [ebp+8], 0
+	je	L69
+	mov	eax, DWORD PTR [38926428]
+	mov	DWORD PTR [ebp-60], eax
+	dec	eax
+	cmp	eax, -3
+	ja	L69
+	mov	eax, DWORD PTR [ebp+12]
+	mov	eax, DWORD PTR [eax+8]
+	test	eax, eax
+	je	L69
+	mov	esi, DWORD PTR [eax]
+	mov	ebx, DWORD PTR [eax+4]
+	push	ecx
+	push	DWORD PTR [ebp+8]
+	push	ebx
+	push	esi
+	call	player_oracle
+	add	esp, 16
+	lea	edx, [eax-1]
+	mov	DWORD PTR [ebp-56], eax
+	cmp	edx, -3
+	ja	L69
+	mov	cx, WORD PTR [eax+44]
+	movzx	edx, si
+	cmp	cx, si
+	jne	L69
+	imul	ebx, ebx, 16777619
+	xor	ebx, edx
+	mov	DWORD PTR [ebp-52], ebx
+	mov	edx, DWORD PTR [eax+4]
+	shr	edx, 28
+	mov	DWORD PTR [ebp-44], edx
+	push	edx
+	push	edx
+	lea	edx, [ebp-40]
+	push	edx
+	push	eax
+	call	rating_oracle
+	mov	edx, DWORD PTR [ebp-56]
+	add	esp, 16
+	xor	ecx, ecx
+	mov	DWORD PTR [ebp-48], eax
+	mov	eax, DWORD PTR [edx+28]
+	shr	eax, 7
+	and	eax, 63
+	mov	DWORD PTR [ebp-36], eax
+	mov	eax, DWORD PTR [edx+180]
+	shr	eax, 11
+	and	eax, 4095
+	mov	DWORD PTR [ebp-32], eax
+	mov	eax, DWORD PTR [edx+180]
+	and	eax, 15
+	dec	eax
+	cmp	eax, 1
+	jbe	L70
+	mov	eax, DWORD PTR [edx+184]
+	and	eax, 1610612736
+	neg	eax
+	sbb	ecx, ecx
+	add	ecx, 2
+L70:
+	mov	eax, DWORD PTR [ebp+8]
+	mov	DWORD PTR [ebp-28], ecx
+	mov	esi, DWORD PTR [eax+6286560]
+	lea	eax, [esi-1]
+	cmp	eax, 1023
+	ja	L69
+	mov	eax, DWORD PTR [ebp+8]
+	xor	edx, edx
+	lea	ebx, [eax+4725728]
+	mov	eax, ebx
+L73:
+	mov	ecx, DWORD PTR [eax]
+	test	ecx, ecx
+	je	L71
+	cmp	DWORD PTR [ebp-60], ecx
+	je	L71
+	mov	ecx, DWORD PTR [eax+798]
+	and	ecx, 7
+	dec	ecx
+	je	L71
+	mov	ecx, DWORD PTR [eax+788]
+	shr	ecx, 7
+	movzx	ecx, cl
+	cmp	ecx, DWORD PTR [ebp+16]
+	je	L72
+L71:
+	inc	edx
+	add	eax, 1312
+	cmp	esi, edx
+	jne	L73
+L81:
+	imul	esi, esi, 1312
+	mov	DWORD PTR [ebp-64], 256
+	lea	eax, [esi+ebx]
+	xor	esi, esi
+	mov	DWORD PTR [ebp-68], eax
+L79:
+	mov	edi, DWORD PTR [ebx]
+	test	edi, edi
+	je	L76
+	cmp	DWORD PTR [ebp-60], edi
+	je	L76
+	mov	eax, DWORD PTR [ebx+798]
+	and	eax, 7
+	dec	eax
+	je	L76
+	mov	eax, DWORD PTR [ebp+8]
+	lea	ecx, [ebp-56]
+	mov	edx, ebx
+	call	wants
+	test	eax, eax
+	je	L76
+	mov	eax, DWORD PTR [ebx+788]
+	mov	edx, DWORD PTR [ebp+16]
+	shr	eax, 7
+	movzx	eax, al
+	sub	edx, eax
+	cmp	eax, DWORD PTR [ebp+16]
+	jb	L78
+	sub	eax, DWORD PTR [ebp+16]
+	mov	edx, eax
+L78:
+	mov	eax, DWORD PTR [ebp-64]
+	cmp	edx, eax
+	jnb	L76
+	mov	DWORD PTR [ebp-64], edx
+	mov	esi, edi
+L76:
+	add	ebx, 1312
+	cmp	DWORD PTR [ebp-68], ebx
+	jne	L79
+	jmp	L68
+L72:
+	imul	edx, edx, 1312
+	mov	eax, DWORD PTR [ebp+8]
+	lea	ecx, [ebp-56]
+	add	edx, ebx
+	call	wants
+	test	eax, eax
+	je	L81
+L69:
+	xor	esi, esi
+L68:
+	lea	esp, [ebp-12]
+	mov	eax, esi
+	pop	ebx
+	pop	esi
+	pop	edi
+	pop	ebp
+	ret
+'''
+INCOMING_SOURCE = INCOMING_STUB_SOURCE + INCOMING_BODY_SOURCE
+
+
+INCOMING_BYTES = bytes.fromhex(
+    '9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e89304000083'
+    'c40c85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec20'
+    '89e58b5d308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86b'
+    'd507ff83c40c0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8'
+    '894de48b45ecf765e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565383ec7c894584'
+    '8b028b155cf85102894d90b940000000894594a1c8477d0439c80f47c18d34c5cc477d04b8cc477d0439f00f'
+    '84320100008b188b4804395d94750839ca0f841901000083c00839da75df394d9475dae9080100008b328d5a'
+    '10397594740889da39c275f089ca0fb7420889857cffffff0fb6420ebac000000089458ca160427d0439d00f'
+    '47c289c283e8010f82f70000008b0c85c8447d04394d9475e90fb68207447d046bc01431db05c8427d048945'
+    '88694594b179379e89458069d3930100018b7d808b0d44427d048b3548427d048b458831fa01d869d26bcaeb'
+    '850fb600c1ea180fafd6c1ea0801cab9e8030000e8d3feffff89449d984383fb1475bca14c427d048bb57cff'
+    'ffffba0900000039558c0f46558c0faff08b0d50427d0489f001c80fb68a64427d04c1e81039c873070fb682'
+    '64427d040fb68a6e427d0439c173070fb6826e427d048b7d908b4dc48b770801c18b570439f1735131c0e977'
+    '0200008b4584ba8a0200008d88cc84cc008b80a028000039d00f47c289cac1e00401c8e9d8feffffb8090000'
+    '0039458c0f46458c695594b179379ec1ea1d8d84c278427d040fb600e9f7feffff8b5d808b4dac31d38d1409'
+    '895d8069db656b54e642c1eb180fafd389f329cbc1ea088d3c1a8b55c089bd7cffffff01fa39c20f8277ffff'
+    'ffa1fc4f7d04694d9441a11ddf8b7d908b15fc4f7d0401c040c1e9180357140fafc1c1e80829c28b45880fb6'
+    '400e39c2720b8b45880fb6400f39d073358b45908b55ccb96400000083781c0075068b0de84f7d0469458093'
+    '35871b0fafd1c1e8186bc064c1e8086bc06439d00f8206ffffff8b45908b7d84b9530300008b400c8b973464'
+    'd0008945888b4584050cb8cc0039ca0f47d169d21801000001c239c20f84d2feffff8b188d8818010000395d'
+    '94740489c8ebe785c00f84b9feffff8db8100100008d4810897d94bf810000008b11f7c200c03f00741589d3'
+    'c1eb0783e37f395d887508c1ea160fa3d7722a83c110394d9475d98b4d880fb690090100004139ca0f856efe'
+    'ffff0fb6800a01000039f00f835ffeffff8b5d8cb80100000081c380501f018b149d00000000420f84c10000'
+    '0050508b4590ffb57cffffffff30e84bfcffff83c41089c68b45908b401c83f802742085c075088b153c427d'
+    '04eb068b1540427d0489f0b964000000e86ffcffff89c68b049d000000008b55b0b96400000083cfffe856fc'
+    'ffff8b55b889c3a138427d04e847fcffff8d506489d8e83dfcffff8b55b489c3a134427d04e82efcffff6955'
+    '806bcaeb85b900640000c1ea180fafd089d8e815fcffffb9a086010001c38b45900f42df8b50180faf55bc89'
+    'd8e8fafbffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e557565383ec3c837d08000f84a00100'
+    '00a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100008b308b580451ff75085356'
+    'e88ffbffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639f10f854e01000069db930100'
+    '0131d3895dcc8b5004c1ea1c8955d452528d55d85250e82bfbffff8b55c883c41031c98945d08b421cc1e807'
+    '83e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f4883f80176128b82b8000000'
+    '2500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff0300000f87cb0000008b450831d28d'
+    '98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b8814030000c1e9070fb6c93b4d'
+    '10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b85ff7449397dc474'
+    '448b831e03000083e0074874388b45088d4dc889dae8b2faffff85c074278b83140300008b5510c1e8070fb6'
+    'c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d69d220050000'
+    '8b45088d4dc801dae867faffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3')
+
+
 def build():
     import keystone
     ks = keystone.Ks(keystone.KS_ARCH_X86, keystone.KS_MODE_32)
@@ -2104,6 +2842,7 @@ def build():
     out['CEILING_BYTES'] = bytes(ks.asm(CEILING_SOURCE, CEILING_CODE)[0])
     out['NEED_PLAN_BYTES'] = bytes(ks.asm(NEED_PLAN_SOURCE, NEED_PLAN_CODE)[0])
     out['NEED_PICK_BYTES'] = bytes(ks.asm(NEED_PICK_SOURCE, NEED_PICK_CODE)[0])
+    out['INCOMING_BYTES'] = bytes(ks.asm(INCOMING_SOURCE, INCOMING_CODE)[0])
     return out
 
 
@@ -2177,6 +2916,7 @@ if __name__ == '__main__':
     print('memory   %08x - %08x' % (CAVE, CAVE + CAVE_SIZE - 1))
     print('memory 2 %08x - %08x (MLTransfers.lua)' % (CAVE_2, CAVE_2 + CAVE_2_SIZE - 1))
     print('memory 3 %08x - %08x (MLTransfers.lua, NEED)' % (CAVE_3, CAVE_3 + CAVE_3_SIZE - 1))
+    print('memory 4 %08x - %08x (MLTransfers.lua, INCOMING)' % (INCOMING_CODE, INCOMING_CODE + len(INCOMING_BYTES) - 1))
     for name, at, old, new in SITES:
         print('%-9s %08x: %s -> %s' % (name, at, old.hex(), new.hex()))
     for at, _, name in ROUTINES:

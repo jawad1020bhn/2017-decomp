@@ -54,10 +54,13 @@ MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and
 # what the module may touch: (address, size). Reads: the pieces of code it checks and
 # its memory. Writes: its memory and the places it changes.
 CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
-READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE
+# version 7 of MLTransfers.lua adds a fourth piece for the offers for the user's players
+# (version 8 gives it the whole 0x700 place and the site it replaces)
+INCOMING = ((mc.INCOMING_CODE, 0x700), (mc.INCOMING_SITE, 6))
+READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
 # (the third piece, of the position need, only with NEED on)
-CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE))
+CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE), (mc.INCOMING_CODE, 0x700))
 READS_2 = tuple((at, n) for _, at, n in mc.CONTEXT_CEILING) + CAVE_2
 # ai_candidates: its two calls in ai_pick_candidate (the call, where it returns to), and what it asks
 CHOOSE_CALLS = ((0x03660d53, 0x03660d58), (0x03660db4, 0x03660db9))
@@ -69,10 +72,11 @@ MONEY_SITES = tuple((at, len(old)) for name, at, old, _ in mc.SITES if name not 
 INSTALLED = 'RESULT: installed. Changed: '
 CEILING_LABEL = 'price ceiling of the computer clubs'
 # the RESULT lines of MLTransfers.lua
-LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting', 'rivals', 'position need')
+LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting', 'rivals', 'position need',
+            'offers for your players')
 INSTALLED_T = INSTALLED + ', '.join(LABELS_T) + '.'
-OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE, PERSONA and NEED are off and RIVALS is empty: the computer '
-         'clubs choose as in the game.')
+OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE, PERSONA, NEED and INCOMING are off and RIVALS is '
+         'empty: the computer clubs choose as in the game.')
 NO_MONEY = 'RESULT: nothing written. MLMoney.lua is not installed'
 OTHER_MONEY = 'RESULT: nothing written. The MLMoney.lua that is installed is not the version'
 ALREADY = "RESULT: nothing written. The game's choosing code is changed already"
@@ -136,7 +140,7 @@ def settings(source):
     need = (number('NEED_GAP'), number('NEED_BETTER')) if re.search(r'^local NEED = true$', source, re.M) else None
     rivals = [(int(a, 0), int(b, 0)) for a, b in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *(0x[0-9a-fA-F]+|\d+) *\}', text('RIVALS'))]
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
-    return mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
+    t = mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
                      knots('SALARY_AGE'), number('BUDGET_TRANSFER'), number('BUDGET_SALARY'), cup(),
                      numbers('LEAGUE'), numbers('LEAGUE_2'), number('PRIZE_TO_BUDGET'), number('PAY_GAP'),
                      number('BONUS'), number('YOUNG_YEARS'), knots('TALENT'), number('TALENT_STEP'),
@@ -144,12 +148,18 @@ def settings(source):
                      knots('CUP_TV'), number('INCOME_WAGES'), numbers('CEILING'), text('CEILING_RATING') == 'true',
                      number('CEILING_STRETCH'), number('CEILING_NEED'), number('CEILING_LISTED'), number('CEILING_FREE'),
                      text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need)
+    # version 7: the offers for the user's players (a file of version 6 has no INCOMING)
+    t.incoming = re.search(r'^local INCOMING = true$', source, re.M) is not None
+    if t.incoming:
+        t.transfers = True                     # the fourth piece of memory is written with the others
+    return t
 
 
 def installed_t(t):
     """The RESULT line of MLTransfers.lua for these settings."""
-    parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting, bool(t.rivals), t.need),
-                                        LABELS_T) if on]
+    # scouting is only reported with PERSONA on (the module logs it inside that part)
+    parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting and t.has_persona,
+                                        bool(t.rivals), t.need, getattr(t, 'incoming', True)), LABELS_T) if on]
     return INSTALLED + ', '.join(parts) + '.' if parts else OFF_T
 
 
@@ -1059,7 +1069,7 @@ def main(exe):
     assert mc.lua_block_transfers(exe) in transfers_text, 'ROUTINE, SITE, NEED_ROUTINES, NEED_SITES, MONEY or CONTEXT of MLTransfers.lua are not what money_cave.py makes'
     assert 'eiling' not in money_text.split('local m = {}')[1], 'MLMoney.lua still holds a part of the ceiling'
     assert mc.build() == {name: getattr(mc, name) for name in [r[2] for r in mc.ROUTINES] + [
-        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES']} if KEYSTONE else True
+        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES', 'INCOMING_BYTES']} if KEYSTONE else True
     everything = ('values, salaries, transfer budget, cup prizes, league prizes, prizes into the transfer budget, '
                   'pay gap, salary bonuses, contract years, yearly income, national cup prizes, '
                   'price ceiling of the computer clubs')
@@ -1112,7 +1122,7 @@ def main(exe):
     # 3. the switches, and settings at their limits
     optional = ('SALARY', 'BUDGET_TRANSFER', 'BUDGET_SALARY', 'CUP', 'LEAGUE', 'LEAGUE_2', 'PRIZE_TO_BUDGET',
                 'PAY_GAP', 'BONUS', 'YOUNG_YEARS', 'TALENT', 'INCOME', 'LEAGUE_BY_ID', 'CUP_NATIONAL', 'CUP_TV',
-                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS', 'NEED')
+                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS', 'NEED', 'INCOMING')
 
     def only(**kept):
         """The module with every optional part off but the ones named (None: as in the file)."""
@@ -1472,7 +1482,10 @@ def main(exe):
     poke(g, mc.MARK_AT, b'MLM9')
     lines, _, writes = run(g, transfers_text)
     assert results(lines) == [INSTALLED_T] and 'check: MLMoney.lua   at %08x  installed, version 9' % mc.MARK_AT in lines
-    assert writes == list(CAVE_2) + [(at, len(old)) for name, at, old, _ in mc.SITES if name in mc.TRANSFER_SITES], writes
+    sites_written = [(at, len(old)) for name, at, old, _ in mc.SITES if name in mc.TRANSFER_SITES]
+    if re.search(r'^local INCOMING = true$', transfers_text, re.M):
+        sites_written.append((mc.INCOMING_SITE, len(mc.INCOMING_SITE_OLD)))
+    assert writes == list(CAVE_2) + sites_written, writes
     needed = 0
     for name, at, data in mc.MONEY_NEEDED:
         for where in sorted({at, at + len(data) // 2, at + len(data) - 1}):

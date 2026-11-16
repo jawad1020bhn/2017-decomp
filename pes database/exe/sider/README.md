@@ -8,7 +8,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
-| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 6 have run in the emulator only |
+| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included; version 7 adds the offers for your own players: a rival of yours no longer makes one; version 8 makes the chooser of that club the whole rules the game never had (no rival, a persona that wants him, a place in its plan, a price it can afford) and leaves the room test to the game. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 8 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `MLTeamSpirit.lua` | **changes the game.** Team Spirit has no effect in a played Master League match: every player's value is 99, so no ability is lowered (a skipped match never read it). One place of five bytes; needs no other module. Has run in the emulator only |
@@ -21,8 +21,9 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5ffd`, 4,030 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
-| `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua` and the two of its position need, with their source) and the same arithmetic as Python |
+| `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua`, its two of the position need and the one of the offers for your players, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
+| `test_offer.py <PES2017.exe>` | the offers for your players of `MLTransfers.lua` version 8: runs the club look-up at its place in the game, on a made-up mode data with a club table, plan records, a club ranking, a persona set and one rival pair, and checks 200 made-up cases against `money_cave.offer_pick` (no rival, the persona wants him, a place in the plan, the price within the ceiling), that the game's own answer stands where no club passes and that no other offer is made; also checks that the module ships the bytes `money_cave.py` builds (needs `pip install keystone unicorn`) |
 | `test_need.py <PES2017.exe>` | the position need of `MLTransfers.lua` version 6: runs its two routines at their places in the game's planning and choosing code in the emulator, on made-up clubs, and compares with `money_cave.py` (needs `pip install lupa unicorn`) |
 | `window_report.py <PES2017.exe> <save before> <save after>` | reads one transfer window from two Master League saves: who signed whom, from where, by persona and by level, and whether the signings follow the rules of `MLTransfers.lua` (needs `pip install lupa unicorn`) |
 | `window_transfers.py <PES2017.exe> <save>` | **changes nothing.** Writes the transfers of the current window of one Master League save into a `.csv` file, the most expensive first: price, player, age, position, rating, club left, club joined, date (needs `pip install lupa unicorn`) |
@@ -440,12 +441,90 @@ writes must work without writable code. These tests do **not** establish that th
 visible or responsive in the real game, that a simulated match is booked correctly in a
 real save, or that Sider's file callbacks arrive at a particular time.
 
-## `MLTransfers.lua`, version 6: the selling side, club personas, scouting, rivals, position need
+## `MLTransfers.lua`, version 8: the selling side, club personas, scouting, rivals, position need, offers for your players
 
 Version 2 ran in the game: one transfer window played with it was read from two save
-files (see "What the second window showed" below). **Versions 3 to 6 have run in the
+files (see "What the second window showed" below). **Versions 3 to 8 have run in the
 emulator only.** It needs `MLMoney.lua` version 7 as before. The price ceiling of
 version 1 is still there and is described in the next section.
+
+### New in version 8: the whole rules for the club that makes an offer
+
+Version 7 only kept a rival of yours from making an offer. Version 8 makes the chooser
+apply the rules the selling side already had, on the **buying** club: with `INCOMING = true`
+the club that makes an offer for one of your players is the club nearest the game's own
+slot (in `[club + 0x314] >> 7`) among those that pass all four:
+
+1. **no rival** — the pair is not in `RIVALS` (as in version 7);
+2. **its persona wants him** — the age band moved by `AGE_SHIFT` for that club, the
+   ambition and the prestige of the club, and the strictness of its persona about a player
+   without a contract or one listed by his club: the same genes, the same draw and the same
+   tables as the selling side, so a club that would never look at such a player in
+   `ai_candidates` does not offer for him either;
+3. **a place in its plan** — the buyer's own plan record (`mode data + 0xccb80c`, `0x118`
+   bytes each, in the club ranking order, count at `+0xd06434`) has a free slot
+   (`state` 0 or 7, with a `kind`) for the player's position, or the byte `+0x109` carries
+   the position need the module wrote in version 6; a club that plans nothing for that
+   position and whose eleven is not in need of it does not offer;
+4. **it can afford him** — the value `MLMoney.lua` gives the player, less the `CEILING_FREE`
+   or `CEILING_LISTED` discount, is at most `CEILING[level] x wealth x (1 + premium + panic)`,
+   the amount that club's price ceiling allows: a second-division club does not bid for a
+   player it could never sign, and a club with no ceiling (`CEILING[level]` = `0xffffffff`)
+   passes whatever his price.
+
+**The "more than 16 players" test is gone.** Version 7 guessed it from the squad count.
+Version 8 leaves the room of the substitute to the game: the look-up answers a club id,
+the routine that creates the offer (`fcn_03652df0`) runs its own room test on it, and if
+that club cannot take another player the offer is not made: the club the look-up answered
+is the club the game judges, so the count is never second-guessed by the module. The club nearest
+the game's slot with a place in its plan for the player's position is almost always a club
+with room; nothing in the module assumes it.
+
+**What does not change.** Not one offer is added and the number of offers is the game's:
+the module answers the same look-up, once, and returns the game's own club when no club
+passes (so where nothing would take the player, the offer the game would have made is the
+one that is made).
+Nothing is written to the mode data, so no slot number has to be known. **The fee is not
+touched** — `MLMoney.lua` computes it from the value of the player exactly as on any
+transfer (§ "the fee"), and neither salary nor premium is written on this path.
+
+**Where it lives.** The look-up `fcn_0381e2eb` is entered at its prologue: the module's
+code sits at `0x047d6550`-`0x047d6c4f` (the 0x700 bytes after the position need;
+`0x047d6bc4` is its last used byte, 0x43c free) and `0x0381e2eb` starts with `e9 rel32`
+and one `nop`. That place holds zeros in the file, but **`MLSimToDate.lua` uses
+`0x047d6550`-`0x047d6e4f` for its Schedule hooks**: the two cannot be installed at the
+same time (the module that comes second finds the memory not empty and writes nothing;
+with `INCOMING = false` this piece is not touched at all), and `MLGrowth.lua`'s
+`0x047d6e50`-`0x047d6efd` is clear of it. The entry keeps every register and flag, answers the game's own
+code for any other key, and falls back to the game's own prologue when no club passes.
+The source is `sider/incoming.c` (gcc `-m32`, `offer_source.py` cleans the asm for
+keystone); `money_cave.py build` assembles it and checks the bytes the module ships.
+
+**What the tests show.** `sider/test_offer.py` runs the real look-up at that place on a
+made-up mode data (club table, plan records, club ranking, personas, rivals, the player's
+record) for 200 cases and compares the club the game answers with `money_cave.offer_pick`
+(the same rules in Python): the game's own club is kept in 142 of them, another club
+answers in 19, and in 39 the game's slot holds no club at all and the game's own answer
+stands. Not run in the game: the club table of a real career, `[0x0251f85c]` at the
+moment of the offer and the result of `fcn_03889077` (the count the room test uses) are
+read from the disassembly, not from a running career.
+
+### New in version 7: offers for your players
+
+**What the game does.** Which computer club makes an offer for a player of yours is
+decided by a slot number: a club look-up (`fcn_0381e2eb`) answers the club that sits at
+that slot of the competition in hand, and the routine that creates the offer
+(`fcn_03652df0`) asks it for the buying club. Nothing in that path looks at a price, a
+squad need, a persona or a rivalry, and the offer carries no fee: the fee of the move is
+computed later, from the value `MLMoney.lua` gives the player (section "the fee").
+
+**What `INCOMING = true` adds** (one new place in the game's code): the module answers
+that look-up itself, for that one key. Version 7 only refused a rival of yours and, when
+the game's club was one, answered the club of the nearest slot that was no rival, was not
+the club whose player it is and counted more than 16 players. **Version 8 replaced that
+rule by the whole rules of the selling side** — persona, plan and affordability, with the
+room test left to the game: see "New in version 8" above. Nothing is added to the offers
+and the fee is not touched.
 
 ### New in version 6: position need
 
@@ -1013,6 +1092,7 @@ not touched.
 | `CLUBS` | the 180 named clubs (at most 192); `{ }` names none |
 | `RIVALS` | the 61 pairs above (at most 64); `{ }`: no rivals |
 | `NEED`, `NEED_GAP` (1 to 30), `NEED_BETTER` (1 to 20) | `true`, 4, 1, version 6: see "New in version 6" |
+| `INCOMING` | `true`; `false`: as in the game, and the fourth piece of memory and its place are not touched. Uses `RIVALS` with the four rules of the selling side: see "New in version 8" |
 
 A faulty setting is named in `sider.log` and nothing is written, as before.
 
@@ -1054,10 +1134,15 @@ line per persona, `rivals: 61 pairs of clubs do not buy each other's
 players who have a contract`, the line of version 6 (`position need: a club looks for a
 player for the weakest place of its eleven, the goalkeeper included, when he stands 4
 or more rating points below the mean of the others; it takes only a player rated 1 or
-more above him`), and `RESULT: installed. Changed: price ceiling of the
-computer clubs, selling side, club personas, scouting, rivals, position need.`
+more above him`), the line of version 8 (`offers for your players: the club that makes
+one is the one of the nearest slot that would take him (no rival, its character wants him,
+a place in its plan, its ceiling), so none is lost`), and `RESULT: installed. Changed: price ceiling of the
+computer clubs, selling side, club personas, scouting, rivals, position need, offers for
+your players.`
 With `NEED = false` the three `check` lines, the second `free memory` line, the two
-`written: need` lines and the words `position need` are missing.
+`written: need` lines and the words `position need` are missing. With `INCOMING = false`
+the third `free memory` line, the `written: incoming` line and the `offers for your
+players` line are missing.
 
 If two entries of `CLUBS` name the same club, the last one counts and a line `note: N
 entries of CLUBS name a club that a later entry names again` says so (new in version 3;
@@ -2298,7 +2383,9 @@ Read from the DLL's code and strings, not run:
   `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
   `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b8b`, 2,891 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
   `MLTransfers.lua` version 6 uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
-  and `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
+  version 8 the 0x700 after it for the offers for your players (`0x047d6550`-`0x047d6c4f`
+    used, and `MLSimToDate.lua` cannot be installed with it), and `MLSimToDate.lua` uses
+    `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
   `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining tail ranges after
   `0x047d6550` are `0x047d6e50`-`0x047d6f5f` and `0x047d6fea`-`0x047d6fff`.
   `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f9a` (the season award, 148
