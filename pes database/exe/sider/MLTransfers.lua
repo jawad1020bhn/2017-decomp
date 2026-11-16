@@ -306,9 +306,9 @@ local ARCHETYPES = {
     { "Youth elite", free = 10, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 30,
       age = { 19, 25 }, strict = 65, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
       ambition = 8, prestige = 8, keeps = 35 },
-    { "Retirement team", free = 40, listed = 15, clubs = 40, second = { "free", "clubs" }, winter = 50,
-      age = { 30, 37 }, strict = 55, knows = 70, fog = 3, wealth = 250, premium = 150, panic = 60, fame = 200,
-      ambition = 7, prestige = 10, keeps = 35 },
+    { "Retirement team", free = 0, listed = 30, clubs = 65, second = { "listed", "clubs" }, winter = 70,
+      age = { 33, 40 }, strict = 65, knows = 80, fog = 2, wealth = 250, premium = 250, panic = 150, fame = 250,
+      ambition = 4, prestige = 22, keeps = 45 },
 }
 
 -- The personas a club without an entry in CLUBS draws from, by its place in the game's
@@ -364,7 +364,7 @@ local CLUBS = {
     { 0x001e4020, "Moneyball" },         -- AC Milan
     { 0x001ac001, "New-money" },         -- Aston Villa FC
     { 0x00408029, "Academy purist" },    -- Athletic Club de Bilbao (the game makes no plan for the club you play)
-    { 0x0020817f, "Old-money" },         -- Galatasaray SK
+    { 0x0020817f, "Retirement team" },   -- Galatasaray SK
     { 0x001a800e, "New-money" },         -- Newcastle United FC
     { 0x0031417e, "Old-money" },         -- Fenerbahçe SK
     { 0x00308035, "Old-money" },         -- Real Betis Balompié
@@ -510,7 +510,8 @@ local CLUBS = {
     { 0x01aa816c, "Selling farm" },      -- FC Basel 1893
     { 0x02084194, "Elite trader" },      -- SK Sturm Graz
     { 0x01ca0155, "Selling farm" },      -- Brøndby IF
-    { 0x0138408d, "Old-money" },         -- Fluminense FC
+    { 0x0138408d, "Retirement team" },   -- Fluminense FC
+    { 0x00220096, "Retirement team" },   -- CR Vasco da Gama
     { 0x0139c095, "Crisis" },            -- São Paulo F.C.
     { 0x01398094, "Selling farm" },      -- Santos FC
     { 0x0044808b, "New-money" },         -- Cruzeiro EC
@@ -526,8 +527,10 @@ local CLUBS = {
     { 0x01e240aa, "Selling farm" },      -- CA Lanús
     { 0x01350099, "Selling farm" },      -- Argentinos Juniors
     { 0x04ed80b2, "Elite trader" },      -- CA Talleres de Córdoba
-    { 0x059b40ce, "New-money" },         -- Los Angeles FC
-    { 0x040ec0cd, "New-money" },         -- Los Angeles Galaxy
+    { 0x059b40ce, "Retirement team" },   -- Los Angeles FC
+    { 0x040ec0cd, "Retirement team" },   -- Los Angeles Galaxy
+    { 0x041141b3, "Retirement team" },   -- Toronto FC
+    { 0x040d00c8, "Retirement team" },   -- Chicago Fire FC
     { 0x059a01aa, "New-money" },         -- Atlanta United FC
     { 0x040fc0d4, "Selling farm" },      -- Philadelphia Union
     { 0x040f80d2, "Elite trader" },      -- New York Red Bulls

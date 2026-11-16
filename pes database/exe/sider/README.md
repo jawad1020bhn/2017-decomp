@@ -816,7 +816,8 @@ further down has the new numbers): Galactico ages 22-30 and strict 70; State-bac
 wealth 160 and premium 150; Survival churner premium 80; Crisis and Selling farm keeps
 10 (was 0); New-money wealth 250 and prestige 8 (was 180 and 3). Two new personas:
 **Youth elite** (pays well for players of 19 to 24 from other clubs) and **Retirement
-team** (pays for famous players of 31 to 37). Chelsea is now Youth elite; Al Nassr,
+team** (players of 33 to 40, the famous ones above all: `fame` 250 and `prestige` 22, so
+it takes a player far above its eleven if his name is worth it). Chelsea is now Youth elite; Al Nassr,
 Inter Miami, Al Ittihad and Al Sadd are Retirement team. In `PERSONA_GROUPS` Crisis is
 drawn less often (46 clubs instead of 60), New-money less often among the first fifty,
 and the last three groups are no longer the same list.
@@ -962,12 +963,12 @@ the same way on the same day.
 | New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-33 (55) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 35 |
 | Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 18-23 (80) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 10 |
 | Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 19-25 (65) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 35 |
-| Retirement team | 40 / 15 / 40 / 5 | free, clubs | 50 | 30-37 (55) | 70 | 3 | 250 | 150 | 60 | 200 | 7 | 10 | 35 |
+| Retirement team | 0 / 30 / 65 / 5 | listed, clubs | 70 | 33-40 (65) | 80 | 2 | 250 | 250 | 150 | 250 | 4 | 22 | 45 |
 
 "Does not buy" stands for a club that fills a place from its own academy: the module
 cannot make a youth player, it can only keep the club from buying.
 
-**Which club has which persona.** 180 clubs are named in `CLUBS` (the game's id of the
+**Which club has which persona.** 183 clubs are named in `CLUBS` (the game's id of the
 club and the name of a persona; at most 192). The choice is mine, from what the real
 clubs are known for on the market; no source was looked up for it, and each line can be
 changed. It is surest for the big clubs and gets weaker further down: for a small or
@@ -979,8 +980,8 @@ The 73 named first (the biggest clubs of the data):
 - Galactico: Real Madrid (2), Arsenal (4), Manchester United (10)
 - State-backed: Paris Saint-Germain (1), Manchester City (6)
 - Old-money: Barcelona (3), Bayern (5), Atlético (8), Inter (9), Napoli (13), Juventus
-  (15), Roma (16), Galatasaray (20), Fenerbahçe (22), Betis (25), Flamengo (37),
-  Beşiktaş (55), River Plate (62), Boca Juniors (63), Marseille (72)
+  (15), Roma (16), Fenerbahçe (22), Betis (25), Flamengo (37), Beşiktaş (55),
+  River Plate (62), Boca Juniors (63), Marseille (72)
 - Moneyball: Liverpool (7), Tottenham (12), Milan (17), Brighton (26), Bournemouth (30),
   Sunderland (33), Brentford (36), Stuttgart (48), Lens (58), Girona (99)
 - Youth elite: Chelsea (11)
@@ -988,7 +989,9 @@ The 73 named first (the biggest clubs of the data):
   Benfica (32), RB Leipzig (35), Monaco (43), PSV (44), Rennes (57), Lille (66),
   Palmeiras (67), Eintracht Frankfurt (69), Celtic (91), Club Brugge (111)
 - New-money: Aston Villa (18), Newcastle (21), Como (38), Al Hilal (41), Al Ahli (106)
-- Retirement team: Al Nassr (60), Al Sadd (90), Inter Miami (104), Al Ittihad (114)
+- Retirement team: Galatasaray (20), Al Nassr (60), Fluminense (81), Al Sadd (90),
+  Inter Miami (104), CR Vasco da Gama (112), Al Ittihad (114), Los Angeles FC (152),
+  Los Angeles Galaxy (179), Chicago Fire (186), Toronto FC (209)
 - Academy purist: Athletic Club (19), Real Sociedad (39), Celta (51), Osasuna (53),
   Freiburg (70)
 - Survival churner: Rayo Vallecano (49), Getafe (64)
@@ -1024,14 +1027,14 @@ Young Boys (161), Talleres (167), Crvena zvezda (170), Athletico Paranaense (193
 Graz (307), New York Red Bulls (369). Moneyball: Midtjylland (148), Union
 Saint-Gilloise (149), Bodø/Glimt (151). Selling farm: Santos (83), Lanús (136), Vélez
 (154), Argentinos Juniors (217), Basel (285), Philadelphia (288), Brøndby (299). Crisis:
-São Paulo (82), Corinthians (113), Independiente (163). New-money: Cruzeiro (84), Bahia (124), Los Angeles FC (152), Los Angeles Galaxy (179), Atlanta (240).
+São Paulo (82), Corinthians (113), Independiente (163). New-money: Cruzeiro (84), Bahia (124), Atlanta (240).
 
 Every other club draws one of up to eight personas of its group in the club ranking
 (`PERSONA_GROUPS`, the ten groups of `CEILING`); which one is fixed by the club's id.
 Naming the 107 clubs changed the persona of 90 of them; 17 had drawn the same one.
 With the file as it is, the 499 clubs of that career come out as: Survival churner 133,
-Mid-table 98, Selling farm 58, Academy purist 50, Crisis 46, Elite trader 35, Moneyball
-30, Old-money 24, New-money 15, Retirement team 4, Galactico 3, State-backed 2, Youth
+Mid-table 95, Selling farm 58, Academy purist 50, Crisis 46, Elite trader 35, Moneyball
+30, Old-money 22, New-money 13, Retirement team 11, Galactico 3, State-backed 2, Youth
 elite 1 (version 2: 140, 90, 49, 52, 60, 36, 24, 24, 19, -, 3, 2, -). `club_ids.tsv` lists
 every one of them with its id, place, persona and the rating its first eleven is taken
 to have. The ids are those of the data that career was played with; with other data a
