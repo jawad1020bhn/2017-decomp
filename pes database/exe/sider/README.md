@@ -2305,8 +2305,10 @@ Read from the DLL's code and strings, not run:
   bytes, five bytes short of `MLSimMatch.lua`'s v7 tables), `0x047d5b8c`-`0x047d5bde`
   (the age curve, 83 of the 84 bytes between `MLSimMatch.lua`'s hook code and its
   scoreline tables), `0x047d6377`-`0x047d63fa` (the exp award, 132 bytes, up to
-  `MLTransfers.lua` version 6), and `0x047d6e50`-`0x047d6ef7` (the season walk, 168 of
-  the 176 bytes before `MLSimToDate.lua`'s day-loop hook).
+  `MLTransfers.lua` version 6), `0x047d6e50`-`0x047d6efd` (the season walk and the
+  award arithmetic, 174 of the 176 bytes before `MLSimToDate.lua`'s day-loop hook),
+  and `0x047d6efe`-`0x047d6f4b` (the training scale, 78 bytes, still 20 short of
+  `MLSimToDate.lua`'s hook).
   `MLSimToDate.lua` also
   checks and uses `0x0298c0e0`-`0x0298c1ff` in the writable, zero-filled `.text` stub
   for its state, and `MLGrowth.lua` checks and uses the page tail behind it,

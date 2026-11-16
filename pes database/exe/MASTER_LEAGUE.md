@@ -1772,6 +1772,23 @@ with ten events, with a staff report: at 9 left the report is posted (news `0x31
 5 the setter gets `0x13`, at 0 the setters `0x12` and `0x13` run and `+0x1a0` is
 cleared.
 
+**The after-match training step.** For every player of a played match (event 13 of
+the day, `fcn_03627f02`'s branch) the game runs, in order: `fcn_03879434` computes a
+minutes factor; `fcn_038b4368` accumulates match data; then the three training
+awards -- `fcn_036225f8` (individual focus, the setting at mode data `+0xd62a8c`,
+a menu code 1-13 that `fcn_038547ee` maps to a training category), `fcn_0362274d`
+(team focus, the coach setting at `+0xd62a88`, one of 0x42-0x5d) and `fcn_0362288c`
+(the two regime meters, selectors `0x1e`/`0x2a`, capped 0-3) -- and finally
+`fcn_03626f8d`, the appearance counter.  The focus paths scale their exp by the
+player's position versatility (table `0x0216da18`, 13x13 rows of rate/10, factor
+1.0-6.0, `fcn_038b12a2`) and by the coach level (byte at `+0xd62a83`, table
+`0x0216dcf4`, `fcn_038b1393`), and turn it into levels with `fcn_036216e9`
+directly -- the exp award is not involved.  `fcn_0362288c` awards
+`0.3 x regime x minutes` to the meters through `fcn_038b2fc4` with kind 2 (no
+news).  The exp award's own guards: selectors `0x1e`/`0x2a` accept values 0-3 only,
+and a negative exp that would take an ability below 41 does not run at all -- the
+vanilla decline never breaks the 41 floor.
+
 **The season walk.** `fcn_036236a2` raises the age of every player once a season: it
 walks the player array at mode data `+0` (stride `0xe0`, count at `+0x5fecdc`, a dummy
 record follows at `+0xed3620`), skips records with id high word 0 (when
@@ -1792,10 +1809,10 @@ fitness; `rec+0x2c` the id (low, high). The overall rating of a record:
 
 ### 12.3 A Sider module that gives every player an age curve
 
-`sider/MLGrowth.lua` (version 1) changes two places in the running game; what it
+`sider/MLGrowth.lua` (version 2) changes four places in the running game; what it
 writes and why is in `sider/growth_cave.py` (its Python is the reference the test
-compares the machine code with), `sider/test_growth.py` runs the game's own award and
-season-walk code with the changes in the emulator.
+compares the machine code with), `sider/test_growth.py` runs the game's own award,
+training and season-walk code with the changes in the emulator.
 
 - **Hook A, the exp award** (`fcn_038b2fc4` entry, `0x038b2fc4`): before the function
   runs, the exp argument is multiplied by the age curve (x3.0 at 15-17, x2.5 at 18-21,
@@ -1816,6 +1833,16 @@ season-walk code with the changes in the emulator.
   `floor(curve)` at full headroom and `headroom x curve / margin` (integer division)
   below it, capped so the ability stays under 99. Players with a record are left to
   hook A.
+- **Version 2, hook A fix**: kind-2 awards (the regime meters of the after-match
+  step, which the game already scales by minutes played) no longer get the playtime
+  factor on top -- the minutes were counted twice.
+- **Version 2, hook C, the training focus** (the two `call fcn_036216e9` sites of
+  the after-match step, `0x036226a7` in `fcn_036225f8` and `0x036227e5` in
+  `fcn_0362274d`): the exp of the individual and the team focus is multiplied by
+  the same age curve and potential scale before the game turns it into levels --
+  vanilla training improved a 33-year-old as fast as a 17-year-old.  The cave holds
+  the player (edi) and the growth record (ecx) of the call sites and passes them
+  on; the scaled exp lands in `fcn_036216e9`'s own exp array of the growth record.
 
 A six-season replay of hook E on all 19,921 players of the test save
 (`python3 sider/growth_cave.py calibrate <exe> <save>`): the mean rating moves from
