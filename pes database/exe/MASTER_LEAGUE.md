@@ -1647,7 +1647,7 @@ above.
 One thing the reading of 9.6 says about the lost transfers, not measured: when none
 of the three candidates can leave his club, the game's second search starts at 99 and
 meets other players; with step 4 it starts at the top of the club's own window again
-and can meet the same three. `CEILING_RATING = false` switches step 4 off.
+and can meet the same three. `CEILING_RATING = false` switches step 4 off for every club; a persona with `rating = false` switches it off for itself (Galactico and Retirement team).
 
 The module books no money. A computer club still has no account (9.7).
 
