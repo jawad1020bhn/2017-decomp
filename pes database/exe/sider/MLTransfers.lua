@@ -223,8 +223,9 @@ local WINTER_MONTH = 9
 -- A club that counts fewer players than this is in need: it buys for every position, in
 -- winter too, at any age and below its usual level, so that no squad runs empty. It
 -- still looks in the places of its persona. (A slot of a top club that asks for a key
--- player looks everywhere.) 0 to 32. The game itself aims at 23 to 25 players.
-local SQUAD_NEED = 23
+-- player looks everywhere.) 0 to 32. The game itself aims at 23 to 25 players; 26 is
+-- one player above that, so a club that has not been buying looks for everybody.
+local SQUAD_NEED = 26
 
 -- Position need. In the game a club looks for a player when a place of its eleven has
 -- nobody, or when it counts fewer than 25 players, and then its list of weak positions

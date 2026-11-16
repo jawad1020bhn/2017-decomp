@@ -934,7 +934,7 @@ passed them, in this order; "refused" means the club looks at the next player:
    limit is `fame` percent higher. The value is that of the rating of step 5: a club
    with fog misjudges the price too.
 
-**A club in need** is one that counts fewer than `SQUAD_NEED` (23) players. It always
+**A club in need** is one that counts fewer than `SQUAD_NEED` (26) players. It always
 buys, in winter too, at any age and below its usual level, and its ceiling counts
 higher; it still looks in the places of its persona. A slot of a top club that asks for
 a key player (the game does this for one slot of the first ten or twenty clubs on the
@@ -1083,7 +1083,7 @@ not touched.
 | `PERSONA_SPREAD` (0 to 50) | 20: each number of a persona up to 20 percent lower or higher from club to club |
 | `STRENGTH` | `{ 0.0533, 9.45 }`: rating of the first eleven = 0.0533 x ranking points + 9.45, kept inside the club's rating range. Fits the mean of the best eleven of the 499 clubs of the career above (1,464 points: 87; 984 points: 62) |
 | `WINTER_MONTH` (0 to 12) | 9: the clubs choose their winter signings on 1 September; 0: winter is like summer |
-| `SQUAD_NEED` (0 to 32) | 23: with fewer players a club is in need |
+| `SQUAD_NEED` (0 to 32) | 26: with fewer players a club is in need |
 | `KEEP_BEST` (0 to 99, 0 to 100, 0 to 99) | `{ 4, 12, 2 }`, version 3: see "New in version 3" |
 | `KNOWN_FROM` (0 to 100) | 80, version 3 |
 | `AGE_SHIFT` (0 to 5) | 2, version 3 |
