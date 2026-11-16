@@ -1644,8 +1644,8 @@ What the factor is applied to (one caller, `fcn_038b4368`) is not read. Roles al
 
 ## 12 Growth, team spirit, youth, retirement
 
-Level: **located**, with one part **read** (November 2026, C and disassembly, not
-run): whether the game keeps a potential for a player.
+Level: the growth system **read and run in the emulator** (November 2026, section
+12.2); whether the game keeps a potential for a player **read** (below).
 
 **No potential was found.** The player record of the edit file has no such field
 (`output/edit_fields.tsv`); field `0x2e` of the mode's record is a status band. Age is
@@ -1732,6 +1732,103 @@ read.
 **Skipped match.** None of the simulation functions (`fcn_03708fd5`, `fcn_03708de9`,
 `fcn_03707a1f`, `fcn_03705feb` and what they call) reaches a team spirit function; they
 use `team_strength_of` (section 10).
+
+### 12.2 The growth system
+
+Level: **read and run in the emulator** (November 2026, disassembly + `sider/growth_cave.py`,
+`sider/test_growth.py`).
+
+**Who grows.** The mode keeps a growth record for about fifty players only: the user
+squad and the youth team. The records live in a 50-entry container at mode data
+`+0xd10140` (entry stride `0x204` at `+0x493ec`). `fcn_0313b4b5(id_lo, id_hi)` with
+`ecx` = the container answers whether a player has one; `fcn_031207c6` (same arguments)
+returns it, or the dummy entry at the table base when he has none — it never returns 0,
+so the test is `fcn_0313b4b5`. Every other player of the game (19,871 of 19,921 in the
+test save) is frozen: he is never awarded anything.
+
+**The record.** `exp int16[98]` at `+0x16` and `carry int16[98]` at `+0xda`, both
+indexed by the field selector; pending growth events at `+0x19e` (a counter, filled
+with 10); appearances of the current cycle at `+0x1a0`; cumulative appearances at
+`+0x1a4`.
+
+**The award.** `fcn_038b2fc4(rec, &field, &exp_f32, kind, news)`, cdecl. `exp` is a
+float; guards: selectors `0x1e`/`0x2a` are special, the ability must be under 99, the
+exp under 40 after scaling. The exp goes to `carry[field]`; `fcn_036216e9` turns carry
+into levels (1000 exp = 1 level, the remainder stays in `exp[field]`); the ability is
+set with `fcn_038281b0(field, value)` (`ecx` = record); `news` asks for an entry at
+mode `+0xd5f9f4`. Run in the emulator: exp 1000, kind 0, news 1 → one level. Negative
+exp is the game's decline award and removes levels the same way.
+
+**The driver.** After a match `fcn_03626f8d` counts an appearance (`+0x1a0`,
+`+0x1a4`) and, when `+0x19e` is not empty, calls the distributor `fcn_03625c10` once
+and takes one event off. The distributor sorts the club's players by rating into
+quartiles (band from `fcn_0329d810(&id)` age getter: `([age] / 0x3c) or 0`): a player
+with a record gets tier exp through `fcn_038b2fc4` (under 0x38: 140/100/70/40; under
+0x41: 210/140/100/70; else 250/210/140/100 by band), the user's second pass gives
+`1000 - exp` to the top exp fields; a player without a record gets the direct setter
+`+{2, 1, 1, 0}` by band, cap 99. The day step `fcn_0362752f` rolls the training table
+`0x20fe140` (22 rows: age, gk flag, rate; gate selector `0x5e`) and fills `+0x19e`
+with ten events, with a staff report: at 9 left the report is posted (news `0x31`), at
+5 the setter gets `0x13`, at 0 the setters `0x12` and `0x13` run and `+0x1a0` is
+cleared.
+
+**The season walk.** `fcn_036236a2` raises the age of every player once a season: it
+walks the player array at mode data `+0` (stride `0xe0`, count at `+0x5fecdc`, a dummy
+record follows at `+0xed3620`), skips records with id high word 0 (when
+`[0x24fe518]` is 0), the two global club ids (`[0x24fe514]`, `[0x24fe518]`) and types
+5 and 6 (`[+0xb4]` bits 0-3), and calls the setter with selector `0x2b` for each. The
+`mov edx, [0x24fe518]` at `0x0362373a` is the last instruction of the loop body before
+the branch back — the hook site of the module below (`esi` = the record).
+
+**The player record of the mode** (the case handlers of the getter `fcn_038278b0`,
+jump table `0x0382801c`; the setter `fcn_038281b0` writes the same slots, `ecx` =
+record): 7-bit abilities packed four to a dword — `rec+0` bits 24-30 atk, bit 31
+registered; `rec+4` top nibble position (0 CF … 12 GK), then def, gk, drib,
+ball_ctrl; `rec+8` finish, lowpass, loftpass, header; `rec+0xc` ball_win, place_kick,
+swerve, reflex; `rec+0x10` catching, clearing, cover, speed; `rec+0x14` body_ctrl,
+phys, kick_pwr, exp_pwr; `rec+0x18` jump, stamina; `rec+0x1c` bits 7-12 age, bits 0-6
+fitness; `rec+0x2c` the id (low, high). The overall rating of a record:
+`fcn_03838c18(&id, &slot, 0)`, cdecl, result in `al`.
+
+### 12.3 A Sider module that gives every player an age curve
+
+`sider/MLGrowth.lua` (version 1) changes two places in the running game; what it
+writes and why is in `sider/growth_cave.py` (its Python is the reference the test
+compares the machine code with), `sider/test_growth.py` runs the game's own award and
+season-walk code with the changes in the emulator.
+
+- **Hook A, the exp award** (`fcn_038b2fc4` entry, `0x038b2fc4`): before the function
+  runs, the exp argument is multiplied by the age curve (x3.0 at 15-17, x2.5 at 18-21,
+  x1.5 at 22-24, x1.0 at 25-27, x0.5 at 28-29, x0.25 from 30), by the potential scale
+  `min(1, (99 - rating [+4 when rating >= 75 and age <= 21]) / margin(age))` with
+  margins 25/19/12/5/1 from 15/18/21/24/27 on (0 below 15 and from 53 on: no growth),
+  and, for a player with a growth record, by his playtime of the cycle
+  (`0.5 + 0.5 x min(1, appearances / 20)`, 20 for a player without one). The rating
+  is the game's own (`fcn_03838c18`). Negative exp (decline) is multiplied by 0.25,
+  except the physical fields — speed, body balance, physical contact, explosive
+  power, jumping, stamina — from 31 on, which decline in full. Guards, carry, levels,
+  news and reports run as before.
+- **Hook E, the season walk** (after the age setter call, `0x0362373a`): every player
+  without a growth record — the frozen 19,871 — now also gets
+  `season_levels(age, value)` points on the ability of his position (CF and SS
+  finishing, DMF and the defenders defending, the GK goalkeeping, the rest dribbling;
+  a position number above 12 falls back to dribbling), where `season_levels` is
+  `floor(curve)` at full headroom and `headroom x curve / margin` (integer division)
+  below it, capped so the ability stays under 99. Players with a record are left to
+  hook A.
+
+A six-season replay of hook E on all 19,921 players of the test save
+(`python3 sider/growth_cave.py calibrate <exe> <save>`): the mean rating moves from
+67.82 to 68.02; the 15-20-year-olds gain 0.60 on average (the biggest risers, young
+low-rated players, up to +18), the 21-24-year-olds 0.34, and from 29 on nothing moves.
+The ~50 players with growth records follow hook A instead, which hangs on matches
+played and cannot be replayed from a save.
+
+The module uses the free gaps `0x047d3f07`-`0x047d3f9a` (season award),
+`0x047d5b8c`-`0x047d5bde` (the curve routine), `0x047d6377`-`0x047d63fa` (the exp
+award), `0x047d6e50`-`0x047d6ef7` (the season walk) and the `.text` page tail
+`0x0298c200`-`0x0298c2eb` (236 bytes of tables), all zero-checked first; see the
+memory map in `sider/README.md`.
 
 ## 13 The Master League save file
 
