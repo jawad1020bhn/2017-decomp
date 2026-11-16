@@ -17,7 +17,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `simdate_calendar.py` | source and generator for the x86 Schedule hooks embedded in `MLSimToDate.lua` (needs `keystone-engine` only when regenerating) |
 | `test_simdate.py <PES2017.exe>` | runs the sim routine, day loop, installation checks and file-control logic in the emulator (needs `pip install lupa unicorn keystone-engine capstone`) |
 | `test_simdate_calendar.py <PES2017.exe>` | runs the Schedule input hook, date selection, status and day loop with emulator stand-ins (same dependencies) |
-| `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 7: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
+| `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 8: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
 | `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5ffd`, 4,030 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
@@ -2077,7 +2077,7 @@ places; no season was played. The emulator computes the club factor with 80-bit
 floating point; if the game runs with a lower precision setting, a salary can differ by
 1 (100 on the screen).
 
-## `MLSimMatch.lua`, version 7: simulated matches, Attack/Defense split, attribute scorers/assists, subs, fatigue & injuries
+## `MLSimMatch.lua`, version 8: simulated matches, Attack/Defense split, attribute scorers/assists, subs, fatigue & injuries
 
 Emulator only: it has not run in the game yet. Needs no other module and coexists cleanly
 with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
@@ -2086,8 +2086,27 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
 
 1. **Match outcome (`0x03707a1f`):** replaces vanilla's harsh `diff >= 4` / `diff >= 2`
    step function with a smooth Davidson win/draw/loss table plus `HOME_ADVANTAGE`
-   (`2.4` OVR, `ELO_SCALE = 6.2`, `BASE_DRAW = 0.27`) and ML captain role bonus via
-   `CAPTAIN_WEIGHT`.
+   (`1.6` OVR, `ELO_SCALE = 4.0`, `BASE_DRAW = 0.28`) and ML captain role bonus via
+   `CAPTAIN_WEIGHT` (`0.125`: +-10 gives +-1 OVR, +-20 gives +-2).
+   **Version 8** changed these four defaults (version 7: `2.4`, `6.2`, `0.27`, `0.2`),
+   because the tables of version 7 were too flat. Model of the module's own tables on
+   the 20, 18 and 20 clubs of England, Germany and Spain in `ML saves/ML00000013
+   (before)` (best eleven of each club, all fit; home and away against every other
+   club; 2,000 seasons):
+
+   | | version 7 | version 8 | real football (about) |
+   |---|---|---|---|
+   | points of the champion, England / Germany / Spain | 76 / 73 / 83 | 83 / 81 / 92 | 90 / 80 / 88 |
+   | points of the last club | 29 / 25 / 30 | 23 / 20 / 25 | 21 / 22 / 24 |
+   | best club: matches won | 53% / 63% / 63% | 60% / 73% / 72% | 70 to 75% |
+   | best club: goals for a match | 1.50 / 1.79 / 1.76 | 1.71 / 2.03 / 1.98 | 2.3 to 2.6 |
+   | home wins / draws / away wins, England | 44 / 26 / 31% | 44 / 25 / 31% | 45 / 24 / 31% |
+   | goals a match | 2.36 / 2.49 / 2.46 | 2.51 / 2.65 / 2.62 | 2.8 / 3.0 / 2.6 |
+
+   The lineups of such a league are only about 11 OVR points apart, which is why 6.2 points
+   per e-fold made the best club win barely more than half its matches. The draws were
+   already right (one match in four), so `BASE_DRAW` moved only to keep them there.
+   `test_sim.py` (test 24) holds the defaults to this.
 2. **Scorelines, Attack/Defense split & GK modifier (`0x03705feb`, `ATTACK_DEFENSE_SPLIT`, `GK_SCORE_MOD`):**
    moves `score_hook` to `CAVE_ET` and replaces vanilla's narrow goal tables with a
    7x7 2D conditional Poisson table (`WIN_CDF_2D`, 1,029 B) indexed by
@@ -2096,9 +2115,18 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
    and a 5-band match-tempo draw CDF (`DRAW_CDF_BANDS`, 25 B) indexed by
    `(ATK_H - DEF_A) + (ATK_A - DEF_H) - GK_H_delta - GK_A_delta`, damping `>= 4` GD
    blowouts (`GOAL_SCALE`). `GK_eff` uses `GK_CONDITION_OVR = { -6, -3, 0, 3, 6 }` (1.5x
-   arrow swing) minus fatigue, with `GK_delta = clamp((GK_eff - 76) / 3, -4, 5)` and
+   arrow swing) minus fatigue, with `GK_delta = clamp((GK_eff - 82) / 3, -4, 5)` and
    `pos == 0` excluded from `def_ovr` to avoid double-counting. When `ATTACK_DEFENSE_SPLIT = false`,
    both ATK and DEF collapse to overall effective OVR.
+   **Version 8** moves the neutral goalkeeper of `GK_delta` from 76 to 82 (`GK_BASELINE`
+   in `sim_cave.py`; four bytes of the code, nothing else). Model of the tables on the
+   499 clubs of `ML saves/ML00000013 (before)`, matches inside each group, goals per
+   match and clean sheets per team: first 20 clubs (goalkeepers 84 on average) 2.33 and
+   32% with 76, 2.47 and 30% with 82; places 21-60 (80) 2.45 and 30%, then 2.60 and 27%;
+   places 101-140 (75) 2.61 and 27%, then 2.80 and 24%; places 301-340 (69) 2.83 and
+   24%, then 3.01 and 21%. With `GK_SCORE_MOD = false` every group gives about 2.56 and
+   28%. So 82 suits the best clubs and adds goals below them; the clean-sheet boost
+   (from 82) is as it was.
 3. **Skip Match substitutions, GK protection & smart CPU subs (`fcn_03707e71`):**
    - `SKIP_SUBS` (`0x03708230`): removes the hardcoded `sub = 11` overwrite when `SCOPE`
      includes Skip Match so simulated Skip Match fixtures behave like AI-vs-AI simulations.
@@ -2121,6 +2149,24 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
    - `scorer_hook` (`0x03706ef6`): distributes goals across all 10 outfield
      players using exponential weights (`SCORER_SHARPNESS`, zero for GKs) and assigns
      assists across the remaining outfielders (`UNASSISTED_PCT`, `ASSIST_SHARPNESS`).
+   - **Version 8** spreads the goals: position table `(0, -22, -24, -24, -18, -4, 6, 6,
+     8, 8, 8, 12, 14)` (GK, CB, LB, RB, DMF, CMF, LMF, RMF, AMF, LWF, RWF, SS, CF),
+     `SCORER_SHARPNESS = 0.05`, and the weight table is read with `gap >> 2` for goals
+     too (version 7: `gap >> 1`, so every gap above 46 counted alike and no table could
+     keep defenders low without a steep curve). Measured on the best eleven of the 499
+     clubs of `ML saves/ML00000013 (before)`:
+
+     | | version 7 | version 8 |
+     |---|---|---|
+     | goals by CF | 50% | 32% |
+     | SS, wingers, AMF | 37% | 41% |
+     | CMF, DMF | 7% | 14% |
+     | defenders | 6% | 12% |
+     | best scorer's share of his club's goals: median / 90th / most | 47 / 66 / 88% | 30 / 38 / 57% |
+     | Haaland / Kane / Mbappé | 83 / 68 / 40% | 48 / 37 / 25% |
+
+     (The "~26% CF" that the settings comment of version 7 gave was not what real
+     squads produced.) Assists are unchanged.
 6. **Extra Time & Penalty Shootouts (`0x037062ca`, `0x037063bb`):** adds strength-scaled
    Extra Time goal chances (`ET_GOAL_SCALE`) and replaces vanilla's broken
    100%-home-win Penalty Shootout table with a symmetric OVR-weighted shootout
@@ -2159,7 +2205,7 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
 
 All toggles and tuning parameters live at the top of `MLSimMatch.lua` and are validated
 by `settings_fault()` before any byte is written. `python3 test_sim.py <PES2017.exe>`
-runs 23 tests (all passing): generated block & Keystone byte-for-byte equivalence across
+runs 24 tests (all passing): generated block & Keystone byte-for-byte equivalence across
 all 16 routines and 6 caves, 76 invalid-setting rejections, 9 partial-mode installs,
 tamper detection across all 13 patch sites and 6 caves, real `PES2017.exe` execution for
 all match-sim hooks (`ok 6`–`ok 19`, `ok 21`–`ok 23`), and coexistence with `MLMoney.lua`,
@@ -2217,13 +2263,13 @@ Read from the DLL's code and strings, not run:
   the salary part to 0 in the function's own stack frame.)
 - Free memory for code and tables: `0x047b0200`-`0x047b0fff`, the end of `.trace`
   (3,584 bytes; `MLMoney.lua` uses the first 3,568), and below it `0x047b0060`-`0x047b01fd`
-  (`MLSimMatch.lua` version 7 uses `0x047b0060`-`0x047b01f4`, 405 bytes, for cards + injury call;
+  (`MLSimMatch.lua` version 8 uses `0x047b0060`-`0x047b01f4`, 405 bytes, for cards + injury call;
   `0x047b0124`-`0x047b01fe` was used by version 5 of `MLMoney.lua` only). The end of `.xcode`,
-  `0x047d3a43`-`0x047d3fff` (`MLSimMatch.lua` version 7 uses `0x047d3a50`-`0x047d3f06`,
+  `0x047d3a43`-`0x047d3fff` (`MLSimMatch.lua` version 8 uses `0x047d3a50`-`0x047d3f06`,
   1,207 bytes, for code and `0x047d3fa0`-`0x047d3fff`, 96 bytes, for its v5–v7 config & positional/GK tables;
   previously used by version 6 of `MLMoney.lua` and version 1 of `MLTransfers.lua` at
   `0x047d3c40`-`0x047d3dbc`). The page of `.data1` behind its code,
-  `0x047d4170`-`0x047d4fff`: `MLSimMatch.lua` version 7 uses `0x047d4170`-`0x047d41ff`
+  `0x047d4170`-`0x047d4fff`: `MLSimMatch.lua` version 8 uses `0x047d4170`-`0x047d41ff`
   (144 bytes) for v1–v3 config/tables; `MLTransfers.lua` versions 3 and 4 use all of
   `0x047d4200`-`0x047d4fff` (version 2: up to `0x047d4f5f`; one window was played with
   it and that part was left alone. The last 160 bytes are zero in the file and were not
@@ -2231,7 +2277,7 @@ Read from the DLL's code and strings, not run:
   `0x047d4f60`-`0x047d4f7f`, inside what `MLTransfers.lua` version 3 uses; the two could
   not be installed together, so it was moved to the end of the `.xcode` page (`0x047d3fa0`-`0x047d3fff`, 96 bytes for v7).
   `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
-  `MLSimMatch.lua` version 7's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b7a`, 2,875 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
+  `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b7a`, 2,875 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
   `MLTransfers.lua` version 6 uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
   and `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
   `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining tail ranges after

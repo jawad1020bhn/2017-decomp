@@ -7,7 +7,7 @@
                                    print the generated tables/hooks block for MLSimMatch.lua
                                    (test_sim.py checks that MLSimMatch.lua matches this)
 
-MLSimMatch.lua (version 7) improves simulated matches (Skip Match and AI-vs-AI) in
+MLSimMatch.lua (version 8) improves simulated matches (Skip Match and AI-vs-AI) in
 PES 2017 (sha256 44b0caaa...):
 
   1. Outcome probabilities (hook at 0x03707d56 inside fcn_03707a1f, cave .reloc):
@@ -276,7 +276,10 @@ PK_PAIRS = ((5, 4), (4, 3), (4, 2), (5, 3), (6, 5), (3, 1), (4, 1), (7, 6))
 DEFAULT_CARD_POS_W = (2, 18, 16, 20, 14, 10, 8, 7, 7, 8)
 
 # Goalscorer / assist positional modifiers by reg_pos (0..12: GK,CB,LB,RB,DMF,CMF,LMF,RMF,AMF,LWF,RWF,SS,CF)
-DEFAULT_SCORER_POS_ADJ = (0, -14, -12, -12, -12, -7, 0, 0, 0, 4, 4, 8, 8)
+# Version 8: the position decides most of who scores, the ability less (version 7 had
+# (0, -14, -12, -12, -12, -7, 0, 0, 0, 4, 4, 8, 8) with sharpness 0.11, which gave the
+# centre forward half of all goals and the best scorer 47% of his club's goals).
+DEFAULT_SCORER_POS_ADJ = (0, -22, -24, -24, -18, -4, 6, 6, 8, 8, 8, 12, 14)
 DEFAULT_ASSIST_POS_ADJ = (0, -20, -10, -10, -8, 0, 2, 2, 6, 4, 4, 0, 0)
 
 # Draw tempo multipliers for 5 tempo bands (tempo = (ATK_H - DEF_A) + (ATK_A - DEF_H))
@@ -288,13 +291,19 @@ DRAW_TEMPO_SCALES = (
     (0.55, 0.95, 1.55, 2.10, 2.80),  # tempo >= +10 (open shootout)
 )
 
-# Default settings (matching MLSimMatch.lua v7)
+# A goalkeeper rated GK_BASELINE neither adds nor removes goals (calc_gk_delta); it is
+# also the rating eff_strength and score_hook assume when no goalkeeper is known.
+# Version 7 had 76, which made the keepers of the best clubs (80 to 92) all count as
+# far above average.
+GK_BASELINE = 82
+
+# Default settings (matching MLSimMatch.lua v8)
 DEFAULT_SETTINGS = {
     "SCOPE": "all",
-    "HOME_ADVANTAGE": 2.4,
-    "ELO_SCALE": 6.2,
-    "BASE_DRAW": 0.27,
-    "CAPTAIN_WEIGHT": 0.2,
+    "HOME_ADVANTAGE": 1.6,
+    "ELO_SCALE": 4.0,
+    "BASE_DRAW": 0.28,
+    "CAPTAIN_WEIGHT": 0.125,
     "GOAL_SCALE": 1.0,
     "DRAW_WEIGHTS": (28.0, 46.0, 21.0, 4.5, 0.5),
     "ATTACK_DEFENSE_SPLIT": True,
@@ -315,7 +324,7 @@ DEFAULT_SETTINGS = {
     "RATING_RANGE": (4.5, 9.5),
     "SCORERS": True,
     "ASSISTS": True,
-    "SCORER_SHARPNESS": 0.11,
+    "SCORER_SHARPNESS": 0.05,
     "ASSIST_SHARPNESS": 0.045,
     "UNASSISTED_PCT": 28,
     "EXTRA_TIME_PK": True,
@@ -473,8 +482,10 @@ def build_win_cdf_2d(*, goal_scale=1.0):
     return table
 
 
-def build_scorer_weights(sharpness=0.11):
-    return [max(1, min(255, int(round(120.0 * math.exp(-sharpness * (2 * i)))))) for i in range(24)]
+def build_scorer_weights(sharpness=0.05):
+    """Weight by gap to the best scorer stat, index gap >> 2 (version 7: gap >> 1, so every
+    gap above 46 counted the same)."""
+    return [max(1, min(255, int(round(120.0 * math.exp(-sharpness * (4 * i)))))) for i in range(24)]
 
 
 def build_assist_weights(sharpness=0.045):
@@ -730,13 +741,13 @@ def compute_gk_eff_ovr(base_ovr, arrow, fitness, *, settings=None):
 
 
 def compute_gk_delta(gk_eff, *, settings=None):
-    """Exact Python mirror of calc_gk_delta: clamp((gk_eff - 76) / 3, -4, 5)."""
+    """Exact Python mirror of calc_gk_delta: clamp((gk_eff - GK_BASELINE) / 3, -4, 5)."""
     s = dict(DEFAULT_SETTINGS)
     if settings:
         s.update(settings)
     if not s["GK_SCORE_MOD"]:
         return 0
-    return max(-4, min(5, int((gk_eff - 76) / 3)))
+    return max(-4, min(5, int((gk_eff - GK_BASELINE) / 3)))
 
 
 def compute_sim_vec_weights(pos, finish, atk_prowess, header, low_pass, lofted_pass, arrow, fitness, *, settings=None):
@@ -1386,7 +1397,7 @@ def assemble():
 
     eff_ret_empty:
         mov eax, ebx
-        mov edx, 0x4c
+        mov edx, {GK_BASELINE}
         shl edx, 16
         mov dh, bl
         mov dl, bl
@@ -1687,10 +1698,9 @@ def assemble():
         xor edx, edx
     gap_pos:
         lea eax, [0x{SCORER_W:08x}]
-        shr edx, 1
+        shr edx, 2
         cmp byte ptr [ebp + 8], 0
         jne gap_clamped
-        shr edx, 1
         add eax, 24
     gap_clamped:
         cmp edx, 23
@@ -1974,13 +1984,13 @@ def assemble():
         mov ecx, eax
         shl ecx, 8
         or ecx, eax
-        or ecx, 0x004c0000
+        or ecx, 0x{GK_BASELINE << 16:08x}
         mov eax, edi
         and eax, 0xff
         mov edx, eax
         shl edx, 8
         or edx, eax
-        or edx, 0x004c0000
+        or edx, 0x{GK_BASELINE << 16:08x}
 
     score_ad_ready:
         mov eax, ecx
@@ -2160,7 +2170,7 @@ def assemble():
         je gkd_zero
         push ecx
         push edx
-        sub eax, 76
+        sub eax, {GK_BASELINE}
         cdq
         mov ecx, 3
         idiv ecx
@@ -2939,12 +2949,12 @@ CODE_PARTS = {
         "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d0400752c"
         "31c9894de4e99831f3fe833da4417d040074edb964000000b8603c7d04ffd0"
         "3b05a8417d047305e91e35f3fe8b45108b308b400439c67205e90d35f3fe0f"
-        "b65608525083ec1831db31ff89f13b4c2418736483fb0b735f0fb6410884c0"
-        "7449807d080075168b5514668b12663b11750b8b55148b52043b5104742d8b"
-        "54241c29c2790231d28d05ac417d04d1ea807d08007505d1ea83c01883fa17"
-        "7605ba170000000fb60410eb0231c001c766893c5c4383c10ceb9685ff7508"
-        "83c420e98834f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972"
-        "f3496bc90c01ce8b7e048b368975d8897ddc83c420e9b633f3fe",
+        "b65608525083ec1831db31ff89f13b4c2418736383fb0b735e0fb6410884c0"
+        "7448807d080075168b5514668b12663b11750b8b55148b52043b5104742c8b"
+        "54241c29c2790231d28d05ac417d04c1ea02807d0800750383c01883fa1776"
+        "05ba170000000fb60410eb0231c001c766893c5c4383c10ceb9785ff750883"
+        "c420e98934f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972f3"
+        "496bc90c01ce8b7e048b368975d8897ddc83c420e9b733f3fe",
     ),
     "eff_strength": (
         0x047d5040,
@@ -2990,7 +3000,7 @@ CODE_PARTS = {
         "d1ea01d031d2f7f183f8287d05b82800000083f8637e05b86300000089c78b"
         "458085c0750289f8c1e01089fac1e20809f209c289d8eb5a85c9743183f90c"
         "772083f904761083f90574168d140001559483459002c38d140001558c8345"
-        "8802c3014594ff459001458cff4588c389d8ba4c000000c1e21088de88daeb"
+        "8802c3014594ff459001458cff4588c389d8ba52000000c1e21088de88daeb"
         "148b458085c0750289d889c2c1e21088de88da89d85f5e5b89ec5dc3",
     ),
     "player_eff_ovr": (
@@ -3032,8 +3042,8 @@ CODE_PARTS = {
         0x047d57b0,
         "89d98b5030b8dc3b7d04ffd084c0750c8b45088b00b971607003ffe153a1a0"
         "3f7d040b05c43f7d040b05f03f7d04741889d98b530ce856f8ffff5289d98b"
-        "5310e84bf8ffff59eb2889f025ff00000089c1c1e10809c181c900004c0089"
-        "f825ff00000089c2c1e20809c281ca00004c0089c8c1e81025ff00000050e8"
+        "5310e84bf8ffff59eb2889f025ff00000089c1c1e10809c181c90000520089"
+        "f825ff00000089c2c1e20809c281ca0000520089c8c1e81025ff00000050e8"
         "8a0100005089d0c1e81025ff00000050e879010000508b45088b0083f8020f"
         "84df0000008b3d543a7d040fb6f101fe0fb6cd01f90fb6da0fb6d685c07518"
         "29d62b342429d9034c24088b54240c6a005289f089ceeb1629cb2b5c240829"
@@ -3047,7 +3057,7 @@ CODE_PARTS = {
         "7d04007507bb02000000eb1a31db83f8f67e134383f8fc7e0d4383f8037e07"
         "4383f8097e01436bdb0581c3e55f7d04b9ff000000b8603c7d04ffd031c90f"
         "b6140b39d072064183f90472f288c883c4105bba10617003ffe2833df03f7d"
-        "04007424515283e84c99b903000000f7f95a5983f8fc7d05b8fcffffff83f8"
+        "04007424515283e85299b903000000f7f95a5983f8fc7d05b8fcffffff83f8"
         "057e05b805000000c331c0c331f683f8fa7e1f4683f8ff7e194683f8037e13"
         "4683f8077e0d4683f80b7e074683f80f7e014689f0c3",
     ),
