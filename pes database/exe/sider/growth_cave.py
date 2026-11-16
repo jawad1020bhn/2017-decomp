@@ -37,20 +37,32 @@ sha256 44b0caaa...).  The vanilla game:
      attribute setter with selector 0x2b (age, bits 7-12 of the record dword
      at +0x1c) for each.
 
-The module adds two hooks and changes no game byte anywhere else:
+The module adds four patches and changes no game byte anywhere else:
 
   A. fcn_038b2fc4 (the exp award, 0x038b2fc4): the exp argument is multiplied
      by the age curve, by the potential scale and, for a player with a growth
-     record, by his playtime before the function runs.  Negative exp (the
-     game's decline awards) is multiplied by DECLINE_TECH (0.25), or left at
-     1.0 for the physical fields at DECLINE_START (31) and above.  Everything
-     else of the function -- guards, carry, levels, news, growth report --
-     runs as it is.
+     record, by his playtime before the function runs -- except kind 2, the
+     training awards the game already scales by minutes played (they leave
+     fcn_0362288c as 0.3 x regime x minutes): those get the curve and the
+     scale but no playtime factor, which would count the minutes twice.
+     Negative exp (the game's decline awards) is multiplied by DECLINE_TECH
+     (0.25), or left at 1.0 for the physical fields at DECLINE_START (31) and
+     above.  Everything else of the function -- guards, carry, levels, news,
+     growth report -- runs as it is.
   B. fcn_036236a2 (the season walk, hook after its setter call at
      0x0362373a): every player WITHOUT a growth record -- the frozen 19,871
      -- now also gets floor(curve) points on the ability of his position
      (CF/SS finishing, DMF and the defenders defending, the GK goalkeeping,
      the rest dribbling).  Players with a record are left to hook A.
+  C. The two `call fcn_036216e9` sites of the after-match training path
+     (0x036226a7 in fcn_036225f8, individual focus, and 0x036227e5 in
+     fcn_0362274d, team focus).  The vanilla game sets the trained value
+     with no regard of age; the cave now multiplies the exp by the same age
+     curve and potential scale before the exp-to-levels function runs.  The
+     player (edi) and the growth record (ecx) the two call sites hold are
+     passed on untouched.  fcn_036216e9 keeps its own exp array in the
+     growth record (int16 at +0x16, selector-indexed, 1000 cap), which is
+     where the scaled exp lands.
 
 The arithmetic (Python below, machine code above):
 
@@ -60,18 +72,19 @@ The arithmetic (Python below, machine code above):
                 margin(age)),   margin: 15: 25  18: 19  21: 12  24: 5  27+: 1
                 (age 53+: 0 -- no more growth)
   playtime      PLAYTIME_WEIGHT + (1 - PLAYTIME_WEIGHT) * min(1,
-                appearances / PLAYTIME_FULL)  for players with a record
+                appearances / PLAYTIME_FULL)  for players with a record,
+                and not at all for kind-2 training awards
   decline       negative exp: x DECLINE_TECH, but x 1.0 on speed, explosive
                 power, body control, physical contact, jump and stamina from
                 DECLINE_START on
 
-The code lives in four gaps the other modules leave free (each is checked for
+The code lives in five gaps the other modules leave free (each is checked for
 zeros before anything is written): the .reloc gap 0x047d5b8c (the curve), the
 .xcode gap 0x047d3f07 (the season award), and the .link gaps 0x047d6377 (the
-award hook) and 0x047d6e50 (the season hook and the award arithmetic).  The
-tables and floats sit in the zero tail of the .text page at 0x0298c200, which
-is writable but not executable -- data only, as MLSimToDate.lua uses that page
-for its state as well.
+award hook), 0x047d6e50 (the season hook and the award arithmetic) and
+0x047d6efe (the training scale).  The tables and floats sit in the zero tail
+of the .text page at 0x0298c200, which is writable but not executable --
+data only, as MLSimToDate.lua uses that page for its state as well.
 """
 import os
 import struct
@@ -96,6 +109,9 @@ CURVE = 0x047d5b8c                        # .reloc gap, 84 bytes
 E2 = 0x047d3f07                           # .xcode gap, 153 bytes
 E1 = 0x047d6e50                           # .link gap, 176 bytes: E1, then B2
 B1 = 0x047d6377                           # .link gap, 137 bytes
+FOCUS = 0x047d6efe                        # .link gap behind E1+B2, 98 bytes
+LEVELS = 0x036216e9                       # ecx = growth record, (selector, exp) -> levels, ret 8
+FOCUS_CALLS = (0x036226a7, 0x036227e5)    # the two `call LEVELS` sites of the training paths
 
 # attribute selectors of fcn_038278b0 / fcn_038281b0 (table 0x2164500 of
 # fcn_0383899a; confirmed in the emulator on a crafted record)
@@ -154,10 +170,12 @@ def playtime(count):
     return PLAYTIME_WEIGHT + (1 - PLAYTIME_WEIGHT) * min(1.0, max(0, count) / PLAYTIME_FULL)
 
 
-def award_exp(exp, age, rating, count=PLAYTIME_FULL):
+def award_exp(exp, age, rating, count=PLAYTIME_FULL, kind=0):
     """What hook A leaves in a positive exp argument (count = appearances of
-    this growth cycle; negative exp goes through decline_exp below)."""
-    return exp * mult(age) * scale(age, rating) * playtime(count)
+    this growth cycle; negative exp goes through decline_exp below).  Kind 2
+    is a training award the game already scales by minutes played: no
+    playtime factor, or the minutes would count twice."""
+    return exp * mult(age) * scale(age, rating) * (1.0 if kind == 2 else playtime(count))
 
 
 def decline_exp(exp, age, field):
@@ -206,7 +224,6 @@ PHYS_TBL, POSTBL_TBL = DATA + 144, DATA + 200
 F_INV4, F_FULL, F_INV1PW, F_PW, F_DTECH = (DATA + 216 + 4 * i for i in range(5))
 
 # ---------------- the machine code ----------------
-CODE_PARTS = {}                      # name -> (address, hex); filled by _emit()
 
 
 def _asm(ks, src, base):
@@ -363,6 +380,8 @@ def _emit():
         fld dword ptr [edx]
         call {CURVE:#x}
         fmulp
+        cmp dword ptr [ebp + 0x20], 2
+        jz b_k2
         fild dword ptr [ebp - 8]
         fdiv dword ptr [{F_FULL:#x}]
         fld1
@@ -373,6 +392,7 @@ def _emit():
         fxch st(1)
         fstp st(0)
         fmulp
+    b_k2:
         fstp dword ptr [edx]
         jmp b_out
     b_neg:
@@ -453,6 +473,45 @@ def _emit():
         jmp {b2:#x}
     """
     parts['B1'] = _asm(ks, b1_src, B1)
+
+    # ---- FOCUS: in place of `call fcn_036216e9` in the two training functions
+    #      (in: edi = player, ecx = growth record, [esp+4] = selector,
+    #       [esp+8] = exp; the caller cleans nothing: ret 8) ----
+    focus_src = f"""
+        push ebx
+        push esi
+        push edi
+        push ebp
+        mov ebp, esp
+        sub esp, 16
+        mov [ebp - 8], ecx
+        mov ebx, [edi + 0x1c]
+        shr ebx, 7
+        and ebx, 0x3f
+        lea eax, [ebp - 4]
+        push 0
+        push eax
+        lea eax, [edi + 0x2c]
+        push eax
+        call {PLAYER_OVR:#x}
+        add esp, 12
+        movzx esi, al
+        call {CURVE:#x}
+        fild dword ptr [ebp + 0x18]
+        fmulp
+        sub esp, 4
+        fistp dword ptr [esp]
+        push dword ptr [ebp + 0x14]
+        mov ecx, [ebp - 8]
+        call {LEVELS:#x}
+        mov esp, ebp
+        pop ebp
+        pop edi
+        pop esi
+        pop ebx
+        ret 8
+    """
+    parts['focus'] = _asm(ks, focus_src, FOCUS)
     return parts
 
 
@@ -460,10 +519,10 @@ def build():
     """name -> (address, bytes) of every block, assembled again."""
     parts = _emit()
     out = {k: (a, parts[k]) for k, a in
-           (('curve', CURVE), ('E2', E2), ('E1', E1), ('B1', B1))}
+           (('curve', CURVE), ('E2', E2), ('E1', E1), ('B1', B1), ('focus', FOCUS))}
     out['data'] = (DATA, tables())
     out['B2'] = (E1 + len(parts['E1']), parts['B2'])
-    room = {'curve': 84, 'E2': 153, 'B1': 137}
+    room = {'curve': 84, 'E2': 153, 'B1': 137, 'focus': 98}
     for k, (a, b) in out.items():
         if k in ('data', 'B2'):
             continue                                    # B2 shares E1's fragment
@@ -473,16 +532,20 @@ def build():
 
 
 def patches(parts=None):
-    """(address, old bytes, new bytes) of the two hook sites."""
+    """(address, old bytes, new bytes) of the four hook sites."""
     if parts is None:
         parts = {k: v for k, v in build().items()}
     b1 = parts['B1'][1]
     e1 = parts['E1'][1]
     jmp = lambda site, to: b'\xe9' + struct.pack('<i', to - site - 5)
-    return (
+    call = lambda site, to: b'\xe8' + struct.pack('<i', to - site - 5)
+    out = (
         (AWARD, bytes.fromhex('5589e581ec'), jmp(AWARD, B1)),
         (SEASON_CALL, bytes.fromhex('8b1518e54f02'), jmp(SEASON_CALL, E1) + b'\x90'),
     )
+    for site in FOCUS_CALLS:                    # `call LEVELS` -> `call FOCUS`
+        out += ((site, call(site, LEVELS), call(site, FOCUS)),)
+    return out
 
 
 CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
@@ -508,10 +571,16 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
     "B1": (
         0x47d6377,
         "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e8",
-        "7d2806ff83c40c0fb6f08b551cf64203800f850a0b0000c745f814000000a1e0",
+        "7d2806ff83c40c0fb6f08b551cf64203800f85100b0000c745f814000000a1e0",
         "0365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c00f",
-        "84b70a00008b4df4ff7730ff772ce8dca394fe8b90a00100008955f88b551ce9",
+        "84bd0a00008b4df4ff7730ff772ce8dca394fe8b90a00100008955f88b551ce9",
         "8f0a0000",
+    ),
+    "focus": (
+        0x47d6efe,
+        "5356575589e583ec10894df88b5f1cc1eb0783e33f8d45fc6a00508d472c50e8",
+        "f61c06ff83c40c0fb6f0e85fecffffdb4518dec983ec04db1c24ff75148b4df8",
+        "e8a6a7e4fe89ec5d5f5e5bc20800",
     ),
     "data": (
         0x298c200,
@@ -526,10 +595,10 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
     ),
     "B2": (
         0x47d6e8a,
-        "d902e8fbecffffdec9db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805",
-        "e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890",
-        "c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b",
-        "5589e581ec3c020000e9d5c00dff",
+        "d902e8fbecffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80d",
+        "e0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f826",
+        "77070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a",
+        "89ec5d5f5e5b5589e581ec3c020000e9cfc00dff",
     ),
 }
 
@@ -551,6 +620,7 @@ CONTEXT = (
     ('growth record test', 0x0313b4b5, '5589e5a1c44f4b02'),
     ('growth record find', 0x031207c6, '5589e551a1f83d4b'),
     ('season walk entry', 0x036236a2, '5589e583ec085357'),
+    ('exp to levels', 0x036216e9, '5589e5568b750883fe627c0731'),
 )
 
 
@@ -569,6 +639,8 @@ def lua_block():
         'local CAVE_E1 = 0x%08x' % part('E1')[0],
         'local CAVE_E1_SIZE = %d' % (len(bytes.fromhex(part('E1')[1])) +
                                      len(bytes.fromhex(part('B2')[1]))),   # E1 + B2 share the gap
+        'local CAVE_FOCUS = 0x%08x' % part('focus')[0],
+        'local CAVE_FOCUS_SIZE = %d' % len(bytes.fromhex(part('focus')[1])),
         '',
         'local BLOCKS = {',
         '    { "season award code", CAVE_E2, "%s" },' % part('E2')[1],
@@ -577,12 +649,14 @@ def lua_block():
         '    { "season walk code", CAVE_E1, "%s" },' % part('E1')[1],
         '    { "season walk code 2", CAVE_E1 + %d, "%s" },'
         % (len(bytes.fromhex(part('E1')[1])), part('B2')[1]),
+        '    { "training scale code", CAVE_FOCUS, "%s" },' % part('focus')[1],
         '    { "growth tables", DATA, "%s" },' % part('data')[1],
         '}',
         '',
         'local SITES = {',
     ]
-    names = {AWARD: 'exp award entry', SEASON_CALL: 'season age walk'}
+    names = {AWARD: 'exp award entry', SEASON_CALL: 'season age walk',
+             FOCUS_CALLS[0]: 'individual training', FOCUS_CALLS[1]: 'team training'}
     for at, old, new in patches():
         lines.append('    { "%s", 0x%08x, "%s", "%s" },'
                      % (names[at], at, old.hex(), new.hex()))

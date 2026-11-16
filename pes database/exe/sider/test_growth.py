@@ -31,8 +31,9 @@ PLAYER_OVR, GETTER, SETTER = gc.PLAYER_OVR, 0x038278b0, 0x038281b0
 NEWS = 0x03623150                          # the news push of the award
 
 INSTALLED = ('RESULT: installed. Players with a growth record grow and decline by an age '
-             'curve scaled by potential and playtime; every other player gains a few '
-             'points a season on the ability of his position until the curve flattens.')
+             'curve scaled by potential and playtime, the training focus follows the '
+             'same curve, and every other player gains a few points a season on the '
+             'ability of his position until the curve flattens.')
 NOTHING = 'RESULT: nothing written. This game does not hold'
 ALREADY = 'RESULT: nothing written. A growth hook is already modified'
 
@@ -86,10 +87,10 @@ def world(g, tracked=1, apps=10):
     return mode, growth
 
 
-def award(g, player, sel, exp):
+def award(g, player, sel, exp, kind=0):
     """Run the game's exp award on the player; -> the exp argument afterwards."""
     e, f = g.alloc(struct.pack('<f', exp)), g.alloc(struct.pack('<I', sel))
-    g.call(AWARD, [player, f, e, 0, 1], limit=500000)
+    g.call(AWARD, [player, f, e, kind, 1], limit=500000)
     return struct.unpack('<f', g.read(e, 4))[0]
 
 
@@ -134,15 +135,15 @@ def main(exe):
 
     # -- 2: the module ----------------------------------------------------------
     lines, reads, writes = run(image, source)
-    assert lines[-1] == INSTALLED and len(lines) == 20, lines
+    assert lines[-1] == INSTALLED, lines
     assert not any('DIFFERENT' in l or 'NOT EMPTY' in l or 'FAILED' in l for l in lines), lines
     expect = [(gc.part(k)[0], len(bytes.fromhex(gc.part(k)[1])))
-              for k in ('E2', 'curve', 'B1', 'E1', 'B2', 'data')]
+              for k in ('E2', 'curve', 'B1', 'E1', 'B2', 'focus', 'data')]
     expect += [(at, len(new)) for at, old, new in gc.patches()]
     assert writes == expect, (writes, expect)
-    print('ok 2: the module checks the eight context anchors and both hook sites, finds '
-          'its six caves empty, writes them and the two jumps, and nothing else (%d writes)'
-          % len(writes))
+    print('ok 2: the module checks the nine context anchors and all four hook sites, '
+          'finds its seven caves empty, writes them and the four patches, and nothing '
+          'else (%d writes)' % len(writes))
 
     # -- 3: hook A with the module ----------------------------------------------
     cases = [                                          # (age, sel, exp, apps, label)
@@ -157,18 +158,21 @@ def main(exe):
         (28, 0x1f, -4000.0, 20, '28yo decline, physical (before 31)'),
         (24, 0x13, -4000.0, 20, '24yo decline, technical'),
         (55, 0x13, 1000.0, 20, '55yo (no growth left)'),
+        (18, 0x13, 1000.0, 5, 'kind 2, a training award: minutes are not counted twice'),
     ]
     for age, sel, exp, apps, label in cases:
+        kind = 2 if 'kind 2' in label else 0
         mode, growth = world(image, tracked=1, apps=apps)
         player = image.alloc(craft({sel: 60}, age, 9))
-        got = award(image, player, sel, exp)
+        got = award(image, player, sel, exp, kind)
         rating = ovr(image, player)
         want = (gc.decline_exp(exp, age, NAME[sel]) if exp < 0
-                else gc.award_exp(exp, age, rating, min(apps, gc.PLAYTIME_FULL)))
+                else gc.award_exp(exp, age, rating, min(apps, gc.PLAYTIME_FULL), kind))
         assert abs(got - want) < 1e-3, (label, got, want)
     print('ok 3: with the module the exp argument is curve x potential x playtime '
-          '(verified against growth_cave.award_exp) and decline is a quarter except '
-          'physical fields from 31 on (%d cases)' % len(cases))
+          '(verified against growth_cave.award_exp), the playtime factor is left out '
+          'for kind-2 training awards the game already scales by minutes, and decline '
+          'is a quarter except physical fields from 31 on (%d cases)' % len(cases))
 
     # -- 4: the curve fragment alone --------------------------------------------
     stub = 0x700f0000
@@ -214,7 +218,47 @@ def main(exe):
           'growth record (CF finishing, CB defending, GK goalkeeping, the fallback of '
           'a broken position is dribbling); a tracked player is left to hook A')
 
-    # -- 6: the module refuses a wrong game --------------------------------------
+    # -- 6: the training focus runs through the curve (hook C) -------------------
+    INDIVIDUAL, TEAM = 0x036225f8, 0x0362274d
+
+    def training_world(g, menu_code):
+        """A mode object with the training settings on and one player of 18."""
+        g.free_all()
+        holder, mode = g.alloc(size=0x40), g.alloc(size=0x1000000)
+        g.write(holder + 0x30, struct.pack('<I', mode))
+        g.write(MODE_OBJECT, struct.pack('<I', holder))
+        g.write(mode + 0xd62a8c, struct.pack('<I', menu_code))       # individual focus
+        g.write(mode + 0xd62a84, b'\x01')                            # its regime byte
+        g.write(mode + 0xd62a88, struct.pack('<I', 0x42))             # team focus coach
+        g.write(mode + 0xd62a83, b'\x02')                            # the coach level
+        player = g.alloc(craft({0x13: 60}, 18, 9))
+        g.write(mode + 0xe4a528, struct.pack('<II', 5, 77))          # the id it looks up
+        g.replace(0x03822835, lambda game, arg: player)              # PLAYER_RECORD
+        dummy = mode + 0xd10140 + 0x493ec                            # what a miss of the
+        g.replace(gc.GROWTH_REC, lambda game, arg: dummy)            # 50-slot scan returns
+        return mode, player
+
+    def focus_exp(g, which, menu_code, sel):
+        """The exp the training left in the dummy growth record's slot `sel`."""
+        mode, player = training_world(g, menu_code)
+        mult = g.alloc(struct.pack('<I', 50))
+        g.call(which, [player, mult], limit=500000)
+        dummy = mode + 0xd10140 + 0x493ec
+        return struct.unpack_from('<h', g.read(dummy + 0x16 + sel * 2, 2))[0]
+
+    for which, menu_code, sel, label in ((INDIVIDUAL, 10, 10, 'individual focus'),
+                                         (INDIVIDUAL, 1, 1, 'individual focus, other menu code'),
+                                         (TEAM, 10, 0x42, 'team focus')):
+        control = focus_exp(Game(exe), which, menu_code, sel)
+        got = focus_exp(image, which, menu_code, sel)
+        mode, player = training_world(image, menu_code)
+        curve = gc.mult(18) * gc.scale(18, ovr(image, player))
+        assert got == round(control * curve), (label, control, got, control * curve)
+    print('ok 6: with the module the after-match training focus (individual and team) '
+          'runs its exp through the same age curve before the game turns it into '
+          'levels; without the module the exp is the same at every age')
+
+    # -- 7: the module refuses a wrong game --------------------------------------
     for k in range(5):                          # every byte of the award site
         bad = Game(exe)
         tm.poke(bad, gc.AWARD + k, bytes([image.read(gc.AWARD, 5)[k] ^ 0x02]))
@@ -232,20 +276,25 @@ def main(exe):
     tm.poke(bad, gc.AWARD, bytes.fromhex('e9' + '00' * 4))     # already hooked
     lines, _, writes = run(bad, source)
     assert lines[-1].startswith(ALREADY) and not writes, lines
+    bad = Game(exe)
+    old = bytes.fromhex('e8' + '00' * 4)                       # a training call already hooked
+    tm.poke(bad, gc.FOCUS_CALLS[0], old)
+    lines, _, writes = run(bad, source)
+    assert lines[-1].startswith(ALREADY) and not writes, lines
     stick = Game(exe)
     lines, _, writes = run(stick, source, sticky=lambda a: a != gc.CODE_PARTS['E2'][0])
     assert 'could not be written' in lines[-1], lines[-1]
     assert not [w for w in writes if w[0] != gc.CODE_PARTS['E2'][0]], writes
-    print('ok 6: a byte changed at a hook site or a context anchor, a cave not empty, or '
+    print('ok 7: a byte changed at a hook site or a context anchor, a cave not empty, or '
           'a hook already installed: nothing is written; a cave that will not hold the '
           'code leaves the game unchanged')
 
-    # -- 7: the module twice ------------------------------------------------------
+    # -- 8: the module twice ------------------------------------------------------
     image2 = Game(exe)
     run(image2, source)
     lines, _, writes = run(image2, source)
     assert lines[-1].startswith(ALREADY) and not writes, lines
-    print('ok 7: after installation a second run refuses to overwrite itself')
+    print('ok 8: after installation a second run refuses to overwrite itself')
 
     print('all ok')
 
