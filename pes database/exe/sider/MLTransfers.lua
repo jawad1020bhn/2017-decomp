@@ -354,8 +354,8 @@ local CLUBS = {
     { 0x0019c00b, "Moneyball" },         -- Liverpool FC
     { 0x002b002a, "Old-money" },         -- Club Atlético de Madrid
     { 0x001dc01c, "Old-money" },         -- Internazionale Milano
-    { 0x0019000d, "Galactico" },         -- Manchester United
-    { 0x00198006, "Youth elite" },       -- Chelsea FC
+    { 0x0019000d, "Crisis" },             -- Manchester United
+    { 0x00198006, "New-money" },         -- Chelsea FC
     { 0x002cc011, "Moneyball" },         -- Tottenham Hotspur FC
     { 0x0051c021, "Old-money" },         -- SSC Napoli
     { 0x001f8075, "Elite trader" },      -- Borussia Dortmund
@@ -380,7 +380,7 @@ local CLUBS = {
     { 0x0138008c, "Old-money" },         -- CR Flamengo
     { 0x041ec017, "New-money" },         -- Como 1907
     { 0x00310038, "Academy purist" },    -- Real Sociedad de Fútbol
-    { 0x017441c3, "New-money" },         -- Al Hilal SFC
+    { 0x017441c3, "Retirement team" },   -- Al Hilal SFC
     { 0x001d004e, "Selling farm" },      -- Ajax
     { 0x001c0046, "Elite trader" },      -- AS Monaco
     { 0x001d805a, "Elite trader" },      -- PSV

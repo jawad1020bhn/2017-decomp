@@ -977,25 +977,24 @@ In brackets the place in the game's club ranking of the career above.
 
 The 73 named first (the biggest clubs of the data):
 
-- Galactico: Real Madrid (2), Arsenal (4), Manchester United (10)
+- Galactico: Real Madrid (2), Arsenal (4)
 - State-backed: Paris Saint-Germain (1), Manchester City (6)
 - Old-money: Barcelona (3), Bayern (5), Atlético (8), Inter (9), Napoli (13), Juventus
   (15), Roma (16), Fenerbahçe (22), Betis (25), Flamengo (37), Beşiktaş (55),
   River Plate (62), Boca Juniors (63), Marseille (72)
 - Moneyball: Liverpool (7), Tottenham (12), Milan (17), Brighton (26), Bournemouth (30),
   Sunderland (33), Brentford (36), Stuttgart (48), Lens (58), Girona (99)
-- Youth elite: Chelsea (11)
 - Elite trader: Dortmund (14), Leverkusen (27), Atalanta (28), Porto (31),
   Benfica (32), RB Leipzig (35), Monaco (43), PSV (44), Rennes (57), Lille (66),
   Palmeiras (67), Eintracht Frankfurt (69), Celtic (91), Club Brugge (111)
-- New-money: Aston Villa (18), Newcastle (21), Como (38), Al Hilal (41), Al Ahli (106)
-- Retirement team: Galatasaray (20), Al Nassr (60), Fluminense (81), Al Sadd (90),
-  Inter Miami (104), CR Vasco da Gama (112), Al Ittihad (114), Los Angeles FC (152),
-  Los Angeles Galaxy (179), Chicago Fire (186), Toronto FC (209)
+- New-money: Chelsea (11), Aston Villa (18), Newcastle (21), Como (38), Al Ahli (106)
+- Retirement team: Galatasaray (20), Al Hilal (41), Al Nassr (60), Fluminense (81),
+  Al Sadd (90), Inter Miami (104), CR Vasco da Gama (112), Al Ittihad (114),
+  Los Angeles FC (152), Los Angeles Galaxy (179), Chicago Fire (186), Toronto FC (209)
 - Academy purist: Athletic Club (19), Real Sociedad (39), Celta (51), Osasuna (53),
   Freiburg (70)
 - Survival churner: Rayo Vallecano (49), Getafe (64)
-- Crisis: Valencia (52), Lyon (54), Sevilla (76)
+- Crisis: Manchester United (10), Valencia (52), Lyon (54), Sevilla (76)
 - Selling farm: Ajax (42), Sporting CP (50), Feyenoord (86), Braga (89), Anderlecht
   (142), AZ (143), Dinamo Zagreb (145), Genk (150), Salzburg (208), Nordsjælland (272)
 
@@ -1033,9 +1032,9 @@ Every other club draws one of up to eight personas of its group in the club rank
 (`PERSONA_GROUPS`, the ten groups of `CEILING`); which one is fixed by the club's id.
 Naming the 107 clubs changed the persona of 90 of them; 17 had drawn the same one.
 With the file as it is, the 499 clubs of that career come out as: Survival churner 133,
-Mid-table 95, Selling farm 58, Academy purist 50, Crisis 46, Elite trader 35, Moneyball
-30, Old-money 22, New-money 13, Retirement team 11, Galactico 3, State-backed 2, Youth
-elite 1 (version 2: 140, 90, 49, 52, 60, 36, 24, 24, 19, -, 3, 2, -). `club_ids.tsv` lists
+Mid-table 95, Selling farm 58, Academy purist 50, Crisis 47, Elite trader 35, Moneyball
+30, Old-money 22, New-money 13, Retirement team 12, Galactico 2, State-backed 2 (Youth
+elite: none, drawn only by the clubs of its groups) (version 2: 140, 90, 49, 52, 60, 36, 24, 24, 19, -, 3, 2, -). `club_ids.tsv` lists
 every one of them with its id, place, persona and the rating its first eleven is taken
 to have. The ids are those of the data that career was played with; with other data a
 club that is not found simply has no entry of its own. Your own club is never asked:
