@@ -125,6 +125,8 @@ def settings(source):
             entries = {k: float(x) for k, x in re.findall(r'(\w+) = (-?[\d.]+)', body)}
             entries['age'] = tuple(float(x) for x in re.search(r'age = \{ *(-?[\d.]+), *(-?[\d.]+) *\}', body).groups())
             entries['second'] = re.search(r'second = \{ *"(\w+)", *"(\w+)" *\}', body).groups()
+            if re.search(r'\brating = false\b', body):
+                entries['rating'] = False
             kinds.append((name, entries))
         groups = [re.findall(r'"([^"]+)"', group) for group in re.findall(r'\{([^{}]*)\}', text('PERSONA_GROUPS')[1:])]
         clubs = [(int(c, 0), name) for c, name in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *"([^"]+)" *\}', text('CLUBS'))]
@@ -165,8 +167,9 @@ def installed_t(t):
 
 def archetypes_text(kinds):
     """ARCHETYPES as the Lua file writes it, from [(name, entries)]."""
-    return '{\n%s\n}' % '\n'.join('    { "%s", %s, age = { %g, %g }, second = { "%s", "%s" } },' % (
-        (name, ', '.join('%s = %g' % (k, e[k]) for k in mc.GENE_NAMES)) + tuple(e['age']) + tuple(e['second']))
+    return '{\n%s\n}' % '\n'.join('    { "%s", %s, age = { %g, %g }, second = { "%s", "%s" }%s },' % (
+        (name, ', '.join('%s = %g' % (k, e[k]) for k in mc.GENE_NAMES)) + tuple(e['age']) + tuple(e['second'])
+        + (', rating = false' if e.get('rating') is False else '',))
         for name, e in kinds)
 
 
@@ -181,6 +184,8 @@ def some_archetypes(count):
         first = random.choice([0, 63, random.randint(0, 63)])
         e['age'] = (first, random.choice([first, 63, random.randint(first, 63)]))
         e['second'] = tuple(random.sample(mc.CHANNELS, 2))
+        if random.random() < 0.3:                       # one persona in three has no rating limit
+            e['rating'] = False
         kinds.append(('P%d' % (i + 1), e))
     return kinds
 
@@ -1253,7 +1258,7 @@ def main(exe):
                  'percent more often; not against a buyer whose eleven is %d or more points better' % keep) if keep[1]
                 else '  a club keeps its first team no more often than its other players (KEEP_BEST is off)') in lines
         assert {mc.age_shift(t, c) for c in range(3000)} == set(range(-shift, shift + 1))
-        assert len(t.genes) == 14 and len(t.hand) == 180 and t.genes[0] == mc.NEUTRAL
+        assert len(t.genes) == 14 and len(t.hand) == 183 and t.genes[0] == mc.NEUTRAL
         assert all(record[mc.GENE_NAMES.index('knows')] == 255 for record in t.genes) == (scouting == 'false')
         assert h.choose_cases(500, t)[0] > 0
     # the ages alone, moved by up to 2 and up to 5 years: nearly every refusal is one for the age
@@ -1308,7 +1313,7 @@ def main(exe):
         assert h.choose_cases(700, t)[0] > 0
     t, lines = install(source, everything)
     assert [l for l in lines if l.startswith('club personas')] == [
-        'club personas: 13 personas, 180 clubs named, the others by their place in the club ranking; each number up to 20 '
+        'club personas: 13 personas, 183 clubs named, the others by their place in the club ranking; each number up to 20 '
         'percent lower or higher from club to club']
     assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 13
     assert not any('name a club that a later entry names again' in l for l in lines)
