@@ -8,14 +8,17 @@
                                      the exe: ROUTINES, SITES and CONTEXT (test_money.py checks that
                                      MLMoney.lua holds exactly this text)
     python3 money_cave.py lua <PES2017.exe> transfers
-                                     the same for MLTransfers.lua: ROUTINE, SITE, MONEY and CONTEXT
+                                     the same for MLTransfers.lua: ROUTINE, SITE, NEED_ROUTINES,
+                                     NEED_SITES, MONEY and CONTEXT
 
 MLMoney.lua changes up to 25 places of PES2017.exe (sha256 44b0caaa...) and fills a
 piece of unused memory with 13 small routines and their tables. MLTransfers.lua changes
 one place more and fills a second piece (the transfers of the computer clubs; its price
 ceiling was part of MLMoney.lua in its versions 5 and 6). Its routine calls FEE_CODE and
 divides by the 100 and the 1000 at HUNDRED_AT, all in the memory of MLMoney.lua, so it
-writes nothing unless it finds them there (MONEY_NEEDED).
+writes nothing unless it finds them there (MONEY_NEEDED). Since its version 6 it can
+change two places more and fill a third piece with two routines (the position need:
+NEED_PLAN_SOURCE, NEED_PICK_SOURCE; in Python need_slot and need_lowest; test_need.py).
 
 Fee, fcn_038ab832 (MASTER_LEAGUE.md 6.2). The 17 bytes at 0x038ab8db hold the rating part
 of the formula, `9000 * max(0, rating - 68)`, left in edi. They become a call to FEE_CODE:
@@ -283,6 +286,16 @@ KEEP_STEP_AT = CAVE_2 + 0xdf0   # dword: percent added to `keeps` of his club fo
 KEEP_BIGGER_AT = CAVE_2 + 0xdf4  # dword: not against a buyer whose eleven is this many points better than his club's
 KNOWN_AT = CAVE_2 + 0xdf8       # dword: a player of this rating or more is known to every club
 AGE_SHIFT_AT = CAVE_2 + 0xdfc   # dword: the ages of a persona are moved by up to this many years, by club
+# a third piece, in the unused rest of the page of the section .link (MLSimMatch.lua ends at
+# 0x047d6376, MLSimToDate.lua starts at 0x047d6f60): the position need of MLTransfers.lua
+# (written only when NEED is on). The page cannot be written while the game runs: it holds
+# code and two numbers that never change.
+CAVE_3 = 0x047d6400
+CAVE_3_SIZE = 0x150
+NEED_GAP_AT = CAVE_3            # dword: the weakest of the eleven is in need this many rating points below the mean of the others
+NEED_MORE_AT = CAVE_3 + 4       # dword: NEED_BETTER - 1: the search looks above his rating plus this
+NEED_PLAN_CODE = CAVE_3 + 0x10
+NEED_PICK_CODE = CAVE_3 + 0x120
 NO_CEILING = 0xffffffff         # in CEILING_TAB: this level takes any value
 NO_TOP = 0xff                   # in CEILING_TOP: this level takes any rating
 LEVELS = 10
@@ -357,6 +370,21 @@ AI_TAKEN = 0x0365fb16                           # the instruction after the repl
 AI_PICK_RETURNS = (0x03660d58, 0x03660db9)      # where ai_candidates returns to: its two calls in ai_pick_candidate
 TAKE = 0x041293c0                               # adds an id pair to a list (thiscall, one argument)
 RATING = 0x03853b42                             # (player record, -> position or 13, kind) -> rating in al
+# club_squad_plan (fcn_036602e5), the end of its work on one club: mov eax, [ebp - 0x48]
+SQUAD_PLAN = 0x036602e5
+NEED_PLAN_SITE, NEED_PLAN_SITE_OLD = 0x03660b93, bytes.fromhex('8b85b8ffffff')
+# ai_pick_candidate, the lowest overall its caller hands in: mov eax, [ebp + 0x18]; mov edx, [eax]
+NEED_PICK_SITE, NEED_PICK_SITE_OLD = 0x03660c83, bytes.fromhex('8b45188b10')
+AI_FILL_SLOTS = 0x03661b15                      # the only caller of ai_pick_candidate
+LINEUP_RATINGS = 0x03894bcf                     # squad_needs: the loop that puts player and rating into each entry
+PLAN_RECORDS, PLAN_SIZE, PLAN_SLOTS = 0xccb80c, 0x118, 16    # mode data: one record per computer club; slots from +8
+NO_POSITION = 13                                # in a slot: it looks for nobody
+# two bytes of a plan record that the game leaves alone (they follow the byte +0x108 and are 0 in
+# every record of every save looked at): the position of the need slot + 1 (0: the club has none)
+# and the rating its search starts above
+PLAN_NEED_AT = 0x109
+NO_PLAYER_AT = 0x024feb04                       # two dwords: the id pair that stands for "no player"
+ELEVEN = 11                                     # the first entries of the lineup list
 # cup_prize: the amounts for a cup that has no row in the table, by stage (immediates of six mov edi)
 NATIONAL_SITES = ((0x038aa43a, 20000), (0x038aa446, 10000), (0x038aa452, 5000), (0x038aa45e, 1000),
                   (0x038aa46a, 500), (0x038aa476, 300))
@@ -1085,6 +1113,146 @@ BUDGET_S_BYTES = bytes.fromhex('52f72550067b04f73554067b045a8d3401e92fb906ff')
 PRIZE_BYTES = bytes.fromhex('8b44240450e80da50fff83c404e8b37f05ff83782013751c8b4424048b00f72d90087b04f73d54067b045054e8b6a30fff83c408c3')
 BONUS_R_BYTES = bytes.fromhex('505289f0f72594087b04f73554067b0489c65a580375b0c3')
 BONUS_END_BYTES = bytes.fromhex('528b45cc0345b0f72594087b04f73554067b045ac3')
+# The position need of MLTransfers.lua, two routines.
+#
+# NEED_PLAN_SOURCE. Entered by a call from club_squad_plan (ebp = its frame) in the place of
+# `mov eax, [ebp - 0x48]`, where its work on one club ends: the club's plan record has been
+# emptied and the game has written its own slots (a place of the lineup without a player;
+# for a club that counts under 25, its weakest outfield positions). From that frame:
+# [ebp - 0x50] the mode data, [ebp - 0x4c] the number of the club's plan record, [ebp - 0x60]
+# and [ebp - 0x5c] begin and end of the lineup list squad_needs made: entries of 16 bytes,
+# the player's id pair at +0, at +8 a dword with his rating at that position in bits 0-6
+# (the game's rating function, kind 2) and the position in bits 7-13 (0 is the goalkeeper;
+# the game's own list of weak positions leaves him out). The first eleven entries are the
+# eleven. The steps of need_slot() below: the two bytes at PLAN_NEED_AT are cleared; a
+# plan of kind 2 or 3 is left alone (the game puts an age on its slots); the weakest of
+# the eleven (the first of equals) must stand NEED_GAP points or more below the mean of
+# the others; if no slot looks for his position yet, the first empty slot gets it, and
+# the two bytes get position + 1 and his rating + NEED_BETTER - 1 (at most 99). Every
+# register is left as it was, eax as the replaced instruction leaves it.
+#
+# NEED_PICK_SOURCE. Entered by a call from ai_pick_candidate (ebp = its frame) in the place
+# of `mov eax, [ebp + 0x18]; mov edx, [eax]`: edx is the overall above which the club
+# looks. [ebp + 0x10] is the plan record and [ebp + 0xc] -> the position of the slot (the
+# arguments ai_fill_slots, its only caller, hands in). For the position of the need slot
+# edx is raised to the second byte, so that both searches of ai_pick_candidate look only
+# above the player the club has, and the second one, which the game makes from 99 down
+# when 0 is handed in, stays in the rating range of the club's level like the first.
+NEED_PLAN_SOURCE = f'''
+    pushad
+    mov esi, dword ptr [ebp - 0x4c]
+    imul esi, esi, {PLAN_SIZE}
+    add esi, dword ptr [ebp - 0x50]
+    add esi, {PLAN_RECORDS}
+    mov word ptr [esi + {PLAN_NEED_AT}], 0
+    cmp dword ptr [esi + 4], 1
+    ja out
+    mov edi, dword ptr [ebp - 0x60]
+    mov eax, dword ptr [ebp - 0x5c]
+    sub eax, edi
+    cmp eax, {16 * ELEVEN}
+    jb out
+    lea ecx, [edi + {16 * ELEVEN}]
+    xor ebx, ebx
+    push ebx
+    push ebx
+    mov edx, 0x80
+next:
+    mov eax, dword ptr [edi + 4]
+    cmp eax, dword ptr [{NO_PLAYER_AT + 4}]
+    jne has
+    test eax, eax
+    je skip
+    mov ax, word ptr [edi]
+    cmp ax, word ptr [{NO_PLAYER_AT}]
+    je skip
+has:
+    mov eax, dword ptr [edi + 8]
+    and eax, 0x7f
+    add ebx, eax
+    inc dword ptr [esp + 4]
+    cmp eax, edx
+    jae skip
+    mov edx, eax
+    mov dword ptr [esp], edi
+skip:
+    add edi, 0x10
+    cmp edi, ecx
+    jb next
+    pop edi
+    pop ecx
+    dec ecx
+    jle out
+    sub ebx, edx
+    mov eax, edx
+    add eax, dword ptr [{NEED_GAP_AT}]
+    imul eax, ecx
+    cmp ebx, eax
+    jb out
+    add edx, dword ptr [{NEED_MORE_AT}]
+    cmp edx, 99
+    jbe capped
+    mov edx, 99
+capped:
+    mov eax, dword ptr [edi + 8]
+    and eax, 0x3f80
+    push edx
+    xor edi, edi
+    lea ecx, [esi + 0x10]
+    lea ebx, [esi + {0x10 + 16 * PLAN_SLOTS}]
+scan:
+    mov edx, dword ptr [ecx]
+    and edx, 0x3f80
+    cmp edx, eax
+    je same
+    cmp edx, {NO_POSITION << 7}
+    jne taken
+    test edi, edi
+    jne taken
+    mov edi, ecx
+taken:
+    add ecx, 0x10
+    cmp ecx, ebx
+    jb scan
+    pop edx
+    test edi, edi
+    je out
+    mov ecx, dword ptr [edi]
+    and ecx, 0xffffc07f
+    or ecx, eax
+    mov dword ptr [edi], ecx
+    shr eax, 7
+    inc eax
+    mov byte ptr [esi + {PLAN_NEED_AT}], al
+    mov byte ptr [esi + {PLAN_NEED_AT + 1}], dl
+    jmp out
+same:
+    pop edx
+out:
+    popad
+    mov eax, dword ptr [ebp - 0x48]
+    ret
+'''
+NEED_PICK_SOURCE = f'''
+    mov eax, dword ptr [ebp + 0x18]
+    mov edx, dword ptr [eax]
+    push ecx
+    push ebx
+    mov ecx, dword ptr [ebp + 0x10]
+    movzx eax, byte ptr [ecx + {PLAN_NEED_AT}]
+    dec eax
+    mov ebx, dword ptr [ebp + 0xc]
+    cmp eax, dword ptr [ebx]
+    jne done
+    movzx eax, byte ptr [ecx + {PLAN_NEED_AT + 1}]
+    cmp edx, eax
+    jae done
+    mov edx, eax
+done:
+    pop ebx
+    pop ecx
+    ret
+'''
 INCOME_N_BYTES = bytes.fromhex('8d863e56cbffe86d00000089c18b45fcf725ac0d7b04f73554067b0401c8c3')
 WAGES_KEEP_BYTES = bytes.fromhex('8945fc58ff750850e916810cff')
 INCOME_M_BYTES = bytes.fromhex('69c088130000eb04')
@@ -1122,6 +1290,15 @@ CEILING_BYTES = bytes.fromhex(
     '83c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379ec1e81d0fb6'
     '84c878427d046bc01405c8427d04c3')
 assert CEILING_CODE + len(CEILING_BYTES) <= FAME_KNOWN_AT and CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
+NEED_PLAN_BYTES = bytes.fromhex(
+    '608b75b469f6180100000375b081c60cb8cc0066c786090100000000837e04010f87d80000008b7da08b45a429f83db00000000f82c500'
+    '00008d8fb000000031db5353ba800000008b47043b0508eb4f02751085c07421668b07663b0504eb4f0274158b470883e07f01c3ff4424'
+    '0439d0730589c2893c2483c71039cf72c95f59497e7a29d389d0030500647d040fafc139c37269031504647d0483fa637605ba63000000'
+    '8b470825803f00005231ff8d4e108d9e100100008b1181e2803f000039c2743881fa80060000750685ff750289cf83c11039d972df5a85'
+    'ff741f8b0f81e17fc0ffff09c1890fc1e8074088860901000088960a010000eb015a618b45b8c3')
+NEED_PICK_BYTES = bytes.fromhex('8b45188b1051538b4d100fb68109010000488b5d0c3b03750d0fb6810a01000039c2730289c25b59c3')
+
+
 ROUTINES = ((FEE_CODE, FEE_SOURCE, 'FEE_BYTES'), (SALARY_CODE, SALARY_SOURCE, 'SALARY_BYTES'),
             (BUDGET_T_CODE, BUDGET_T_SOURCE, 'BUDGET_T_BYTES'), (BUDGET_S_CODE, BUDGET_S_SOURCE, 'BUDGET_S_BYTES'),
             (PRIZE_CODE, PRIZE_SOURCE, 'PRIZE_BYTES'), (BONUS_R_CODE, BONUS_R_SOURCE, 'BONUS_R_BYTES'),
@@ -1157,6 +1334,7 @@ MAX_KEEP_FROM, MAX_KEEP_STEP, MAX_KEEP_BIGGER = 99, 100, 99      # KEEP_BEST
 MAX_KNOWN, MAX_AGE_SHIFT = 100, 5       # KNOWN_FROM, AGE_SHIFT
 MAX_KNOWN_FAME = 4096                   # KNOWN_FAME: the popularity of a player is 0 to 4095, so 4096 is "no player"
 MAX_STRICT_FREE = 100                   # STRICT_FREE, percent
+MAX_NEED_GAP, MAX_NEED_BETTER = 30, 20  # NEED_GAP, NEED_BETTER: rating points, from 1
 # a persona: the lowest and the highest number each entry takes (GENE_NAMES, then the two ages)
 GENE_LIMITS = {'free': (0, 100), 'listed': (0, 100), 'clubs': (0, 100), 'winter': (0, 100), 'knows': (1, 100),
                'fog': (0, 10), 'wealth': (10, 250), 'premium': (0, 250), 'panic': (0, 250), 'fame': (0, 250),
@@ -1203,6 +1381,9 @@ CONTEXT_CEILING = (
     ('ranking', 0x031b1c34, 138),           # the look-up of a club in the ranking that function uses
     ('rating', RATING, 9),                  # the rating call of the fee function
     ('take', TAKE, 114),                    # the function that adds a player to the candidates, both its returns
+    ('plan', SQUAD_PLAN, 2401),             # club_squad_plan, the whole function: the frame the need routine reads
+    ('fill', AI_FILL_SLOTS, 1098),          # ai_fill_slots, the whole function: what it hands to ai_pick_candidate
+    ('lineup', LINEUP_RATINGS, 111),        # squad_needs: player, position and rating of an entry of the lineup list
 )
 
 
@@ -1243,7 +1424,10 @@ SITES = (('fee', FEE_SITE, FEE_SITE_OLD, FEE_SITE_NEW), ('salary', SALARY_SITE, 
          ('income 4', INCOME_W_SITE, INCOME_W_SITE_OLD, call(INCOME_W_SITE, WAGES_KEEP_CODE) + b'\x90' * 4),
          ) + tuple(('nat %d' % i, at, struct.pack('<I', old), struct.pack('<I', old))
                    for i, (at, old) in enumerate(NATIONAL_SITES)) + (
-         ('transfers', CEILING_SITE, CEILING_SITE_OLD, call(CEILING_SITE, CEILING_CODE) + b'\x90' * 4),)
+         ('transfers', CEILING_SITE, CEILING_SITE_OLD, call(CEILING_SITE, CEILING_CODE) + b'\x90' * 4),
+         ('need plan', NEED_PLAN_SITE, NEED_PLAN_SITE_OLD, call(NEED_PLAN_SITE, NEED_PLAN_CODE) + b'\x90'),
+         ('need pick', NEED_PICK_SITE, NEED_PICK_SITE_OLD, call(NEED_PICK_SITE, NEED_PICK_CODE)))
+TRANSFER_SITES = ('transfers', 'need plan', 'need pick')     # the places of MLTransfers.lua
 assert all(len(old) == len(new) for _, _, old, new in SITES)
 
 
@@ -1313,7 +1497,8 @@ class Tables:
                  young_years=None, talent=None, talent_step=0, talent_max=0, talent_cap=0, income=None,
                  league_by_id=None, cup_national=None, cup_tv=None, income_wages=None, ceiling=None,
                  ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100,
-                 sell=False, scouting=False, persona=None, rivals=None):
+                 sell=False, scouting=False, persona=None, rivals=None, need=None):
+        # need: None, or (gap, better): NEED_GAP and NEED_BETTER of MLTransfers.lua with NEED on
         # persona may also hold: keep (from, step, bigger), known, shift (KEEP_BEST, KNOWN_FROM, AGE_SHIFT) and
         # fame, strict_free (KNOWN_FAME, STRICT_FREE)
         self.value = [clamp(amount(m), 1, CAP) for m in curve(value, 0, 99, True)]
@@ -1387,7 +1572,10 @@ class Tables:
         self.scouting = bool(scouting) and self.has_persona
         self.rivals = [(int(a), int(b)) for a, b in rivals or ()]
         assert len(self.rivals) <= RIVALS
-        self.transfers = self.has_ceiling or self.sell or self.has_persona or bool(self.rivals)
+        self.need = need is not None
+        self.need_gap, self.need_more = (clamp(int(need[0] + 0.5), 1, MAX_NEED_GAP),
+                                         clamp(int(need[1] + 0.5), 1, MAX_NEED_BETTER) - 1) if self.need else (0, 0)
+        self.transfers = self.has_ceiling or self.sell or self.has_persona or bool(self.rivals) or self.need
         # the personas: number 0 is the club of version 1, the others are ARCHETYPES in their order
         self.genes, self.names = [NEUTRAL], ['']
         self.by_level, self.hand = [[0] * BY_LEVEL for _ in range(LEVELS)], []
@@ -1433,7 +1621,7 @@ class Tables:
               'cup 3': self.has_cup, 'league 1': self.has_league, 'league 2': self.has_league_2,
               'prize 1': share, 'prize 2': share, 'pay gap': self.has_gap, 'bonus 1': bonus, 'bonus 2': bonus,
               'years': self.young_years is not None, 'income 1': income or wages, 'income 2': income, 'income 3': income,
-              'income 4': wages, 'transfers': self.transfers}
+              'income 4': wages, 'transfers': self.transfers, 'need plan': self.need, 'need pick': self.need}
         used = []
         for name, at, old, new in SITES:
             if name == 'years' and on[name]:
@@ -1499,6 +1687,37 @@ def image_2(t):
     # the 12 highest bits), with this number: no such dword reaches 0xffffffff
     return d + struct.pack('<7I', min(t.known_fame << 20, M32), t.strict_free, t.keep_from, t.keep_step,
                            t.keep_bigger, t.known, t.age_shift)
+
+
+def image_3(t):
+    """The third piece of memory: the two numbers and the two routines of the position need."""
+    d = struct.pack('<2I', t.need_gap, t.need_more).ljust(NEED_PLAN_CODE - CAVE_3, b'\0') + NEED_PLAN_BYTES
+    assert CAVE_3 + len(d) <= NEED_PICK_CODE
+    d = d.ljust(NEED_PICK_CODE - CAVE_3, b'\0') + NEED_PICK_BYTES
+    assert len(d) <= CAVE_3_SIZE
+    return d.ljust(CAVE_3_SIZE, b'\0')
+
+
+def need_slot(t, eleven, slots, kind=0):
+    """The slot a club gets for its weakest position. eleven: the first entries of its lineup
+    list, (rating, position) or None for a place without a player; slots: the position each
+    of the 16 slots of its plan looks for (NO_POSITION: none); kind: of the plan.
+    -> None, or (slot, position, the overall its search starts above)."""
+    have = [e for e in eleven[:ELEVEN] if e is not None]
+    if t is None or not t.need or kind > 1 or len(eleven) < ELEVEN or len(have) < 2:
+        return None
+    rating, position = min(have, key=lambda e: e[0])         # the first of equals
+    if sum(r for r, _ in have) - rating < (len(have) - 1) * (rating + t.need_gap):
+        return None
+    if position in slots or NO_POSITION not in slots:
+        return None
+    return slots.index(NO_POSITION), position, min(rating + t.need_more, 99)
+
+
+def need_lowest(lowest, position, mark):
+    """The overall ai_pick_candidate looks above: `lowest` as handed in, raised for the
+    position of the need slot. mark: the two bytes at PLAN_NEED_AT of the club's plan."""
+    return max(lowest, mark[1]) if mark[0] == position + 1 else lowest
 
 
 def spread_hash(id_low, id_high):
@@ -1883,6 +2102,8 @@ def build():
     ks = keystone.Ks(keystone.KS_ARCH_X86, keystone.KS_MODE_32)
     out = {name: bytes(ks.asm(source, at)[0]) for at, source, name in ROUTINES}
     out['CEILING_BYTES'] = bytes(ks.asm(CEILING_SOURCE, CEILING_CODE)[0])
+    out['NEED_PLAN_BYTES'] = bytes(ks.asm(NEED_PLAN_SOURCE, NEED_PLAN_CODE)[0])
+    out['NEED_PICK_BYTES'] = bytes(ks.asm(NEED_PICK_SOURCE, NEED_PICK_CODE)[0])
     return out
 
 
@@ -1916,7 +2137,7 @@ def lua_block(exe):
             '-- number in "years" is YOUNG_YEARS and the amounts of the six "nat" places are\n'
             '-- CUP_NATIONAL; they are put in below.)\nlocal SITES = {\n')
     for name, at, old, new in SITES:
-        if name != 'transfers':                              # that place belongs to MLTransfers.lua
+        if name not in TRANSFER_SITES:                       # those places belong to MLTransfers.lua
             out += '    { "%s", 0x%08x, "%s", "%s" },\n' % (name, at, old.hex(), new.hex())
     return (out + '}\n\n-- The code and data those places and the routines rely on: name, address, bytes.\n'
             + context_lua(exe) + '\n')
@@ -1925,10 +2146,20 @@ def lua_block(exe):
 def lua_block_transfers(exe):
     """The lines of MLTransfers.lua from `local ROUTINE` to the end of CONTEXT."""
     (name, at, old, new), = [x for x in SITES if x[0] == 'transfers']
+    need = ('-- The position need: the two routines (offset in the third piece of memory, machine code)\n'
+            '-- and the two places that are changed for it.\nlocal NEED_ROUTINES = {\n')
+    for code_at, code in ((NEED_PLAN_CODE, NEED_PLAN_BYTES), (NEED_PICK_CODE, NEED_PICK_BYTES)):
+        need += '    { 0x%03x, %s },\n' % (code_at - CAVE_3, quoted(code.hex(), 76))
+    need += '}\nlocal NEED_SITES = {\n'
+    for site in SITES:
+        if site[0].startswith('need '):
+            need += '    { "%s", 0x%08x, "%s", "%s" },\n' % (site[0], site[1], site[2].hex(), site[3].hex())
+    need += '}\n\n'
     out = ('local ROUTINE = { 0x%02x, %s }\n\n-- The place that is changed: name, address, bytes there now, bytes to write.\n'
            'local SITE = { "%s", 0x%08x, "%s", "%s" }\n\n'
            '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n' % (
                CEILING_CODE - CAVE_2, quoted(CEILING_BYTES.hex(), 60), name, at, old.hex(), new.hex()))
+    out = out.replace('-- What MLMoney.lua must have', need + '-- What MLMoney.lua must have')
     for name, at, data in MONEY_NEEDED:
         out += '    { "%s", 0x%08x,\n      %s },\n' % (name, at, quoted(data.hex(), 88))
     return (out + '}\n\n-- The code of the game the place and the routine rely on: name, address, bytes.\n'
@@ -1945,8 +2176,11 @@ if __name__ == '__main__':
         print('ok: the source assembles to the bytes kept in this file')
     print('memory   %08x - %08x' % (CAVE, CAVE + CAVE_SIZE - 1))
     print('memory 2 %08x - %08x (MLTransfers.lua)' % (CAVE_2, CAVE_2 + CAVE_2_SIZE - 1))
+    print('memory 3 %08x - %08x (MLTransfers.lua, NEED)' % (CAVE_3, CAVE_3 + CAVE_3_SIZE - 1))
     for name, at, old, new in SITES:
         print('%-9s %08x: %s -> %s' % (name, at, old.hex(), new.hex()))
     for at, _, name in ROUTINES:
         print('%-15s %08x: %s' % (name, at, globals()[name].hex()))
     print('%-15s %08x: %s' % ('CEILING_BYTES', CEILING_CODE, CEILING_BYTES.hex()))
+    print('%-15s %08x: %s' % ('NEED_PLAN_BYTES', NEED_PLAN_CODE, NEED_PLAN_BYTES.hex()))
+    print('%-15s %08x: %s' % ('NEED_PICK_BYTES', NEED_PICK_CODE, NEED_PICK_BYTES.hex()))
