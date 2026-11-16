@@ -13,8 +13,8 @@ id	place	points	level	persona	named	eleven	club
 0x0019c00b	7	1422	9	Moneyball	yes	85	Liverpool FC
 0x002b002a	8	1406	9	Old-money	yes	84	Club Atlético de Madrid
 0x001dc01c	9	1405	9	Old-money	yes	84	Internazionale Milano
-0x0019000d	10	1387	9	Galactico	yes	83	Manchester United
-0x00198006	11	1378	8	Youth elite	yes	83	Chelsea FC
+0x0019000d	10	1387	9	Crisis	yes	83	Manchester United
+0x00198006	11	1378	8	New-money	yes	83	Chelsea FC
 0x002cc011	12	1374	8	Moneyball	yes	83	Tottenham Hotspur FC
 0x0051c021	13	1372	8	Old-money	yes	83	SSC Napoli
 0x001f8075	14	1372	8	Elite trader	yes	83	Borussia Dortmund
@@ -44,7 +44,7 @@ id	place	points	level	persona	named	eleven	club
 0x041ec017	38	1316	7	New-money	yes	80	Como 1907
 0x00310038	39	1314	7	Academy purist	yes	79	Real Sociedad de Fútbol
 0x001a000a	40	1312	7	Mid-table	yes	79	Leeds United FC
-0x017441c3	41	1308	7	New-money	yes	79	Al Hilal SFC
+0x017441c3	41	1308	7	Retirement team	yes	79	Al Hilal SFC
 0x001d004e	42	1308	7	Selling farm	yes	79	Ajax
 0x001c0046	43	1307	7	Elite trader	yes	79	AS Monaco
 0x001d805a	44	1307	7	Elite trader	yes	79	PSV

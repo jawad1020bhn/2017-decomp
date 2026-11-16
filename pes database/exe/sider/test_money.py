@@ -1312,8 +1312,8 @@ def main(exe):
         'percent lower or higher from club to club']
     assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 13
     assert not any('name a club that a later entry names again' in l for l in lines)
-    assert ((t.keep_from, t.keep_step, t.keep_bigger), t.known, t.age_shift) == ((4, 12, 2), 80, 2)
-    assert (t.known_fame, t.strict_free) == (600, 35)
+    assert ((t.keep_from, t.keep_step, t.keep_bigger), t.known, t.age_shift) == ((4, 12, 2), 70, 2)
+    assert (t.known_fame, t.strict_free) == (400, 35)
     twice = settings(source).hand[7][0]
     _, lines = install(source.replace('local CLUBS = {', 'local CLUBS = {\n    { 0x%08x, "Crisis" },' % twice), everything)
     assert ('  note: 1 entries of CLUBS name a club that a later entry names again; the last entry of a club counts') in lines

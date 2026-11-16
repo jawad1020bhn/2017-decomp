@@ -162,15 +162,17 @@ local SCOUTING = true
 
 -- A player of this rating or more is known to every club: nobody overlooks a star.
 -- Below it SCOUTING counts as above. 0 to 100; 100: no player is known to all (version 2).
-local KNOWN_FROM = 80
+-- 70 since this setting: a club no longer overlooks a player rated 70 or more, so the
+-- scouting draw is left to the ones below that (80 before, 80 in version 2).
+local KNOWN_FROM = 70
 
 -- A player of this popularity or more is known to every club as well: a famous name is
 -- not overlooked, whatever his rating. The game keeps a popularity for every player; in
 -- the career the module was set against the highest is 1,110, a player rated 80 to 84 has
--- about 660, and 600 or more have 942 players of 19,921 (509 of them rated under 80);
--- 700 or more, the number of version 4, have 395 (109).
+-- about 660, and 400 or more have a third of the world known by name; 600 or more, the
+-- number of version 5, have 942 of 19,921, and 700 (version 4) have 395.
 -- 0 to 4096; 4096: off, no player is known for his name (version 3). Needs SCOUTING.
-local KNOWN_FAME = 600
+local KNOWN_FAME = 400
 
 -- A player without a contract costs no fee, so a club is less strict about his age: for
 -- him `strict` of the persona (below) counts only this many percent. With 35 a club that
@@ -221,8 +223,9 @@ local WINTER_MONTH = 9
 -- A club that counts fewer players than this is in need: it buys for every position, in
 -- winter too, at any age and below its usual level, so that no squad runs empty. It
 -- still looks in the places of its persona. (A slot of a top club that asks for a key
--- player looks everywhere.) 0 to 32. The game itself aims at 23 to 25 players.
-local SQUAD_NEED = 23
+-- player looks everywhere.) 0 to 32. The game itself aims at 23 to 25 players; 26 is
+-- one player above that, so a club that has not been buying looks for everybody.
+local SQUAD_NEED = 26
 
 -- Position need. In the game a club looks for a player when a place of its eleven has
 -- nobody, or when it counts fewer than 25 players, and then its list of weak positions
@@ -271,44 +274,44 @@ local NEED_BETTER = 1
 -- and prestige: 0 to 99; ages 0 to 63).
 local ARCHETYPES = {
     { "Galactico", free = 25, listed = 10, clubs = 65, second = { "clubs", "free" }, winter = 45,
-      age = { 22, 32 }, strict = 60, knows = 85, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
+      age = { 21, 31 }, strict = 60, knows = 85, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
       ambition = 7, prestige = 12, keeps = 30 },
     { "State-backed", free = 25, listed = 15, clubs = 60, second = { "clubs", "listed" }, winter = 50,
-      age = { 22, 31 }, strict = 70, knows = 85, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
-      ambition = 7, prestige = 10, keeps = 30 },
+      age = { 21, 30 }, strict = 70, knows = 85, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
+      ambition = 7, prestige = 10, keeps = 20 },
     { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 35,
-      age = { 20, 24 }, strict = 85, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
-      ambition = 8, prestige = 6, keeps = 25 },
+      age = { 19, 29 }, strict = 75, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
+      ambition = 8, prestige = 6, keeps = 15 },
     { "Elite trader", free = 15, listed = 20, clubs = 55, second = { "clubs", "listed" }, winter = 35,
-      age = { 19, 23 }, strict = 85, knows = 85, fog = 1, wealth = 100, premium = 60, panic = 60, fame = 0,
+      age = { 18, 25 }, strict = 45, knows = 85, fog = 1, wealth = 100, premium = 60, panic = 60, fame = 0,
       ambition = 9, prestige = 6, keeps = 15 },
     { "Academy purist", free = 15, listed = 15, clubs = 40, second = { "clubs", "free" }, winter = 25,
-      age = { 18, 24 }, strict = 85, knows = 60, fog = 2, wealth = 70, premium = 50, panic = 50, fame = 0,
-      ambition = 12, prestige = 4, keeps = 35 },
+      age = { 17, 25 }, strict = 40, knows = 60, fog = 2, wealth = 70, premium = 50, panic = 50, fame = 0,
+      ambition = 12, prestige = 4, keeps = 25 },
     { "Old-money", free = 30, listed = 20, clubs = 50, second = { "clubs", "free" }, winter = 50,
-      age = { 24, 32 }, strict = 65, knows = 75, fog = 2, wealth = 110, premium = 100, panic = 120, fame = 30,
-      ambition = 7, prestige = 8, keeps = 35 },
+      age = { 23, 32 }, strict = 50, knows = 75, fog = 2, wealth = 110, premium = 100, panic = 120, fame = 30,
+      ambition = 7, prestige = 8, keeps = 20 },
     { "Mid-table", free = 25, listed = 30, clubs = 40, second = { "listed", "clubs" }, winter = 50,
-      age = { 23, 30 }, strict = 45, knows = 70, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
-      ambition = 8, prestige = 4, keeps = 30 },
+      age = { 23, 30 }, strict = 40, knows = 70, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
+      ambition = 8, prestige = 4, keeps = 15 },
     { "Survival churner", free = 40, listed = 35, clubs = 25, second = { "free", "listed" }, winter = 80,
-      age = { 26, 34 }, strict = 60, knows = 60, fog = 3, wealth = 90, premium = 80, panic = 200, fame = 5,
-      ambition = 9, prestige = 4, keeps = 25 },
+      age = { 27, 36 }, strict = 40, knows = 60, fog = 3, wealth = 90, premium = 80, panic = 200, fame = 5,
+      ambition = 9, prestige = 4, keeps = 15 },
     { "Crisis", free = 60, listed = 30, clubs = 10, second = { "free", "listed" }, winter = 70,
-      age = { 17, 36 }, strict = 20, knows = 50, fog = 3, wealth = 50, premium = 30, panic = 100, fame = 0,
+      age = { 17, 38 }, strict = 20, knows = 50, fog = 3, wealth = 50, premium = 30, panic = 100, fame = 0,
       ambition = 12, prestige = 2, keeps = 10 },
     { "New-money", free = 35, listed = 10, clubs = 55, second = { "clubs", "free" }, winter = 60,
-      age = { 24, 33 }, strict = 55, knows = 65, fog = 3, wealth = 250, premium = 200, panic = 150, fame = 30,
-      ambition = 7, prestige = 8, keeps = 35 },
+      age = { 24, 31 }, strict = 60, knows = 65, fog = 3, wealth = 250, premium = 200, panic = 150, fame = 30,
+      ambition = 7, prestige = 8, keeps = 40 },
     { "Selling farm", free = 20, listed = 25, clubs = 40, second = { "listed", "free" }, winter = 40,
-      age = { 18, 23 }, strict = 80, knows = 70, fog = 2, wealth = 60, premium = 40, panic = 50, fame = 0,
-      ambition = 12, prestige = 4, keeps = 10 },
+      age = { 17, 26 }, strict = 60, knows = 70, fog = 2, wealth = 60, premium = 40, panic = 50, fame = 0,
+      ambition = 12, prestige = 4, keeps = 5 },
     { "Youth elite", free = 10, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 30,
-      age = { 19, 25 }, strict = 65, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
-      ambition = 8, prestige = 8, keeps = 35 },
+      age = { 18, 25 }, strict = 45, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
+      ambition = 8, prestige = 8, keeps = 30 },
     { "Retirement team", free = 0, listed = 30, clubs = 65, second = { "listed", "clubs" }, winter = 70,
-      age = { 33, 40 }, strict = 65, knows = 80, fog = 2, wealth = 250, premium = 250, panic = 150, fame = 250,
-      ambition = 4, prestige = 22, keeps = 45 },
+      age = { 32, 40 }, strict = 75, knows = 80, fog = 2, wealth = 250, premium = 250, panic = 150, fame = 250,
+      ambition = 4, prestige = 22, keeps = 5 },
 }
 
 -- The personas a club without an entry in CLUBS draws from, by its place in the game's
@@ -354,8 +357,8 @@ local CLUBS = {
     { 0x0019c00b, "Moneyball" },         -- Liverpool FC
     { 0x002b002a, "Old-money" },         -- Club Atlético de Madrid
     { 0x001dc01c, "Old-money" },         -- Internazionale Milano
-    { 0x0019000d, "Galactico" },         -- Manchester United
-    { 0x00198006, "Youth elite" },       -- Chelsea FC
+    { 0x0019000d, "Crisis" },             -- Manchester United
+    { 0x00198006, "New-money" },         -- Chelsea FC
     { 0x002cc011, "Moneyball" },         -- Tottenham Hotspur FC
     { 0x0051c021, "Old-money" },         -- SSC Napoli
     { 0x001f8075, "Elite trader" },      -- Borussia Dortmund
@@ -380,7 +383,7 @@ local CLUBS = {
     { 0x0138008c, "Old-money" },         -- CR Flamengo
     { 0x041ec017, "New-money" },         -- Como 1907
     { 0x00310038, "Academy purist" },    -- Real Sociedad de Fútbol
-    { 0x017441c3, "New-money" },         -- Al Hilal SFC
+    { 0x017441c3, "Retirement team" },   -- Al Hilal SFC
     { 0x001d004e, "Selling farm" },      -- Ajax
     { 0x001c0046, "Elite trader" },      -- AS Monaco
     { 0x001d805a, "Elite trader" },      -- PSV

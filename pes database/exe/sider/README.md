@@ -805,7 +805,7 @@ What version 3 does about them (three settings, each can be switched off):
 | setting | as shipped | what it does |
 |---|---|---|
 | `KEEP_BEST` | `{ 4, 12, 2 }` | a club holds on to its first team. A player counts as first team if his rating is at most 4 points below the rating of his club's eleven. For each point above that line, 12 percent are added to `keeps` of his club. Not against a buyer whose eleven is 2 or more points better: a club cannot hold a player against a clearly bigger one. Listed players are not kept. Second number 0: off |
-| `KNOWN_FROM` | 80 | a player of this rating or more is known to every club (no scouting draw). 100: off |
+| `KNOWN_FROM` | 70 | a player of this rating or more is known to every club (no scouting draw). 100: off |
 | `AGE_SHIFT` | 2 | the ages of a persona are moved by up to 2 years down or up, fixed by the club: clubs with ages 24-28 want 22-26, 23-27, ... or 26-30. 0: off |
 
 With `KEEP_BEST = { 4, 0, 2 }`, `KNOWN_FROM = 100` and `AGE_SHIFT = 0` the routine does
@@ -816,7 +816,7 @@ further down has the new numbers): Galactico ages 22-30 and strict 70; State-bac
 wealth 160 and premium 150; Survival churner premium 80; Crisis and Selling farm keeps
 10 (was 0); New-money wealth 250 and prestige 8 (was 180 and 3). Two new personas:
 **Youth elite** (pays well for players of 19 to 24 from other clubs) and **Retirement
-team** (players of 33 to 40, the famous ones above all: `fame` 250 and `prestige` 22, so
+team** (players of 32 to 40, the famous ones above all: `fame` 250 and `prestige` 22, so
 it takes a player far above its eleven if his name is worth it). Chelsea is now Youth elite; Al Nassr,
 Inter Miami, Al Ittihad and Al Sadd are Retirement team. In `PERSONA_GROUPS` Crisis is
 drawn less often (46 clubs instead of 60), New-money less often among the first fifty,
@@ -934,7 +934,7 @@ passed them, in this order; "refused" means the club looks at the next player:
    limit is `fame` percent higher. The value is that of the rating of step 5: a club
    with fog misjudges the price too.
 
-**A club in need** is one that counts fewer than `SQUAD_NEED` (23) players. It always
+**A club in need** is one that counts fewer than `SQUAD_NEED` (26) players. It always
 buys, in winter too, at any age and below its usual level, and its ceiling counts
 higher; it still looks in the places of its persona. A slot of a top club that asks for
 a key player (the game does this for one slot of the first ten or twenty clubs on the
@@ -951,19 +951,19 @@ the same way on the same day.
 
 | persona | looks first: free / listed / clubs / does not buy | second search | winter | ages (strict) | knows | fog | wealth | premium | panic | fame | ambition | prestige | keeps |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Galactico | 25 / 10 / 65 / 0 | clubs, free | 45 | 22-32 (60) | 85 | 1 | 150 | 150 | 100 | 40 | 7 | 12 | 30 |
-| State-backed | 25 / 15 / 60 / 0 | clubs, listed | 50 | 22-31 (70) | 85 | 2 | 160 | 150 | 150 | 25 | 7 | 10 | 30 |
-| Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 35 | 20-24 (85) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 25 |
-| Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 35 | 19-23 (85) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 |
-| Academy purist | 15 / 15 / 40 / 30 | clubs, free | 25 | 18-24 (85) | 60 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 35 |
-| Old-money | 30 / 20 / 50 / 0 | clubs, free | 50 | 24-32 (65) | 75 | 2 | 110 | 100 | 120 | 30 | 7 | 8 | 35 |
-| Mid-table | 25 / 30 / 40 / 5 | listed, clubs | 50 | 23-30 (45) | 70 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 30 |
-| Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 26-34 (60) | 60 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 25 |
-| Crisis | 60 / 30 / 10 / 0 | free, listed | 70 | 17-36 (20) | 50 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 |
-| New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-33 (55) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 35 |
-| Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 18-23 (80) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 10 |
-| Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 19-25 (65) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 35 |
-| Retirement team | 0 / 30 / 65 / 5 | listed, clubs | 70 | 33-40 (65) | 80 | 2 | 250 | 250 | 150 | 250 | 4 | 22 | 45 |
+| Galactico | 25 / 10 / 65 / 0 | clubs, free | 45 | 21-31 (60) | 85 | 1 | 150 | 150 | 100 | 40 | 7 | 12 | 30 |
+| State-backed | 25 / 15 / 60 / 0 | clubs, listed | 50 | 21-30 (70) | 85 | 2 | 160 | 150 | 150 | 25 | 7 | 10 | 20 |
+| Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 35 | 19-29 (75) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 15 |
+| Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 35 | 18-25 (45) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 |
+| Academy purist | 15 / 15 / 40 / 30 | clubs, free | 25 | 17-25 (40) | 60 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 25 |
+| Old-money | 30 / 20 / 50 / 0 | clubs, free | 50 | 23-32 (50) | 75 | 2 | 110 | 100 | 120 | 30 | 7 | 8 | 20 |
+| Mid-table | 25 / 30 / 40 / 5 | listed, clubs | 50 | 23-30 (40) | 70 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 15 |
+| Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 27-36 (40) | 60 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 15 |
+| Crisis | 60 / 30 / 10 / 0 | free, listed | 70 | 17-38 (20) | 50 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 |
+| New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-31 (60) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 40 |
+| Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 17-26 (60) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 5 |
+| Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 18-25 (45) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 30 |
+| Retirement team | 0 / 30 / 65 / 5 | listed, clubs | 70 | 32-40 (75) | 80 | 2 | 250 | 250 | 150 | 250 | 4 | 22 | 5 |
 
 "Does not buy" stands for a club that fills a place from its own academy: the module
 cannot make a youth player, it can only keep the club from buying.
@@ -977,25 +977,24 @@ In brackets the place in the game's club ranking of the career above.
 
 The 73 named first (the biggest clubs of the data):
 
-- Galactico: Real Madrid (2), Arsenal (4), Manchester United (10)
+- Galactico: Real Madrid (2), Arsenal (4)
 - State-backed: Paris Saint-Germain (1), Manchester City (6)
 - Old-money: Barcelona (3), Bayern (5), Atlético (8), Inter (9), Napoli (13), Juventus
   (15), Roma (16), Fenerbahçe (22), Betis (25), Flamengo (37), Beşiktaş (55),
   River Plate (62), Boca Juniors (63), Marseille (72)
 - Moneyball: Liverpool (7), Tottenham (12), Milan (17), Brighton (26), Bournemouth (30),
   Sunderland (33), Brentford (36), Stuttgart (48), Lens (58), Girona (99)
-- Youth elite: Chelsea (11)
 - Elite trader: Dortmund (14), Leverkusen (27), Atalanta (28), Porto (31),
   Benfica (32), RB Leipzig (35), Monaco (43), PSV (44), Rennes (57), Lille (66),
   Palmeiras (67), Eintracht Frankfurt (69), Celtic (91), Club Brugge (111)
-- New-money: Aston Villa (18), Newcastle (21), Como (38), Al Hilal (41), Al Ahli (106)
-- Retirement team: Galatasaray (20), Al Nassr (60), Fluminense (81), Al Sadd (90),
-  Inter Miami (104), CR Vasco da Gama (112), Al Ittihad (114), Los Angeles FC (152),
-  Los Angeles Galaxy (179), Chicago Fire (186), Toronto FC (209)
+- New-money: Chelsea (11), Aston Villa (18), Newcastle (21), Como (38), Al Ahli (106)
+- Retirement team: Galatasaray (20), Al Hilal (41), Al Nassr (60), Fluminense (81),
+  Al Sadd (90), Inter Miami (104), CR Vasco da Gama (112), Al Ittihad (114),
+  Los Angeles FC (152), Los Angeles Galaxy (179), Chicago Fire (186), Toronto FC (209)
 - Academy purist: Athletic Club (19), Real Sociedad (39), Celta (51), Osasuna (53),
   Freiburg (70)
 - Survival churner: Rayo Vallecano (49), Getafe (64)
-- Crisis: Valencia (52), Lyon (54), Sevilla (76)
+- Crisis: Manchester United (10), Valencia (52), Lyon (54), Sevilla (76)
 - Selling farm: Ajax (42), Sporting CP (50), Feyenoord (86), Braga (89), Anderlecht
   (142), AZ (143), Dinamo Zagreb (145), Genk (150), Salzburg (208), Nordsjælland (272)
 
@@ -1033,9 +1032,9 @@ Every other club draws one of up to eight personas of its group in the club rank
 (`PERSONA_GROUPS`, the ten groups of `CEILING`); which one is fixed by the club's id.
 Naming the 107 clubs changed the persona of 90 of them; 17 had drawn the same one.
 With the file as it is, the 499 clubs of that career come out as: Survival churner 133,
-Mid-table 95, Selling farm 58, Academy purist 50, Crisis 46, Elite trader 35, Moneyball
-30, Old-money 22, New-money 13, Retirement team 11, Galactico 3, State-backed 2, Youth
-elite 1 (version 2: 140, 90, 49, 52, 60, 36, 24, 24, 19, -, 3, 2, -). `club_ids.tsv` lists
+Mid-table 95, Selling farm 58, Academy purist 50, Crisis 47, Elite trader 35, Moneyball
+30, Old-money 22, New-money 13, Retirement team 12, Galactico 2, State-backed 2 (Youth
+elite: none, drawn only by the clubs of its groups) (version 2: 140, 90, 49, 52, 60, 36, 24, 24, 19, -, 3, 2, -). `club_ids.tsv` lists
 every one of them with its id, place, persona and the rating its first eleven is taken
 to have. The ids are those of the data that career was played with; with other data a
 club that is not found simply has no entry of its own. Your own club is never asked:
@@ -1084,11 +1083,11 @@ not touched.
 | `PERSONA_SPREAD` (0 to 50) | 20: each number of a persona up to 20 percent lower or higher from club to club |
 | `STRENGTH` | `{ 0.0533, 9.45 }`: rating of the first eleven = 0.0533 x ranking points + 9.45, kept inside the club's rating range. Fits the mean of the best eleven of the 499 clubs of the career above (1,464 points: 87; 984 points: 62) |
 | `WINTER_MONTH` (0 to 12) | 9: the clubs choose their winter signings on 1 September; 0: winter is like summer |
-| `SQUAD_NEED` (0 to 32) | 23: with fewer players a club is in need |
+| `SQUAD_NEED` (0 to 32) | 26: with fewer players a club is in need |
 | `KEEP_BEST` (0 to 99, 0 to 100, 0 to 99) | `{ 4, 12, 2 }`, version 3: see "New in version 3" |
 | `KNOWN_FROM` (0 to 100) | 80, version 3 |
 | `AGE_SHIFT` (0 to 5) | 2, version 3 |
-| `KNOWN_FAME` (0 to 4096) | 600 (version 4: 700): see "New in version 4" |
+| `KNOWN_FAME` (0 to 4096) | 400 (version 5: 600, version 4: 700): see "New in version 4" |
 | `STRICT_FREE` (0 to 100) | 35 (version 4: 50) |
 | `ARCHETYPES` | the thirteen personas above (at most 15) |
 | `PERSONA_GROUPS` | ten lists of 1 to 8 persona names, best clubs first |
