@@ -279,7 +279,7 @@ DEFAULT_CARD_POS_W = (2, 18, 16, 20, 14, 10, 8, 7, 7, 8)
 # Version 8: the position decides most of who scores, the ability less (version 7 had
 # (0, -14, -12, -12, -12, -7, 0, 0, 0, 4, 4, 8, 8) with sharpness 0.11, which gave the
 # centre forward half of all goals and the best scorer 47% of his club's goals).
-DEFAULT_SCORER_POS_ADJ = (0, -22, -24, -24, -18, -4, 6, 6, 8, 8, 8, 12, 14)
+DEFAULT_SCORER_POS_ADJ = (0, -22, -24, -24, -18, -4, 6, 6, 8, 10, 10, 12, 12)
 DEFAULT_ASSIST_POS_ADJ = (0, -20, -10, -10, -8, 0, 2, 2, 6, 4, 4, 0, 0)
 
 # Draw tempo multipliers for 5 tempo bands (tempo = (ATK_H - DEF_A) + (ATK_A - DEF_H))
@@ -300,7 +300,7 @@ GK_BASELINE = 82
 # Default settings (matching MLSimMatch.lua v8)
 DEFAULT_SETTINGS = {
     "SCOPE": "all",
-    "HOME_ADVANTAGE": 1.6,
+    "HOME_ADVANTAGE": 2.5,
     "ELO_SCALE": 4.0,
     "BASE_DRAW": 0.28,
     "CAPTAIN_WEIGHT": 0.125,
@@ -552,7 +552,9 @@ def pack_tables(settings=None):
     if settings:
         s.update(settings)
     scope_int = 1 if s["SCOPE"] == "skip_only" else 0
-    home_adv_int = int(round(s["HOME_ADVANTAGE"]))
+    # Lua's round() is half-up (math.floor(x + 0.5)); Python's round() is half-even,
+    # so a half-integer HOME_ADVANTAGE like 2.5 would pack as 2 here but 3 in the Lua.
+    home_adv_int = int(math.floor(s["HOME_ADVANTAGE"] + 0.5))
     cap_div = int(round(1.0 / s["CAPTAIN_WEIGHT"])) if s["CAPTAIN_WEIGHT"] > 0 else 0
     cfg = struct.pack("<IiII", scope_int, home_adv_int, cap_div, 0x4D4C5335)  # "MLS5"
 
