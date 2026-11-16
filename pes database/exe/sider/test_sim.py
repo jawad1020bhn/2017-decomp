@@ -1759,6 +1759,16 @@ def main(exe):
     gk_lo_draw = sum(sum(h.run_score(2, 78, 78)) for _ in range(1000))
     assert gk_hi_draw + 300 < gk_lo_draw, (gk_hi_draw, gk_lo_draw)
 
+    # calc_gk_delta (version 8): a keeper rated GK_BASELINE = 82 is neutral, and the
+    # machine code agrees with compute_gk_delta for every rating
+    score_code = bytes.fromhex(sc.CODE_PARTS["score"][1])
+    gkd = sc.CODE_PARTS["score"][0] + score_code.index(bytes.fromhex("515283e8")) - 9  # push ecx; push edx; sub eax, imm8
+    gk_delta = lambda gk: (g.call(gkd, [], eax=gk) ^ 0x80000000) - 0x80000000
+    assert sc.GK_BASELINE == 82
+    assert [sc.compute_gk_delta(x) for x in (62, 76, 79, 80, 82, 84, 85, 92, 99)] == [-4, -2, -1, 0, 0, 0, 1, 3, 5]
+    for gk in range(1, 110):
+        assert gk_delta(gk) == sc.compute_gk_delta(gk), (gk, gk_delta(gk))
+
     # GK_SCORE_MOD=false disables GK delta & clean-sheet boost
     h.restore()
     l2, _, _ = run(g, set_lua(source, "GK_SCORE_MOD", "false"))
@@ -1768,8 +1778,9 @@ def main(exe):
     h.alloc_player(*h_gk_ids[0], team_id=100, ovr=68, pos=0, arrow=0, fitness=100)
     off_lo = sum(h.run_score(0, 78, 78)[1] for _ in range(500))
     assert abs(off_hi - off_lo) <= 25, (off_hi, off_lo)
+    assert gk_delta(92) == 0 and gk_delta(62) == 0
     h.clear_squads()
-    print(f"ok 23: GK_SCORE_MOD (1.5x GK arrow, GK_delta, CS boost: elite {elite_conceded/1000:.2f} GA / {elite_cs/10:.1f}% CS vs weak {weak_conceded/1000:.2f} GA / {weak_cs/10:.1f}% CS) verified")
+    print(f"ok 23: GK_SCORE_MOD (1.5x GK arrow, GK_delta with neutral keeper 82 = mirror for 1..109, CS boost: elite {elite_conceded/1000:.2f} GA / {elite_cs/10:.1f}% CS vs weak {weak_conceded/1000:.2f} GA / {weak_cs/10:.1f}% CS) verified")
 
     # 20. Coexistence with MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order
     del h

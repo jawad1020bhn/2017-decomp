@@ -7,7 +7,7 @@
                                    print the generated tables/hooks block for MLSimMatch.lua
                                    (test_sim.py checks that MLSimMatch.lua matches this)
 
-MLSimMatch.lua (version 7) improves simulated matches (Skip Match and AI-vs-AI) in
+MLSimMatch.lua (version 8) improves simulated matches (Skip Match and AI-vs-AI) in
 PES 2017 (sha256 44b0caaa...):
 
   1. Outcome probabilities (hook at 0x03707d56 inside fcn_03707a1f, cave .reloc):
@@ -288,7 +288,13 @@ DRAW_TEMPO_SCALES = (
     (0.55, 0.95, 1.55, 2.10, 2.80),  # tempo >= +10 (open shootout)
 )
 
-# Default settings (matching MLSimMatch.lua v7)
+# A goalkeeper rated GK_BASELINE neither adds nor removes goals (calc_gk_delta); it is
+# also the rating eff_strength and score_hook assume when no goalkeeper is known.
+# Version 7 had 76, which made the keepers of the best clubs (80 to 92) all count as
+# far above average.
+GK_BASELINE = 82
+
+# Default settings (matching MLSimMatch.lua v8)
 DEFAULT_SETTINGS = {
     "SCOPE": "all",
     "HOME_ADVANTAGE": 2.4,
@@ -730,13 +736,13 @@ def compute_gk_eff_ovr(base_ovr, arrow, fitness, *, settings=None):
 
 
 def compute_gk_delta(gk_eff, *, settings=None):
-    """Exact Python mirror of calc_gk_delta: clamp((gk_eff - 76) / 3, -4, 5)."""
+    """Exact Python mirror of calc_gk_delta: clamp((gk_eff - GK_BASELINE) / 3, -4, 5)."""
     s = dict(DEFAULT_SETTINGS)
     if settings:
         s.update(settings)
     if not s["GK_SCORE_MOD"]:
         return 0
-    return max(-4, min(5, int((gk_eff - 76) / 3)))
+    return max(-4, min(5, int((gk_eff - GK_BASELINE) / 3)))
 
 
 def compute_sim_vec_weights(pos, finish, atk_prowess, header, low_pass, lofted_pass, arrow, fitness, *, settings=None):
@@ -1386,7 +1392,7 @@ def assemble():
 
     eff_ret_empty:
         mov eax, ebx
-        mov edx, 0x4c
+        mov edx, {GK_BASELINE}
         shl edx, 16
         mov dh, bl
         mov dl, bl
@@ -1974,13 +1980,13 @@ def assemble():
         mov ecx, eax
         shl ecx, 8
         or ecx, eax
-        or ecx, 0x004c0000
+        or ecx, 0x{GK_BASELINE << 16:08x}
         mov eax, edi
         and eax, 0xff
         mov edx, eax
         shl edx, 8
         or edx, eax
-        or edx, 0x004c0000
+        or edx, 0x{GK_BASELINE << 16:08x}
 
     score_ad_ready:
         mov eax, ecx
@@ -2160,7 +2166,7 @@ def assemble():
         je gkd_zero
         push ecx
         push edx
-        sub eax, 76
+        sub eax, {GK_BASELINE}
         cdq
         mov ecx, 3
         idiv ecx
@@ -2990,7 +2996,7 @@ CODE_PARTS = {
         "d1ea01d031d2f7f183f8287d05b82800000083f8637e05b86300000089c78b"
         "458085c0750289f8c1e01089fac1e20809f209c289d8eb5a85c9743183f90c"
         "772083f904761083f90574168d140001559483459002c38d140001558c8345"
-        "8802c3014594ff459001458cff4588c389d8ba4c000000c1e21088de88daeb"
+        "8802c3014594ff459001458cff4588c389d8ba52000000c1e21088de88daeb"
         "148b458085c0750289d889c2c1e21088de88da89d85f5e5b89ec5dc3",
     ),
     "player_eff_ovr": (
@@ -3032,8 +3038,8 @@ CODE_PARTS = {
         0x047d57b0,
         "89d98b5030b8dc3b7d04ffd084c0750c8b45088b00b971607003ffe153a1a0"
         "3f7d040b05c43f7d040b05f03f7d04741889d98b530ce856f8ffff5289d98b"
-        "5310e84bf8ffff59eb2889f025ff00000089c1c1e10809c181c900004c0089"
-        "f825ff00000089c2c1e20809c281ca00004c0089c8c1e81025ff00000050e8"
+        "5310e84bf8ffff59eb2889f025ff00000089c1c1e10809c181c90000520089"
+        "f825ff00000089c2c1e20809c281ca0000520089c8c1e81025ff00000050e8"
         "8a0100005089d0c1e81025ff00000050e879010000508b45088b0083f8020f"
         "84df0000008b3d543a7d040fb6f101fe0fb6cd01f90fb6da0fb6d685c07518"
         "29d62b342429d9034c24088b54240c6a005289f089ceeb1629cb2b5c240829"
@@ -3047,7 +3053,7 @@ CODE_PARTS = {
         "7d04007507bb02000000eb1a31db83f8f67e134383f8fc7e0d4383f8037e07"
         "4383f8097e01436bdb0581c3e55f7d04b9ff000000b8603c7d04ffd031c90f"
         "b6140b39d072064183f90472f288c883c4105bba10617003ffe2833df03f7d"
-        "04007424515283e84c99b903000000f7f95a5983f8fc7d05b8fcffffff83f8"
+        "04007424515283e85299b903000000f7f95a5983f8fc7d05b8fcffffff83f8"
         "057e05b805000000c331c0c331f683f8fa7e1f4683f8ff7e194683f8037e13"
         "4683f8077e0d4683f80b7e074683f80f7e014689f0c3",
     ),
