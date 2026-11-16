@@ -56,7 +56,8 @@ MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and
 CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
 READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
-CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE),)
+# (the third piece, of the position need, only with NEED on)
+CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE))
 READS_2 = tuple((at, n) for _, at, n in mc.CONTEXT_CEILING) + CAVE_2
 # ai_candidates: its two calls in ai_pick_candidate (the call, where it returns to), and what it asks
 CHOOSE_CALLS = ((0x03660d53, 0x03660d58), (0x03660db4, 0x03660db9))
@@ -64,13 +65,14 @@ PICK_SEARCHED = 0x03660dce      # ai_pick_candidate: the first instruction after
 STEPS = 100000                  # instructions after which a run of the choosing code is given up (planted faults)
 RECORD_BY_ID, TODAY, FOREIGN_RULE, SQUAD_RULE = 0x03822663, 0x038ae451, 0x0388bce3, 0x0388f107
 ALL_SITES = tuple((at, len(old)) for _, at, old, _ in mc.SITES)
+MONEY_SITES = tuple((at, len(old)) for name, at, old, _ in mc.SITES if name not in mc.TRANSFER_SITES)
 INSTALLED = 'RESULT: installed. Changed: '
 CEILING_LABEL = 'price ceiling of the computer clubs'
 # the RESULT lines of MLTransfers.lua
-LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting', 'rivals')
+LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting', 'rivals', 'position need')
 INSTALLED_T = INSTALLED + ', '.join(LABELS_T) + '.'
-OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off and RIVALS is empty: the computer clubs '
-         'choose as in the game.')
+OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE, PERSONA and NEED are off and RIVALS is empty: the computer '
+         'clubs choose as in the game.')
 NO_MONEY = 'RESULT: nothing written. MLMoney.lua is not installed'
 OTHER_MONEY = 'RESULT: nothing written. The MLMoney.lua that is installed is not the version'
 ALREADY = "RESULT: nothing written. The game's choosing code is changed already"
@@ -130,6 +132,8 @@ def settings(source):
                  if re.search(r'^local %s = ' % name, source, re.M)}
         return dict(archetypes=kinds, groups=groups, clubs=clubs, spread=number('PERSONA_SPREAD'),
                     strength=numbers('STRENGTH'), winter=number('WINTER_MONTH'), squad=number('SQUAD_NEED'), **newer)
+    # (a file of version 5 or older has no NEED)
+    need = (number('NEED_GAP'), number('NEED_BETTER')) if re.search(r'^local NEED = true$', source, re.M) else None
     rivals = [(int(a, 0), int(b, 0)) for a, b in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *(0x[0-9a-fA-F]+|\d+) *\}', text('RIVALS'))]
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
     return mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
@@ -139,12 +143,13 @@ def settings(source):
                      number('TALENT_MAX'), number('TALENT_CAP'), number('INCOME'), by_id(), numbers('CUP_NATIONAL'),
                      knots('CUP_TV'), number('INCOME_WAGES'), numbers('CEILING'), text('CEILING_RATING') == 'true',
                      number('CEILING_STRETCH'), number('CEILING_NEED'), number('CEILING_LISTED'), number('CEILING_FREE'),
-                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals)
+                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need)
 
 
 def installed_t(t):
     """The RESULT line of MLTransfers.lua for these settings."""
-    parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting, bool(t.rivals)), LABELS_T) if on]
+    parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting, bool(t.rivals), t.need),
+                                        LABELS_T) if on]
     return INSTALLED + ', '.join(parts) + '.' if parts else OFF_T
 
 
@@ -998,7 +1003,8 @@ def main(exe):
         if t is not None and t.bonus is not None:
             h.bonus_routines(200, t)
         chosen = h.choose_cases(max(160, n // 4), t)
-        assert (chosen[0] > 0) == (t is not None and t.transfers), chosen
+        # (the position need alone puts the routine in with nothing for it to refuse)
+        assert (chosen[0] > 0) == (t is not None and (t.has_ceiling or t.sell or t.has_persona or bool(t.rivals))), chosen
         return cups, leagues
 
     def names(t):
@@ -1018,6 +1024,8 @@ def main(exe):
         assert inside(writes, CAVE + places + (CAVE_2 if ceiling else ())), writes
         assert g.read(mc.CAVE, mc.CAVE_SIZE) == mc.image(t), 'the tables or routines differ from money_cave.py'
         assert g.read(mc.CAVE_2, mc.CAVE_2_SIZE) == (mc.image_2(t) if ceiling else b'\0' * mc.CAVE_2_SIZE), 'ceiling'
+        assert g.read(mc.CAVE_3, mc.CAVE_3_SIZE) == (mc.image_3(t) if t.need else b'\0' * mc.CAVE_3_SIZE), 'need'
+        assert ((mc.CAVE_3, mc.CAVE_3_SIZE) in writes) == t.need
         for name, at, old, _ in mc.SITES:
             assert g.read(at, len(old)) == (used[name][2] if name in used else old), name
         assert [l.split()[1] + (' ' + l.split()[2] if l.split()[3] == 'at' else '') for l in lines if l.startswith('written:')] == list(used)
@@ -1048,9 +1056,10 @@ def main(exe):
     # 1. the module as it is
     money_text, transfers_text = source.split(SPLIT)
     assert mc.lua_block(exe) in money_text, 'ROUTINES, SITES or CONTEXT of MLMoney.lua are not what money_cave.py makes'
-    assert mc.lua_block_transfers(exe) in transfers_text, 'ROUTINE, SITE, MONEY or CONTEXT of MLTransfers.lua are not what money_cave.py makes'
+    assert mc.lua_block_transfers(exe) in transfers_text, 'ROUTINE, SITE, NEED_ROUTINES, NEED_SITES, MONEY or CONTEXT of MLTransfers.lua are not what money_cave.py makes'
     assert 'eiling' not in money_text.split('local m = {}')[1], 'MLMoney.lua still holds a part of the ceiling'
-    assert mc.build() == {name: getattr(mc, name) for name in [r[2] for r in mc.ROUTINES] + ['CEILING_BYTES']} if KEYSTONE else True
+    assert mc.build() == {name: getattr(mc, name) for name in [r[2] for r in mc.ROUTINES] + [
+        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES']} if KEYSTONE else True
     everything = ('values, salaries, transfer budget, cup prizes, league prizes, prizes into the transfer budget, '
                   'pay gap, salary bonuses, contract years, yearly income, national cup prizes, '
                   'price ceiling of the computer clubs')
@@ -1103,7 +1112,7 @@ def main(exe):
     # 3. the switches, and settings at their limits
     optional = ('SALARY', 'BUDGET_TRANSFER', 'BUDGET_SALARY', 'CUP', 'LEAGUE', 'LEAGUE_2', 'PRIZE_TO_BUDGET',
                 'PAY_GAP', 'BONUS', 'YOUNG_YEARS', 'TALENT', 'INCOME', 'LEAGUE_BY_ID', 'CUP_NATIONAL', 'CUP_TV',
-                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS')
+                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS', 'NEED')
 
     def only(**kept):
         """The module with every optional part off but the ones named (None: as in the file)."""
@@ -1131,7 +1140,7 @@ def main(exe):
              ('INCOME', '150', 'yearly income'), ('INCOME_WAGES', None, 'yearly income'),
              ('CUP_NATIONAL', None, 'national cup prizes'), ('CEILING', None, 'price ceiling of the computer clubs'),
              # the two other parts of MLTransfers.lua: MLMoney.lua reports nothing for them
-             ('SELL_SIDE', None, None), ('PERSONA', None, None), ('RIVALS', None, None),
+             ('SELL_SIDE', None, None), ('PERSONA', None, None), ('RIVALS', None, None), ('NEED', None, None),
              # these three change no place of their own: the talent bonus is part of the fee
              # routine, a list by league needs LEAGUE, television money needs CUP
              ('TALENT', None, None), ('LEAGUE_BY_ID', None, None), ('CUP_TV', None, None))
@@ -1389,10 +1398,11 @@ def main(exe):
         if part == 1:
             assert said[0] == INSTALLED + rest + '.', (name, said)
             tables = settings(SPLIT.join((source.split(SPLIT)[0], transfers_text)))      # the settings of MLTransfers.lua may be faulty
-            money = tuple((at, len(old)) for n, at, old, _ in tables.sites() if n != 'transfers')
+            money = tuple((at, len(old)) for n, at, old, _ in tables.sites() if n not in mc.TRANSFER_SITES)
             assert inside(reads, READS + READS_2 + money), name
             assert inside(writes, CAVE + money + (CAVE_2 if may_write_cave == 2 else ())), (name, writes)
             assert (mc.CAVE_2, mc.CAVE_2_SIZE) in writes if may_write_cave == 2 else True, name
+            assert (mc.CAVE_3, mc.CAVE_3_SIZE) not in writes or tables.need, name
             assert all(g.read(a, len(d)) == d for a, d in before if (a, len(d)) in READS_2), name
             return lines
         assert said[1].startswith(NO_MONEY), (name, said)
@@ -1423,11 +1433,19 @@ def main(exe):
                             'RESULT: nothing written. This game', part=1)
             assert [l for l in lines if l.endswith('DIFFERENT')] == ['check: %-13s at %08x  DIFFERENT' % (name, at)], lines
             flips_t += 1
-    for where in (0, mc.CAVE_2_SIZE // 2, mc.CAVE_2_SIZE - 1):
-        lines = refused('memory 2 in use', source, lambda: poke(g, mc.CAVE_2 + where, b'\x01'),
-                        'RESULT: nothing written. This game', part=1)
-        assert [l for l in lines if l.endswith('NOT EMPTY')] == ['check: %-13s at %08x  NOT EMPTY' % ('free memory', mc.CAVE_2)]
-        assert not any(l.endswith('DIFFERENT') for l in lines), lines
+    for cave, size in CAVE_2:
+        for where in (0, size // 2, size - 1):
+            lines = refused('memory 2 in use', source, lambda: poke(g, cave + where, b'\x01'),
+                            'RESULT: nothing written. This game', part=1)
+            assert [l for l in lines if l.endswith('NOT EMPTY')] == ['check: %-13s at %08x  NOT EMPTY' % ('free memory', cave)]
+            assert not any(l.endswith('DIFFERENT') for l in lines), lines
+    # with NEED off its memory is not looked at
+    h.restore()
+    poke(g, mc.CAVE_3, b'\x01')
+    lines, _, writes = run(g, setting(source, 'NEED', 'false', part=1))
+    assert results(lines)[1] == INSTALLED_T.replace(', position need', '') and not any(l.endswith('NOT EMPTY') for l in lines)
+    assert (mc.CAVE_3, mc.CAVE_3_SIZE) not in writes and g.read(mc.CAVE_3, mc.CAVE_3_SIZE) == b'\x01'.ljust(mc.CAVE_3_SIZE, b'\0')
+    assert all(g.read(at, len(old)) == old for name, at, old, _ in mc.SITES if name.startswith('need '))
     # MLTransfers.lua and MLMoney.lua: alone, before it, with another MLMoney.lua in the
     # game, a second time
     def on_its_own(prepare, last, found):
@@ -1447,13 +1465,14 @@ def main(exe):
     h.restore()
     lines, _, writes = run(g, SPLIT.join((transfers_text, money_text)))          # the wrong order in sider.ini
     assert results(lines)[0].startswith(NO_MONEY) and results(lines)[1] == INSTALLED + rest + '.', results(lines)
-    assert inside(writes, CAVE + ALL_SITES[:-1]) and g.read(mc.CEILING_SITE, 9) == mc.CEILING_SITE_OLD
+    assert inside(writes, CAVE + MONEY_SITES) and all(
+        g.read(at, len(old)) == old for name, at, old, _ in mc.SITES if name in mc.TRANSFER_SITES)
     on_its_own(lambda: (money_in(), poke(g, mc.MARK_AT, b'XLM7')), NO_MONEY, 'NOT FOUND')
     money_in()                                               # another version number with the same value routine will do
     poke(g, mc.MARK_AT, b'MLM9')
     lines, _, writes = run(g, transfers_text)
     assert results(lines) == [INSTALLED_T] and 'check: MLMoney.lua   at %08x  installed, version 9' % mc.MARK_AT in lines
-    assert writes == [(mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CEILING_SITE, 9)], writes
+    assert writes == list(CAVE_2) + [(at, len(old)) for name, at, old, _ in mc.SITES if name in mc.TRANSFER_SITES], writes
     needed = 0
     for name, at, data in mc.MONEY_NEEDED:
         for where in sorted({at, at + len(data) // 2, at + len(data) - 1}):
@@ -1464,7 +1483,7 @@ def main(exe):
     assert all(mc.CAVE <= at and at + len(data) <= mc.CAVE + mc.CAVE_SIZE for _, at, data in mc.MONEY_NEEDED)
     on_its_own(lambda: install(source, everything), ALREADY, 'installed, version ' + mc.MARK[3:].decode())
     for name, at, old, _ in mc.SITES:                        # every changed place lies inside a checked piece
-        pieces = mc.CONTEXT_CEILING if name == 'transfers' else mc.CONTEXT
+        pieces = mc.CONTEXT_CEILING if name in mc.TRANSFER_SITES else mc.CONTEXT
         assert any(a <= at and at + len(old) <= a + n for _, a, n in pieces), hex(at)
     assert mc.CAVE + mc.CAVE_SIZE <= mc.CAVE_LIMIT <= mc.CAVE_2 and mc.CAVE_2 + mc.CAVE_2_SIZE <= mc.CAVE_2_LIMIT
     for where in (0, mc.CAVE_SIZE // 2, mc.CAVE_SIZE - 1):
@@ -1512,7 +1531,12 @@ def main(exe):
            ('CUP_TV: entry 2 is not', source.replace('{ 3, 5.5 } }', '{ 3, 2001 } }')), ('CUP_TV is not', setting(source, 'CUP_TV', '24')),
            ('CUP_NATIONAL is not a list of 6', setting(source, 'CUP_NATIONAL', '{ 3, 2, 1, 0.5, 0.2 }')),
            ('CUP_NATIONAL: entry 6 is not', setting(source, 'CUP_NATIONAL', '{ 3, 2, 1, 0.5, 0.2, 0 }')))
-    bad_t = (('WRITE is not true or false', setting(source, 'WRITE', '1', part=1)),
+    bad_t = (('NEED is not true or false', setting(source, 'NEED', '1')),
+             ('NEED_GAP is not a number from 1 to 30', setting(source, 'NEED_GAP', '0')),
+             ('NEED_GAP is not a number from 1 to 30', setting(source, 'NEED_GAP', '31')),
+             ('NEED_BETTER is not a number from 1 to 20', setting(source, 'NEED_BETTER', 'false')),
+             ('NEED_BETTER is not a number from 1 to 20', setting(source, 'NEED_BETTER', '21')),
+             ('WRITE is not true or false', setting(source, 'WRITE', '1', part=1)),
            ('CEILING is not a list of 10', setting(source, 'CEILING', '{ 200, 100, 50, 28, 18, 12, 8, 6, 4.5 }')),
            ('CEILING is not a list of 10', setting(source, 'CEILING', 'true')),
            ('CEILING: entry 3 is not 0 or', setting(source, 'CEILING', '{ 200, 100, 0.001, 28, 18, 12, 8, 6, 4.5, 3 }')),
@@ -1593,6 +1617,14 @@ def main(exe):
             may_write_cave=1)
     refused('write to the second memory does not stick', source, lambda: None, 'RESULT: the table could not be written',
             sticky=lambda address: address != mc.CAVE_2, may_write_cave=2, part=1)
+    for fails, last in ((mc.CAVE_3, 'RESULT: the table could not be written'),
+                        (mc.NEED_PLAN_SITE, 'RESULT: a change did not go in.'), (mc.NEED_PICK_SITE, 'RESULT: a change did not go in.')):
+        h.restore()                                          # the memory or a place of the position need
+        lines, _, writes = run(g, source, sticky=lambda address: address != fails)
+        assert results(lines)[1].startswith(last) and writes[-1][0] == fails, (hex(fails), results(lines))
+        if fails != mc.NEED_PICK_SITE:                       # what follows the failed write is not written
+            assert g.read(mc.NEED_PICK_SITE, 5) == mc.NEED_PICK_SITE_OLD and (fails == mc.CAVE_3) == (
+                g.read(mc.CEILING_SITE, 9) == mc.CEILING_SITE_OLD)
     h.restore()
     assert h.unchanged()
     check(None, 200, 20)
@@ -1603,8 +1635,10 @@ def main(exe):
           'settings, a write that does not stick: it writes no place of the code and MLMoney.lua is installed as '
           'without it; run without MLMoney.lua, before it, with a mark that is not MLMoney.lua\'s, with a changed '
           'byte at %d places of the value routine and the two numbers it uses, or a second time: it writes nothing; with '
-          'another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE '
-          'and PERSONA off and RIVALS empty it does not look at the game at all' % (flips, len(bad), flips_t, len(bad_t), needed))
+          'another version number in the mark and the same value routine it installs; with CEILING, SELL_SIDE, '
+          'PERSONA and NEED off and RIVALS empty it does not look at the game at all; the memory of the '
+          'position need in use: nothing is written, and with NEED = false it installs without it; a write '
+          'to that memory or to one of its two places that does not stick: what comes after is not written' % (flips, len(bad), flips_t, len(bad_t), needed))
 
     # 5. the one player we have screen numbers of
     assert money.fee(72597, 89, 955) * mc.UNIT == 36743200

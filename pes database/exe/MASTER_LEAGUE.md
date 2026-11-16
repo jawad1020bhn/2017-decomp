@@ -1076,6 +1076,8 @@ club that is not the user's and passes three tests on the team record, sorted
 | `+0x000` | club id |
 | `+0x004` | kind 0 to 4. Set-up gives 1, 2 or 3 by the high part of the club id (1 for `0x72`, `0x78`, `0x7f`, `0xad`; 2 for 100 to 102, 108, 109; 3 for `0x10a9`; the rest of the switch is lost in the C). The kinds 1 and 4 change the search (9.5) |
 | `+0x008` | 16 slots of `0x10` bytes, see below |
+| `+0x108` | a byte: set to 0 when the slots are emptied (9.3), tested and set to 1 at `0x0365faa4` / `0x0365fb04` in `ai_candidates`. Meaning not read |
+| `+0x109` | three spare bytes (9.3) |
 | `+0x10c` | wait counter. Set-up: the running number of the club among the clubs of its level, divided by 10 |
 | `+0x110` | "ready" byte |
 | `+0x114` | **club level 0 to 9**: byte `+0xe` of the record `fcn_031b1c34(club)` returns. The number of clubs of each level is kept at `+0xd10118 + 4 × level` |
@@ -1137,6 +1139,41 @@ handles, per club:
 
 So a computer club aims at a squad of 23 to 25, keeps the players its plan names and
 those of the top bands, and marks the rest.
+
+More of the same function, from the disassembly (read for `MLTransfers.lua` version 6,
+not run whole):
+
+- It handles a club only if its wait counter (`+0x10c`) is 0, and at most five clubs
+  per call, as `ai_fill_slots` does after it: the same clubs are planned and served.
+- Before anything else `fcn_0365cc6d(plan, &1)` empties every slot whose state is not
+  7, 9 or 10: no player, position 13, ages 0 to 99. It also sets the byte `+0x108` to
+  0. So the slots of a club are made anew at every planning; a slot in state 1 from
+  the time before is dropped.
+- The list of step 2 is a vector at `[ebp-0x60]` (begin) and `[ebp-0x5c]` (end) of
+  16-byte entries: player id pair at `+0`, a dword at `+8` with the **rating at the
+  position in bits 0-6** and the **position in bits 7-13** (0 goalkeeper to 12 centre
+  forward, the order of the edit file). The rating is put there by the loop at
+  `0x03894bcf` with `fcn_03853b52(&id, &position, 2)`, the function `ai_pool` (9.5)
+  calls with position 13 ("his own"): the same scale as the search lists. The first
+  eleven entries are the eleven. An entry without a player holds the pair at
+  `0x024feb04`.
+- `0x036605a1`-`0x0366064c` copies the eleven without the goalkeeper to a second
+  vector (`[ebp-0x48]`); `fcn_0365f4b8` at `0x03660985` sorts that copy by rating,
+  lowest first. It is the list step 4 takes "more positions" from. **So the goalkeeper
+  is never one of them**, and a club with 25 players or more gets no position at all
+  unless a place of its eleven is empty.
+- `0x0366085c`-`0x03660961`: the loop that writes the positions without a player into
+  the first empty slots (run in the emulator on made-up frames, `sider/test_need.py`).
+  A plan of kind 3 gets age 23 as the highest age of such a slot.
+- Frame: `[ebp-0x50]` career data, `[ebp-0x4c]` the number of the club's plan record,
+  `[ebp-0x20]` the record (reused as a pointer into the copy after `0x03660a04`). Both
+  vectors are freed from `0x03660b93` on; `MLTransfers.lua` version 6 puts its call
+  there.
+- Spare bytes of the plan record: `+0x109` to `+0x10b` are 0 in all records of the
+  four saves of `ML saves/`, and none of the 34 functions that use `0xccb80c` or
+  `0xccb810` touches them (`plan_setup` and `ai_fill_slots` work on record `+ 4`, so
+  their `+0x108` is the wait counter). `MLTransfers.lua` version 6 keeps a position
+  + 1 and a rating in the first two.
 
 ### 9.4 The overall window by club level (proven)
 

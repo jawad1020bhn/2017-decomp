@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 5: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 6: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -22,12 +22,16 @@
 --     of its persona). Players a club has put on its list are known to all, and so are
 --     the good ones (KNOWN_FROM) and the famous ones (KNOWN_FAME).
 --   * rivals (RIVALS): two clubs that are rivals do not buy each other's players.
+--   * position need (NEED): a club looks for a better player for the weakest place of
+--     its eleven, the goalkeeper included. In the game a club looks for a player only
+--     when a place of its eleven is empty or when it has fewer than 25 players.
 -- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
 -- did.
 --
 -- What it cannot do: no money is booked for a computer club, there are no offers, wages
--- or loans between computer clubs, and no club remembers anything. The module only
--- answers, for one player a club is looking at: may he go on its list or not.
+-- or loans between computer clubs, and no club remembers anything. For one player a club
+-- is looking at, the module answers: may he go on its list or not. NEED adds one more
+-- position a club looks for; it does not choose the player.
 --
 -- It first checks that MLMoney.lua is installed, that the game holds the expected code
 -- and that the memory it needs is empty. If anything differs it writes nothing and says
@@ -212,6 +216,24 @@ local WINTER_MONTH = 9
 -- still looks in the places of its persona. (A slot of a top club that asks for a key
 -- player looks everywhere.) 0 to 32. The game itself aims at 23 to 25 players.
 local SQUAD_NEED = 23
+
+-- Position need. In the game a club looks for a player when a place of its eleven has
+-- nobody, or when it counts fewer than 25 players, and then its list of weak positions
+-- leaves the goalkeeper out. An eleven rated 85 with a goalkeeper rated 75 looks for
+-- nobody. With NEED on, a club also looks for a player for the weakest place of its
+-- eleven, the goalkeeper included, when the player there stands NEED_GAP rating points or
+-- more below the mean of the other ten. For that position it takes only a player rated
+-- NEED_BETTER points or more above the one it has, inside the rating range of its group.
+-- Everything else still counts: the price, the persona, the selling club. One such
+-- position per club each time the clubs plan. A club with 32 players signs nobody, as in
+-- the game; it has to lose a player first. false: as in the game.
+local NEED = true
+-- 1 to 30. A lower number makes more clubs look: counted on the best eleven of each of
+-- the 498 computer clubs of one career, 3 gives about 180 clubs, 4 about 70, 5 about 40,
+-- 6 about 20. With 4, six in ten of them look for a goalkeeper.
+local NEED_GAP = 4
+-- 1 to 20.
+local NEED_BETTER = 1
 
 -- The personas. Each has a name and these numbers:
 --   free, listed, clubs   where it looks first, in percent of the positions it buys for:
@@ -597,6 +619,10 @@ local RIVALS = {
 
 local CAVE = 0x047d4200         -- unused end of a page of the game's code: the tables and the routine
 local CAVE_SIZE = 0xe00
+-- a second piece of unused memory, for NEED: its two numbers (NEED_GAP, NEED_BETTER - 1)
+-- and its two routines
+local NEED_CAVE = 0x047d6400
+local NEED_CAVE_SIZE = 0x150
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
 -- the rating range a computer club searches first, smallest clubs first (the game's numbers)
 local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
@@ -659,6 +685,24 @@ local ROUTINE = { 0x7d0, "53575589e581ec900000008b45008945c88b58d88b480481f9580d
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
 local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8be4e170190909090" }
+
+-- The position need: the two routines (offset in the third piece of memory, machine code)
+-- and the two places that are changed for it.
+local NEED_ROUTINES = {
+    { 0x010, "608b75b469f6180100000375b081c60cb8cc0066c786090100000000837e04010f87d8000000"
+      .. "8b7da08b45a429f83db00000000f82c50000008d8fb000000031db5353ba800000008b47043b0508eb4f0275"
+      .. "1085c07421668b07663b0504eb4f0274158b470883e07f01c3ff44240439d0730589c2893c2483c71039cf72"
+      .. "c95f59497e7a29d389d0030500647d040fafc139c37269031504647d0483fa637605ba630000008b47082580"
+      .. "3f00005231ff8d4e108d9e100100008b1181e2803f000039c2743881fa80060000750685ff750289cf83c110"
+      .. "39d972df5a85ff741f8b0f81e17fc0ffff09c1890fc1e8074088860901000088960a010000eb015a618b45b8"
+      .. "c3" },
+    { 0x120, "8b45188b1051538b4d100fb68109010000488b5d0c3b03750d0fb6810a01000039c2730289c2"
+      .. "5b59c3" },
+}
+local NEED_SITES = {
+    { "need plan", 0x03660b93, "8b85b8ffffff", "e87858170190" },
+    { "need pick", 0x03660c83, "8b45188b10", "e898581701" },
+}
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {
@@ -782,6 +826,92 @@ local CONTEXT = {
       "5589e55689ce8b4604578b7d0839c773388b0e39f9773229cfc1ff033b460875096a0189f1e8eafaffff8b4e"
       .. "0485c974378b068b14f889118b44f804894104834604085f5e5dc204003b460875096a0189f1e8bdfaffff8b"
       .. "460485c0740a8b0f89088b5704895004834604085f5e5dc20400" },
+    { "plan", 0x036602e5,
+      "5589e56aff68008c4c0464a1000000005081ec84000000535657a1501a520231e8508d85f4ffffff64a30000"
+      .. "0000898d94ffffff31f6c685daffffff00c685ebffffff00c685eaffffff00e8b0bd1b008b78308d85c8ffff"
+      .. "ff5089bdb0ffffff8d9f0cb8cc00e801e124008d8dc8ffffff518d95d0ffffff52c785d0ffffff1e000000e8"
+      .. "5de4240083c40c3c0175068885ebffffff8d85c8ffffff50e8cf96220083c4043c0175068885eaffffff89b5"
+      .. "9cffffff89b5b4ffffff39b328ac030077208b8df4ffffff64890d00000000595f5e5b89ec5dc3eb038d2424"
+      .. "8bb5b4ffffffb81f85eb51f7e6c1ea056bd26489f129d17525e8f11df7ff85c0741ce8e81df7ff80b8bc5901"
+      .. "0000750ee8da1df7ff80b8bd5901000074a883bd9cffffff04779f81fe530300000f83fe0700008bb5b4ffff"
+      .. "ff69f61801000001de89b5e0ffffff0f84e40700008d957cffffff5289f1e8365f01008b008b0d34eb4f0289"
+      .. "c231caf7c2ff3f0000750d31c8a900c0ffff0f84b507000083be0c010000000f87a80700008d85c8ffffff50"
+      .. "e8df95220083c40484c0740d83be14010000070f8288070000ff859cffffff8d8df3ffffff5189f1c685f3ff"
+      .. "ffff01e8c8c7ffff8d9574ffffff5289f1e8bf5e01008b005089f9e806221c0089c3899dd4ffffff85db0f84"
+      .. "450700008b8328030000c1e80931f683e07f764f8dbbf8000000eb038d24248b0d04eb4f028b1508eb4f0239"
+      .. "c673058b0f8b570452518b8db0ffffffe859211c0085c0740a81a0b8000000ffffff9f8b8328030000c1e809"
+      .. "4683e07f83c70839c672bc31ff89bda0ffffff89bda4ffffff89bda8ffffff8d8ddaffffff518d95ebffffff"
+      .. "528d85a0ffffff508d8d78ffffff518b8dd4ffffff89bdfcffffffe8055e010050e8973e230031c031db83c4"
+      .. "1031c98985b8ffffff899dbcffffff898dc0ffffffc685fcffffff0189bdecffffffeb0aeb028d098b8dc0ff"
+      .. "ffff8b95a4ffffff8bb5a0ffffff29f2c1fa043b95ecffffff0f868206000001fef74608803f0000746e39de"
+      .. "732a39f0772629c639cb75196a018d8db8ffffffe88faab9008b9dbcffffff8b85b8ffffff83e6f001c6eb1d"
+      .. "39cb75196a018d8db8ffffffe86baab9008b9dbcffffff8b85b8ffffff85db74168b0e890b8b56048953048b"
+      .. "4e08894b088b560c89530c83c310899dbcffffffff85ecffffff83c71081ffb00000000f824fffffff8bbdd4"
+      .. "ffffff8d8570ffffff5089f9e80c5d010050e8328722008d88e9ffffff31f683c404898dd0ffffff89b5ccff"
+      .. "ffff39f10f8ed10100008b8728030000c1e80983e07f89b5ecffffff0f86b901000081c7f800000089bde4ff"
+      .. "ffffeb088d1b8b8dd0ffffff398dccffffff0f8d970100008b0d04eb4f028b1508eb4f0239c673058b0f8b57"
+      .. "0452518b8db0ffffffe87c1f1c0089c689b598ffffff85f60f842f01000056e811391f008b8da0ffffff8985"
+      .. "dcffffff8b85a4ffffff29c8c1f80483c40431ffc685f3ffffff0085c074508b562c89958cffffff8b563089"
+      .. "9590ffffff39f80f860805000083bd90ffffff008b318b51040f85a800000085d20f94d284d27407c685f3ff"
+      .. "ffff014783c11039f877d68bb598ffffff8b9dbcffffff80bdeaffffff01bf06000000752e8d85f2ffffff50"
+      .. "8d8d98ffffff51c685f2ffffff00c78598ffffff05000000e8f2511f0083c40885c075038d780880bdf3ffff"
+      .. "ff00756d39bddcffffff73658d95f2ffffff528d85dcffffff50c685f2ffffff00c785dcffffff05000000e8"
+      .. "b3511f0083c40885c0752a818eb800000000000040eb28663bb58cffffff0f855bffffff3b9590ffffff0f84"
+      .. "48ffffffe94affffff818eb800000000000020ff85ccffffff8b8dd4ffffff8b81280300008bb5ecffffff8b"
+      .. "bde4ffffffc1e8094683c70883e07f89b5ecffffff89bde4ffffff39c60f8257feffff8b85a4ffffff8b95a0"
+      .. "ffffff29d031c9c1f804898de4ffffff898decffffff39c80f86de00000031ff39c80f86b90300008b3508eb"
+      .. "4f028b0c3a8b443a0485f6753f85c00f94d084c00f848d0000008b443a088bb5e0ffffffc1e807ba10000000"
+      .. "83e07f31c901d68b1e81e3803f000081fb8006000074184101d639d172e9eb2d663b0d04eb4f02755239f074"
+      .. "c1eb4c8bb5e0ffffff89ca01d28d54d608c1e00733420825803f000031420889caff85e4ffffff83fa10741d"
+      .. "8b85e0ffffff83780403751101d289c18d44d108ba170000006689500e8b9dbcffffff8b85a4ffffff8b95a0"
+      .. "ffffff8b8decffffff29d041c1f80483c710898decffffff39c80f872cffffff8b85b8ffffff89dec68580ff"
+      .. "ffff008b8d80ffffff29c651c1fe0456535089b5dcffffffe82eebffff8b9de0ffffff31ff83c410837b0401"
+      .. "89bdecffffff89bdd0ffffff750bbf0100000089bdd0ffffff8b8dd4ffffff8d9584ffffff52c685f3ffffff"
+      .. "00e8a75901008b008b8d94ffffff25ff3f00008b9481ac0700002b95ccffffff01fa0395e4ffffff83fa190f"
+      .. "92d084c00f84980100008b85b8ffffff83c0088985e0ffffffeb068bb5dcffffff3bb5ecffffff0f82750100"
+      .. "000f86220200008b8de0ffffff8b01c1e80783e07fbe1000000031c98d5310eb038d24248b3a81e7803f0000"
+      .. "81ff8006000074094101f239f172e9eb1989ca01d2c1e0073344d3108d54d30825803f000031420889ce8385"
+      .. "e0ffffff10bf0100000001bde4ffffff01bdecffffff83fe100f84b80000008b430429f8747c29f8746729f8"
+      .. "74528d85c8ffffff50e8a68f220083c40484c00f849200000083bb14010000080f82850000008d8ddbffffff"
+      .. "518d9588ffffff52c685dbffffff00c78588ffffff64000000e8ad4e1f0083c40883f8647c37eb5701f68d74"
+      .. "f308b8170000006689460eeb4601f68d74f308b91400000066894e0eeb358d95c8ffffff52e8328f220083c4"
+      .. "0484c0742280bdf3ffffff00751901f68d74f308b806000000897b046689460cc685f3ffffff018d8d84ffff"
+      .. "ff518b8dd4ffffffe8145801008b108b8594ffffff81e2ff3f00008b8c90ac0700002b8dccffffff038dd0ff"
+      .. "ffff038de4ffffff83f9190f92d084c00f8579feffff8b85b8ffffff31f6c685fcffffff0039f07417508d95"
+      .. "dcffffff52c785dcffffff02000000e8dd4f56ff8b85a0ffffff89b5b8ffffff89b5bcffffff89b5c0ffffff"
+      .. "c785fcffffffffffffff39f07417508d85dcffffff50c785dcffffff02000000e8a04f56ff8bbdb0ffffff89"
+      .. "b5a0ffffff89b5a4ffffff89b5a8ffffff8b85b4ffffff408d9f0cb8cc008985b4ffffff3b8328ac03000f82"
+      .. "90f7ffff8b8df4ffffff64890d00000000595f5e5b89ec5dc3" },
+    { "fill", 0x03661b15,
+      "5589e583ec60568d85d4ffffff575089cee826c9240083c404e8b2a51b008b783031c089bddcffffff8985f0"
+      .. "ffffff8985d8ffffff39873464d0000f8603040000538d9f10b8cc00899df4ffffff9083bdf0ffffff040f87"
+      .. "e70300003d530300000f83b70300008d8bfcffffff85c90f84a903000083bb08010000000f879c03000080bb"
+      .. "0c010000000f848f0300008d95d4ffffff52e8a57e220083c40484c0740d83bb10010000070f826f030000ff"
+      .. "85f0ffffff8d85f8ffffff8d8bfcffffff50c6830c01000000c6830401000000e888470100a134eb4f028b8d"
+      .. "f8ffffff89c231caf7c2ff3f0000750d31c8a900c0ffff0f84250300008d85e0ffffff508d8de4ffffff518d"
+      .. "95f8ffffff52c785e0ffffff00000000c785e4ffffff06000000e8ce3e200083c40c8d85f8ffffff508d8fcc"
+      .. "84cc00e8e3ffb4ff0fb6480e898decffffff8d95ecffffff5289f1e8c4b4ffff8b8df8ffffff8985c4ffffff"
+      .. "8d85c0ffffff505189f9e8e50c1c0089c1e82f5db5ff8b103396a00700008b8df8ffffff81e2ff3f00003196"
+      .. "a00700008b103396a007000081e2ff3f000033108d85bcffffff505189f98996a0070000e89f0c1c0089c1e8"
+      .. "b55ef8ff8b103396a40700008d8db8ffffff81e2ff3f00003196a40700008b103396a407000031ff81e2ff3f"
+      .. "000033108d85e0ffffff50518d8bfcffffff8996a407000089bde0ffffffe85646010050e8e280210089bde0"
+      .. "ffffff83c4088d7b0c908d83fcffffff50e8c777220083c40484c00f84e70100008b1fc1eb0783e37f83fb0d"
+      .. "0f84b70100008b97f8ffffff8b87fcffffff6804eb4f028d8da8ffffff8995a8ffffff8985acffffffe87fbd"
+      .. "57ff84c00f85870100000fb74f060fb75704899de4ffffff8b9df4ffffff833b00c785c8ffffff0000000089"
+      .. "8dccffffff8995e8ffffff74318885fdffffff8d85fdffffff508d8dd0ffffff51c785d0ffffff64000000e8"
+      .. "bf3b1f0083c40883f8327d06c703040000008d95e8ffffff528d85ccffffff508d8dc8ffffff518d95ecffff"
+      .. "ff528d85c4ffffff508d8dfcffffff5183c3fc538d95e4ffffff528d85b0ffffff5089f1e828eeffff6804eb"
+      .. "4f028d8db0ffffffe884bc57ff84c0747731c03985e8ffffff756d8d8dc8ffffff518985c8ffffff8985d0ff"
+      .. "ffff8985e8ffffff8d95ccffffff528d85d0ffffff508d8decffffff518d95e8ffffff528d85fcffffff5053"
+      .. "8d8de4ffffff518d95a0ffffff5289f1c785ccffffff63000000e8aeedffff8b088b5004898db0ffffff8995"
+      .. "b4ffffff8b85f4ffffff8338047506c700000000006804eb4f028d8db0ffffffe8e8bb57ff84c075348b85b0"
+      .. "ffffff8b8db4ffffff8987f8ffffff898ffcffffff8b1781e2ffff7ff881ca0000400089d025ff7fc0ff0d00"
+      .. "40000089078b85e0ffffff8b9df4ffffff4083c7108985e0ffffff83f8100f8202feffff8bbddcffffff8b85"
+      .. "d8ffffff4081c3180100008985d8ffffff899df4ffffff3b873464d0000f820cfcffff5b5f5e89ec5dc3" },
+    { "lineup", 0x03894bcf,
+      "8b07890c308b8d44f8ffff894c30048b078b570429c2c1fa0439da0f8647fbffff8b4430086a028d8d2cf8ff"
+      .. "ffc1e807518d9540f8ffff83e07f5289852cf8ffffe83deffbff0fb6c88b078b54300831ca83e27f31543008"
+      .. "8b47042b0743c1f80483c40c83c61039c30f8227ffffff" },
 }
 local function hex(s)
     local t = {}
@@ -955,6 +1085,9 @@ local function settings_fault()
     if type(WRITE) ~= "boolean" then return "WRITE is not true or false" end
     if type(SELL_SIDE) ~= "boolean" then return "SELL_SIDE is not true or false" end
     if type(PERSONA) ~= "boolean" then return "PERSONA is not true or false" end
+    if type(NEED) ~= "boolean" then return "NEED is not true or false" end
+    if not is_number(NEED_GAP, 1, 30) then return "NEED_GAP is not a number from 1 to 30" end
+    if not is_number(NEED_BETTER, 1, 20) then return "NEED_BETTER is not a number from 1 to 20" end
     return ceiling_fault() or persona_fault() or rivals_fault()
 end
 
@@ -1042,6 +1175,17 @@ local function image()
     return out
 end
 
+-- what goes into the memory of NEED. nil: the module file is damaged
+local function need_image()
+    local out = u32(round(NEED_GAP)) .. u32(round(NEED_BETTER) - 1)
+    for _, r in ipairs(NEED_ROUTINES) do
+        if #out > r[1] then return nil end
+        out = out .. string.rep("\0", r[1] - #out) .. unhex(r[2])
+    end
+    if #out > NEED_CAVE_SIZE then return nil end
+    return out .. string.rep("\0", NEED_CAVE_SIZE - #out)
+end
+
 -- one line of the log for a piece of memory that is compared: -> is it as expected?
 local function same(name, at, expected)
     local got = memory.read(at, #expected / 2)
@@ -1109,20 +1253,25 @@ local function report_persona()
 end
 
 function m.init(ctx)
-    log("MLTransfers 5: the transfers of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 6: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then
         log("RESULT: nothing written. Settings: " .. fault)
         return
     end
-    if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then
-        log("RESULT: nothing written. CEILING, SELL_SIDE and PERSONA are off and RIVALS is empty: the "
+    if CEILING == false and not SELL_SIDE and not PERSONA and not NEED and #RIVALS == 0 then
+        log("RESULT: nothing written. CEILING, SELL_SIDE, PERSONA and NEED are off and RIVALS is empty: the "
             .. "computer clubs choose as in the game.")
         return
     end
     local memory_image = image()
-    if memory_image == nil then
+    local need_memory = need_image()
+    local sites = { SITE }
+    if NEED then
+        for _, site in ipairs(NEED_SITES) do sites[#sites + 1] = site end
+    end
+    if memory_image == nil or need_memory == nil then
         log("RESULT: nothing written. The module file is damaged (routine).")
         return
     end
@@ -1147,6 +1296,12 @@ function m.init(ctx)
     local room = memory.read(CAVE, CAVE_SIZE)
     local empty = (room ~= nil and room == string.rep("\0", CAVE_SIZE))
     log(string.format("check: %-13s at %08x  %s", "free memory", CAVE, empty and "empty" or "NOT EMPTY"))
+    if NEED then
+        room = memory.read(NEED_CAVE, NEED_CAVE_SIZE)
+        local free = (room ~= nil and room == string.rep("\0", NEED_CAVE_SIZE))
+        log(string.format("check: %-13s at %08x  %s", "free memory", NEED_CAVE, free and "empty" or "NOT EMPTY"))
+        empty = empty and free
+    end
     if not found then
         log("RESULT: nothing written. MLMoney.lua is not installed, and this module needs its player values. "
             .. "In sider.ini the line for MLMoney.lua must stand above the line for MLTransfers.lua, and "
@@ -1158,12 +1313,14 @@ function m.init(ctx)
             .. "made for. Use the two files that came together.")
         return
     end
-    local there = memory.read(SITE[2], #SITE[3] / 2)
-    if there ~= nil and string.sub(hex(there), 1, 2) == "e8" and hex(there) ~= SITE[3] then
-        log("RESULT: nothing written. The game's choosing code is changed already: by an MLMoney.lua of "
-            .. "version 6 with CEILING on (replace it with version 7), by an older version of this module, or "
-            .. "this module stands twice in sider.ini.")
-        return
+    for _, site in ipairs(sites) do
+        local there = memory.read(site[2], #site[3] / 2)
+        if there ~= nil and string.sub(hex(there), 1, 2) == "e8" and hex(there) ~= site[3] then
+            log("RESULT: nothing written. The game's choosing code is changed already: by an MLMoney.lua of "
+                .. "version 6 with CEILING on (replace it with version 7), by an older version of this module, or "
+                .. "this module stands twice in sider.ini.")
+            return
+        end
     end
     if not (good and empty) then
         log("RESULT: nothing written. This game does not hold what the module expects; "
@@ -1175,22 +1332,29 @@ function m.init(ctx)
         return
     end
 
-    -- 3. the tables and the routine first; nothing in the game points to them yet
+    -- 3. the tables and the routines first; nothing in the game points to them yet
     memory.write(CAVE, memory_image)
-    if memory.read(CAVE, CAVE_SIZE) ~= memory_image then
+    local written = (memory.read(CAVE, CAVE_SIZE) == memory_image)
+    if written and NEED then
+        memory.write(NEED_CAVE, need_memory)
+        written = (memory.read(NEED_CAVE, NEED_CAVE_SIZE) == need_memory)
+    end
+    if not written then
         log("RESULT: the table could not be written; the game's code is unchanged. "
             .. "Send this log.")
         return
     end
 
-    -- 4. the place in the game's code
-    local new = unhex(SITE[4])
-    memory.write(SITE[2], new)
-    local stuck = (memory.read(SITE[2], #new) == new)
-    log(string.format("written: %-9s at %08x  %s", SITE[1], SITE[2], stuck and "ok" or "FAILED"))
-    if not stuck then
-        log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
-        return
+    -- 4. the places in the game's code
+    for _, site in ipairs(sites) do
+        local new = unhex(site[4])
+        memory.write(site[2], new)
+        local stuck = (memory.read(site[2], #new) == new)
+        log(string.format("written: %-9s at %08x  %s", site[1], site[2], stuck and "ok" or "FAILED"))
+        if not stuck then
+            log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
+            return
+        end
     end
 
     local changed = {}
@@ -1210,6 +1374,12 @@ function m.init(ctx)
     if #RIVALS > 0 then
         log(string.format("rivals: %d pairs of clubs do not buy each other's players who have a contract", #RIVALS))
         changed[#changed + 1] = "rivals"
+    end
+    if NEED then
+        log(string.format("position need: a club looks for a player for the weakest place of its eleven, the "
+            .. "goalkeeper included, when he stands %d or more rating points below the mean of the others; it "
+            .. "takes only a player rated %d or more above him", round(NEED_GAP), round(NEED_BETTER)))
+        changed[#changed + 1] = "position need"
     end
     log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
 end

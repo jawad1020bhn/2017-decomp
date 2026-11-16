@@ -11,9 +11,14 @@ with the settings of the files and 1,500 with six other sets of settings, whose 
 put into the memory for it. Printed: the flips after which all cases still passed.
 "again" runs those of an earlier run once more, with twice the cases.
 files: one line of MLTransfers.lua or money_cave.py is changed in a copy of this folder and
-the whole test is run there. It must fail every time.
+test_need.py and then the whole of test_money.py are run there. One of them must fail every time.
 
-Last runs. Version 4 of MLTransfers.lua (routine 1,555 bytes), files: the list has 137; the
+Last runs. Version 6 of MLTransfers.lua (the position need), files: the list has 153; the
+16 new ones (137 to 152) and the six whose text changed (2 11 35 36 53 60) were run, all
+noticed; the other 131 were not run. routine: not run; the routine is version 4's byte
+for byte, and the two new routines of the position need are not in it (test_need.py runs
+them; no bit flips were made on them).
+Version 4 of MLTransfers.lua (routine 1,555 bytes), files: the list has 137; the
 13 new ones and the seven whose text changed were run (76 77 86 111 112 118 119 124 to
 136), all noticed; the other 117 were not run. routine: only the two new pieces, every bit
 (`routine 633 650 1`, `routine 986 1007 1`): 291 of 304 noticed, the 13 others are in
@@ -53,7 +58,7 @@ FAULTS = (
     # checks left out
     ('MLTransfers.lua', 'local v = CEILING and CEILING[10 - level] or 0', 'local v = CEILING and CEILING[level + 1] or 0'),
     ('MLTransfers.lua', 'RANGE_TOP[level + 1] or 255', 'RANGE_TOP[10 - level] or 255'),
-    ('MLTransfers.lua', '    memory.write(SITE[2], new)\n', ''),
+    ('MLTransfers.lua', '        memory.write(site[2], new)\n', ''),
     ('MLTransfers.lua', 'if not (good and empty) then', 'if not good then'),
     ('MLTransfers.lua', 'for _, c in ipairs(CONTEXT) do\n        if not same(c[1], c[2], c[3]) then good = false end',
      'for _, c in ipairs(CONTEXT) do\n        if not same(c[1], c[2], c[3]) then good = true end'),
@@ -66,7 +71,7 @@ FAULTS = (
     ('MLTransfers.lua', '(v ~= 0 and (v < 0.01 or v > 9999))', '(v ~= 0 and (v < 0.001 or v > 9999))'),
     # the memory: not read back, not written, a faulty setting let through, a wrong rating,
     # a wrong size, a wrong address
-    ('MLTransfers.lua', 'if memory.read(CAVE, CAVE_SIZE) ~= memory_image then', 'if false then'),
+    ('MLTransfers.lua', 'local written = (memory.read(CAVE, CAVE_SIZE) == memory_image)', 'local written = true'),
     ('MLTransfers.lua', '    memory.write(CAVE, memory_image)\n', ''),
     ('MLTransfers.lua', 'if type(CEILING_RATING) ~= "boolean" then', 'if false then'),
     ('MLTransfers.lua', 'local RANGE_TOP = { 74, 75, 76, 77, 78, 79, 80, 83, 86, 99 }',
@@ -100,13 +105,13 @@ FAULTS = (
     ('MLTransfers.lua', '#CLUBS > MOST_CLUBS then', '#CLUBS > MOST_CLUBS + 1 then'),
     ('MLTransfers.lua', 'types[i] = string.char(persona_number(c[2]))', 'types[i] = string.char(persona_number(c[2]) - 1)'),
     ('MLTransfers.lua', 'if persona_number(c[2]) == nil then', 'if false then'),
-    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then',
-     'if CEILING == false and #RIVALS == 0 then'),
+    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and not NEED and #RIVALS == 0 then',
+     'if CEILING == false and not NEED and #RIVALS == 0 then'),
     # the rivals: the part alone writes nothing, the last pair is left out, the table one dword
     # too high, one pair too many let through, a club that is its own rival, three clubs in a
     # pair or a faulty RIVALS let through, not named in the RESULT line
-    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then',
-     'if CEILING == false and not SELL_SIDE and not PERSONA then'),
+    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and not NEED and #RIVALS == 0 then',
+     'if CEILING == false and not SELL_SIDE and not PERSONA and not NEED then'),
     ('MLTransfers.lua', '.. u32(#RIVALS)\n', '.. u32(#RIVALS - 1)\n'),
     ('MLTransfers.lua', 'local RIVALS_AT = 0x5c8', 'local RIVALS_AT = 0x5cc'),
     ('MLTransfers.lua', '#RIVALS > MOST_RIVALS then', '#RIVALS > MOST_RIVALS + 1 then'),
@@ -131,7 +136,7 @@ FAULTS = (
     ('MLTransfers.lua', 'local found = (mark ~= nil and string.sub(mark, 1, 3) == "MLM")', 'local found = (mark ~= nil)'),
     ('MLTransfers.lua', 'local MONEY_MARK = 0x047b065c', 'local MONEY_MARK = 0x047b0658'),
     ('MLTransfers.lua', 'if not same(c[1], c[2], c[3]) then money = false end', 'if not same(c[1], c[2], c[3]) then money = true end'),
-    ('MLTransfers.lua', 'if there ~= nil and string.sub(hex(there), 1, 2) == "e8" and hex(there) ~= SITE[3] then', 'if false then'),
+    ('MLTransfers.lua', 'if there ~= nil and string.sub(hex(there), 1, 2) == "e8" and hex(there) ~= site[3] then', 'if false then'),
     ('MLTransfers.lua', '    if not WRITE then\n', '    if false then\n'),
     # money_cave.py, the model of the routine. The price: a rating equal to the top refused,
     # the rating rule in both searches, a value equal to the limit refused, the lowest list
@@ -143,7 +148,7 @@ FAULTS = (
     ('money_cave.py', 'return price <= limit(', 'return price < limit('),
     ('money_cave.py', 'for overall in range(highest, lowest, -1):', 'for overall in range(highest, lowest - 1, -1):'),
     ('money_cave.py', 'if m else NO_CEILING for m in reversed(ceiling)]', 'if m else NO_CEILING for m in ceiling]'),
-    ('money_cave.py', "'transfers': self.transfers}", "'transfers': True}"),
+    ('money_cave.py', "'transfers': self.transfers, 'need plan'", "'transfers': True, 'need plan'"),
     ('money_cave.py', "need or wide, numbers, player['popularity'])", "need, numbers, player['popularity'])"),
     ('money_cave.py', "need or wide, numbers, player['popularity'])", "wide, numbers, player['popularity'])"),
     ('money_cave.py', '* stretch & M32, 25600), M32)', '* stretch & M32, 25500), M32)'),
@@ -241,6 +246,29 @@ FAULTS = (
     ('MLTransfers.lua', 'fame < 4096 and fame * 0x100000 or 0xffffffff, round(STRICT_FREE),', 'round(STRICT_FREE), fame < 4096 and fame * 0x100000 or 0xffffffff,'),
     ('MLTransfers.lua', 'if not is_number(KNOWN_FAME, 0, 4096) then', 'if not is_number(KNOWN_FAME, 0, 4097) then'),
     ('MLTransfers.lua', 'if not is_number(STRICT_FREE, 0, 100) then', 'if false then'),
+    # version 6, the position need. MLTransfers.lua: the two numbers in the other order, the
+    # second not one less, its memory not written, not looked at before, its places written
+    # with NEED off, NEED alone taken for nothing to do, a faulty number let through
+    ('MLTransfers.lua', 'u32(round(NEED_GAP)) .. u32(round(NEED_BETTER) - 1)', 'u32(round(NEED_BETTER) - 1) .. u32(round(NEED_GAP))'),
+    ('MLTransfers.lua', 'u32(round(NEED_GAP)) .. u32(round(NEED_BETTER) - 1)', 'u32(round(NEED_GAP)) .. u32(round(NEED_BETTER))'),
+    ('MLTransfers.lua', '    if written and NEED then\n', '    if false then\n'),
+    ('MLTransfers.lua', '        empty = empty and free\n', ''),
+    ('MLTransfers.lua', '    local sites = { SITE }\n    if NEED then\n', '    local sites = { SITE }\n    if true then\n'),
+    ('MLTransfers.lua', 'if CEILING == false and not SELL_SIDE and not PERSONA and not NEED and #RIVALS == 0 then',
+     'if CEILING == false and not SELL_SIDE and not PERSONA and #RIVALS == 0 then'),
+    ('MLTransfers.lua', 'if not is_number(NEED_GAP, 1, 30) then', 'if not is_number(NEED_GAP, 0, 30) then'),
+    ('MLTransfers.lua', 'if not is_number(NEED_BETTER, 1, 20) then', 'if not is_number(NEED_BETTER, 1, 21) then'),
+    # money_cave.py, the model: the gap a point off, the last of equals, a second slot for a
+    # position the club looks for already, a plan of kind 2, the goalkeeper left out, the
+    # starter himself good enough, the search raised for every position, lowered
+    ('money_cave.py', '< (len(have) - 1) * (rating + t.need_gap):', '<= (len(have) - 1) * (rating + t.need_gap):'),
+    ('money_cave.py', "rating, position = min(have, key=lambda e: e[0])", "rating, position = min(reversed(have), key=lambda e: e[0])"),
+    ('money_cave.py', 'if position in slots or NO_POSITION not in slots:', 'if NO_POSITION not in slots:'),
+    ('money_cave.py', 'or not t.need or kind > 1 or len(eleven) < ELEVEN', 'or not t.need or kind > 2 or len(eleven) < ELEVEN'),
+    ('money_cave.py', 'have = [e for e in eleven[:ELEVEN] if e is not None]', 'have = [e for e in eleven[:ELEVEN] if e is not None and e[1]]'),
+    ('money_cave.py', 'position, min(rating + t.need_more, 99)', 'position, min(rating + t.need_more + 1, 99)'),
+    ('money_cave.py', 'return max(lowest, mark[1]) if mark[0] == position + 1 else lowest', 'return max(lowest, mark[1]) if mark[0] else lowest'),
+    ('money_cave.py', 'return max(lowest, mark[1]) if mark[0] == position + 1 else lowest', 'return mark[1] if mark[0] == position + 1 else lowest'),
 )
 
 
@@ -378,11 +406,15 @@ def files(exe, which):
         d = os.path.join(root, str(i))
         for sub in ('sider', 'tools'):
             shutil.copytree(os.path.join(HERE, '..', sub), os.path.join(d, sub), ignore=shutil.ignore_patterns('__pycache__'))
+        os.symlink(os.path.join(HERE, '..', 'ML saves'), os.path.join(d, 'ML saves'))    # test_need.py reads the saves
         path = os.path.join(d, 'sider', name)
         s = open(path, encoding='utf-8').read()
         assert s.count(old) == 1, (i, s.count(old))
         open(path, 'w', encoding='utf-8').write(s.replace(old, new))
-        r = subprocess.run([sys.executable, 'test_money.py', exe], cwd=os.path.join(d, 'sider'), capture_output=True, text=True)
+        for test in ('test_need.py', 'test_money.py'):       # the short one first
+            r = subprocess.run([sys.executable, test, exe], cwd=os.path.join(d, 'sider'), capture_output=True, text=True)
+            if r.returncode:
+                break
         return i, r.returncode, (r.stderr.strip().splitlines() or [''])[-1][:100]
     noticed = 0
     with ThreadPoolExecutor(2) as pool:
