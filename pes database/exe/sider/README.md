@@ -8,7 +8,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
-| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 6 have run in the emulator only |
+| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included; version 7 adds the offers for your own players: a rival of yours no longer makes one. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 7 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `MLTeamSpirit.lua` | **changes the game.** Team Spirit has no effect in a played Master League match: every player's value is 99, so no ability is lowered (a skipped match never read it). One place of five bytes; needs no other module. Has run in the emulator only |
@@ -21,8 +21,9 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5ffd`, 4,030 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
-| `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua` and the two of its position need, with their source) and the same arithmetic as Python |
+| `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua`, its two of the position need and the one of the offers for your players, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
+| `test_offer.py <PES2017.exe>` | the offers for your players of `MLTransfers.lua` version 7: runs the club look-up at its place in the game, on a made-up mode data with a club table and one rival pair, and checks the three cases (a rival at the game's slot, a sensible club, every club a rival); also checks that the module ships the bytes `money_cave.py` builds (needs `pip install keystone unicorn`) |
 | `test_need.py <PES2017.exe>` | the position need of `MLTransfers.lua` version 6: runs its two routines at their places in the game's planning and choosing code in the emulator, on made-up clubs, and compares with `money_cave.py` (needs `pip install lupa unicorn`) |
 | `window_report.py <PES2017.exe> <save before> <save after>` | reads one transfer window from two Master League saves: who signed whom, from where, by persona and by level, and whether the signings follow the rules of `MLTransfers.lua` (needs `pip install lupa unicorn`) |
 | `window_transfers.py <PES2017.exe> <save>` | **changes nothing.** Writes the transfers of the current window of one Master League save into a `.csv` file, the most expensive first: price, player, age, position, rating, club left, club joined, date (needs `pip install lupa unicorn`) |
@@ -440,12 +441,40 @@ writes must work without writable code. These tests do **not** establish that th
 visible or responsive in the real game, that a simulated match is booked correctly in a
 real save, or that Sider's file callbacks arrive at a particular time.
 
-## `MLTransfers.lua`, version 6: the selling side, club personas, scouting, rivals, position need
+## `MLTransfers.lua`, version 7: the selling side, club personas, scouting, rivals, position need, offers for your players
 
 Version 2 ran in the game: one transfer window played with it was read from two save
-files (see "What the second window showed" below). **Versions 3 to 6 have run in the
+files (see "What the second window showed" below). **Versions 3 to 7 have run in the
 emulator only.** It needs `MLMoney.lua` version 7 as before. The price ceiling of
 version 1 is still there and is described in the next section.
+
+### New in version 7: offers for your players
+
+**What the game does.** Which computer club makes an offer for a player of yours is
+decided by a slot number: a club look-up (`fcn_0381e2eb`) answers the club that sits at
+that slot of the competition in hand, and the routine that creates the offer
+(`fcn_03652df0`) asks it for the buying club. Nothing in that path looks at a price, a
+squad need, a persona or a rivalry, and the offer carries no fee: the fee of the move is
+computed later, from the value `MLMoney.lua` gives the player (section "the fee").
+
+**What `INCOMING = true` adds** (one new place in the game's code, 445 bytes of new
+code): the module answers that look-up itself, for that one key. The club the game would
+have answered stands if it passes. If it is a rival of yours (a pair of `RIVALS`), the
+module walks the club table once and answers the club whose slot is **nearest** to the
+game's own, among those that are not your rival, are not the club whose player it is, and
+count more than 16 players — below that the routine that creates the offer would drop it
+again. When nothing passes, the game's answer stands.
+
+So the same offers arrive: a rival no longer makes one of them, and the club that takes
+its place is the one from the neighbouring slot, not a club picked at random.
+
+**What it does not do.** It does not add an offer, does not change the number of offers,
+does not read a price or a squad need for the buying club, and does not touch the fee.
+With `RIVALS` empty, nothing changes at all.
+
+**Not run in the game.** The club table of a real career (its count, and whether the slot
+packed into `[club + 0x314] >> 7` is the one the look-up asks for) is read from the
+disassembly, not run; `test_offer.py` runs the routine on a made-up table.
 
 ### New in version 6: position need
 
@@ -1013,6 +1042,7 @@ not touched.
 | `CLUBS` | the 180 named clubs (at most 192); `{ }` names none |
 | `RIVALS` | the 61 pairs above (at most 64); `{ }`: no rivals |
 | `NEED`, `NEED_GAP` (1 to 30), `NEED_BETTER` (1 to 20) | `true`, 4, 1, version 6: see "New in version 6" |
+| `INCOMING` | `true`; `false`: as in the game, and the fourth piece of memory and its place are not touched. Needs `RIVALS`: see "New in version 7" |
 
 A faulty setting is named in `sider.log` and nothing is written, as before.
 
@@ -1054,10 +1084,15 @@ line per persona, `rivals: 61 pairs of clubs do not buy each other's
 players who have a contract`, the line of version 6 (`position need: a club looks for a
 player for the weakest place of its eleven, the goalkeeper included, when he stands 4
 or more rating points below the mean of the others; it takes only a player rated 1 or
-more above him`), and `RESULT: installed. Changed: price ceiling of the
-computer clubs, selling side, club personas, scouting, rivals, position need.`
+more above him`), the line of version 7 (`offers for your players: a rival of yours no
+longer makes one; the club of the nearest slot of the competition takes its place, so no
+offer is lost`), and `RESULT: installed. Changed: price ceiling of the
+computer clubs, selling side, club personas, scouting, rivals, position need, offers for
+your players.`
 With `NEED = false` the three `check` lines, the second `free memory` line, the two
-`written: need` lines and the words `position need` are missing.
+`written: need` lines and the words `position need` are missing. With `INCOMING = false`
+the third `free memory` line, the `written: incoming` line and the `offers for your
+players` line are missing.
 
 If two entries of `CLUBS` name the same club, the last one counts and a line `note: N
 entries of CLUBS name a club that a later entry names again` says so (new in version 3;

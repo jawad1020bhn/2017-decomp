@@ -298,9 +298,10 @@ def main(exe):
         t2 = tm.settings(text)
         assert (t2.need_gap, t2.need_more) == (int(gap + 0.5), int(better + 0.5) - 1)
         lines, _, _ = tm.run(g, text)
-        assert tm.results(lines)[1] == tm.INSTALLED_T and ('when he stands %d or more rating points below the mean of '
-                                                           'the others; it takes only a player rated %d or more above him'
-                                                           % (t2.need_gap, t2.need_more + 1)) in lines[-2]
+        assert tm.results(lines)[1] == tm.INSTALLED_T and any(
+            ('when he stands %d or more rating points below the mean of '
+             'the others; it takes only a player rated %d or more above him'
+             % (t2.need_gap, t2.need_more + 1)) in line for line in lines)
         plan_cases(h, t2, 1500)
     h.restore()
     lines, _, _ = tm.run(g, off)

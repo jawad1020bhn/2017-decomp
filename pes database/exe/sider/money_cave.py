@@ -296,6 +296,21 @@ NEED_GAP_AT = CAVE_3            # dword: the weakest of the eleven is in need th
 NEED_MORE_AT = CAVE_3 + 4       # dword: NEED_BETTER - 1: the search looks above his rating plus this
 NEED_PLAN_CODE = CAVE_3 + 0x10
 NEED_PICK_CODE = CAVE_3 + 0x120
+# a fourth piece, in the same unused page right after the need piece: the chooser of the
+# club that makes an offer for one of the user's players (MLTransfers.lua, INCOMING). It
+# is entered at fcn_0381e2eb, the look-up that answers which club sits at slot n of the
+# competition in hand; the routine of fcn_03652df0 that creates an offer asks it for the
+# buying club, so answering another club there redirects the offer with everything the
+# game does afterwards (the room test, the salary, the news) staying consistent.
+INCOMING_CODE = CAVE_3 + 0x150
+INCOMING_SITE = 0x0381e2eb
+INCOMING_SITE_OLD = bytes.fromhex('5589e583ec14')
+INCOMING_BACK = INCOMING_SITE + len(INCOMING_SITE_OLD)
+INCOMING_SITE_NEW = b'\xe9' + struct.pack('<i', INCOMING_CODE - (INCOMING_SITE + 5)) + b'\x90'
+MODE_OBJECT_AT = 0x026503e0   # dword: the mode object; its +0x30 is the mode data
+CURRENT_CLUB_AT = 0x0251f85c  # dword: the club of the player being handled
+INCOMING_KEY = 0x02100a66     # byte: the slot the look-up resolves
+CLUB_TABLE, CLUB_TABLE_COUNT, CLUB_STRIDE = 0x481be0, 0x5fece0, 0x520
 NO_CEILING = 0xffffffff         # in CEILING_TAB: this level takes any value
 NO_TOP = 0xff                   # in CEILING_TOP: this level takes any rating
 LEVELS = 10
@@ -1465,6 +1480,8 @@ def clamp(v, lo, hi):
 
 
 class Tables:
+    incoming = False                # version 7 of MLTransfers.lua: the offers for the user's players
+
     """The settings of MLMoney.lua as the module stores them.
 
     value, age: lists of (x, y) knots; position: {name: percent}; spread: percent;
@@ -1575,7 +1592,8 @@ class Tables:
         self.need = need is not None
         self.need_gap, self.need_more = (clamp(int(need[0] + 0.5), 1, MAX_NEED_GAP),
                                          clamp(int(need[1] + 0.5), 1, MAX_NEED_BETTER) - 1) if self.need else (0, 0)
-        self.transfers = self.has_ceiling or self.sell or self.has_persona or bool(self.rivals) or self.need
+        self.transfers = (self.has_ceiling or self.sell or self.has_persona or bool(self.rivals) or self.need
+                          or self.incoming)
         # the personas: number 0 is the club of version 1, the others are ARCHETYPES in their order
         self.genes, self.names = [NEUTRAL], ['']
         self.by_level, self.hand = [[0] * BY_LEVEL for _ in range(LEVELS)], []
@@ -1633,6 +1651,8 @@ class Tables:
             elif not on[name]:
                 continue
             used.append((name, at, old, new))
+        if self.incoming:
+            used.append(('incoming', INCOMING_SITE, INCOMING_SITE_OLD, INCOMING_SITE_NEW))
         return used
 
 
@@ -2097,6 +2117,211 @@ def budgets(t, fees, salaries, wage_bill):
     return limit(mean(fees) * bt // 100), limit(wage_bill + mean(salaries) * bs // 100)
 
 
+# INCOMING_SOURCE. Entered at fcn_0381e2eb in the place of its prologue: a look-up that
+# turns a byte of the mode data into a club id (the club at that slot of the competition
+# in hand), skipping the club of the player being handled and the clubs flagged at
+# +0x31e. Only the key 0x02100a66 is touched; every other call runs as the game's code.
+# The club the game would answer is kept if it passes, so an offer that was already
+# sensible is not touched. Otherwise the club table is walked once and the club whose
+# slot is nearest to the game's own is answered, among those that
+#   * are not the club of the player (the game skips it too),
+#   * are not flagged as one the game skips,
+#   * are not a rival of it (RIVALS: the two do not trade),
+#   * count more than 16 players (the room test of fcn_03652df0 would drop the offer).
+# With RIVALS empty, and when nothing passes, the game's own answer stands, so no offer
+# is lost. All the registers are left as they were; the answer goes to *arg0.
+INCOMING_SOURCE = f'''
+    pushfd
+    pushad
+    sub  esp, 0x18
+    mov  eax, dword ptr [esp + 0x40]
+    mov  dword ptr [esp + 0x0c], eax
+    mov  eax, dword ptr [esp + 0x44]
+    cmp  eax, {INCOMING_KEY:#x}
+    jne  original
+    cmp  dword ptr [{RIVAL_COUNT_AT:#x}], 0
+    je   original
+    mov  eax, dword ptr [{MODE_OBJECT_AT:#x}]
+    test eax, eax
+    jz   original
+    mov  eax, dword ptr [eax + 0x30]
+    test eax, eax
+    jz   original
+    mov  dword ptr [esp + 0x14], eax
+    mov  ebx, dword ptr [{CURRENT_CLUB_AT:#x}]
+    test ebx, ebx
+    jz   original
+    cmp  ebx, -1
+    je   original
+    mov  dword ptr [esp + 0x04], 0
+    mov  dword ptr [esp + 0x00], 0x100
+    movzx edx, byte ptr [{INCOMING_KEY:#x}]
+    mov  dword ptr [esp + 0x08], edx
+    mov  edi, dword ptr [esp + 0x14]
+    mov  ecx, dword ptr [edi + {CLUB_TABLE_COUNT:#x}]
+    test ecx, ecx
+    jz   original
+    lea  esi, [edi + {CLUB_TABLE:#x}]
+scan:
+    mov  eax, dword ptr [esi]
+    test eax, eax
+    jz   step
+    cmp  eax, ebx
+    je   step
+    mov  edx, dword ptr [esi + 0x31e]
+    and  edx, 7
+    cmp  edx, 1
+    je   step
+    mov  edx, dword ptr [esi + 0x328]
+    shr  edx, 9
+    and  edx, 0x7f
+    cmp  edx, 0x10
+    jbe  step
+    mov  dword ptr [esp + 0x10], eax
+    push ecx
+    push edx
+    push esi
+    push edi
+    push ebx
+    call rival
+    pop  ebx
+    pop  edi
+    pop  esi
+    pop  edx
+    pop  ecx
+    test al, al
+    jnz  step
+    mov  eax, dword ptr [esp + 0x10]
+    mov  edx, dword ptr [esi + 0x314]
+    shr  edx, 7
+    movzx edx, dl
+    mov  edi, edx
+    sub  edi, dword ptr [esp + 0x08]
+    jns  positive
+    neg  edi
+positive:
+    cmp  edi, dword ptr [esp + 0x00]
+    jae  step
+    mov  dword ptr [esp + 0x00], edi
+    mov  dword ptr [esp + 0x04], eax
+step:
+    add  esi, {CLUB_STRIDE:#x}
+    dec  ecx
+    jnz  scan
+    mov  eax, dword ptr [esp + 0x04]
+    test eax, eax
+    jnz  store
+    push ecx
+    push edx
+    push esi
+    push edi
+    call same
+    pop  edi
+    pop  esi
+    pop  edx
+    pop  ecx
+    test eax, eax
+    jnz  store
+    mov  eax, ebx
+store:
+    mov  edx, dword ptr [esp + 0x0c]
+    mov  dword ptr [edx], eax
+    mov  eax, edx
+    add  esp, 0x18
+    popad
+    popfd
+    ret  0xc
+
+original:
+    add  esp, 0x18
+    popad
+    popfd
+    push ebp
+    mov  ebp, esp
+    sub  esp, 0x14
+    jmp  {INCOMING_BACK:#x}
+
+same:
+    mov  edi, dword ptr [esp + 0x28]
+    mov  ecx, dword ptr [edi + {CLUB_TABLE_COUNT:#x}]
+    test ecx, ecx
+    jz   same_no
+    lea  esi, [edi + {CLUB_TABLE:#x}]
+same_again:
+    mov  eax, dword ptr [esi]
+    test eax, eax
+    jz   same_step
+    cmp  eax, ebx
+    je   same_step
+    mov  edx, dword ptr [esi + 0x314]
+    shr  edx, 7
+    movzx edx, dl
+    cmp  edx, dword ptr [esp + 0x1c]
+    jne  same_step
+    mov  edx, dword ptr [esi + 0x31e]
+    and  edx, 7
+    cmp  edx, 1
+    jne  same_out
+same_step:
+    add  esi, {CLUB_STRIDE:#x}
+    dec  ecx
+    jnz  same_again
+same_no:
+    xor  eax, eax
+same_out:
+    ret
+
+rival:
+    push ecx
+    push esi
+    push edi
+    mov  ecx, dword ptr [{RIVAL_COUNT_AT:#x}]
+    mov  esi, {RIVAL_PAIRS:#x}
+    test ecx, ecx
+    jz   no
+again:
+    mov  edi, dword ptr [esi]
+    cmp  edi, ebx
+    jne  other
+    cmp  dword ptr [esi + 4], eax
+    je   yes
+    jmp  step3
+other:
+    cmp  dword ptr [esi + 4], ebx
+    jne  step3
+    cmp  edi, eax
+    je   yes
+step3:
+    add  esi, 8
+    dec  ecx
+    jnz  again
+no:
+    xor  eax, eax
+    jmp  edge
+yes:
+    mov  eax, 1
+edge:
+    pop  edi
+    pop  esi
+    pop  ecx
+    ret
+'''
+
+
+INCOMING_BYTES = bytes.fromhex(
+    '9c6083ec188b4424408944240c8b4424443d660a10020f850c010000833dc8477d04000f84ff000000a1e003'
+    '650285c00f84f20000008b403085c00f84e7000000894424148b1d5cf8510285db0f84d500000083fbff0f84'
+    'cc000000c744240400000000c70424000100000fb615660a1002895424088b7c24148b8fe0ec5f0085c90f84'
+    'a00000008db7e01b48008b0685c0746039d8745c8b961e03000083e20783fa01744e8b9628030000c1ea0983'
+    'e27f83fa10763d894424105152565753e8bd0000005b5f5e5a5984c075268b4424108b9614030000c1ea070f'
+    'b6d289d72b7c24087902f7df3b3c247307893c248944240481c6200500004975918b44240485c07513515256'
+    '57e82a0000005f5e5a5985c0750289d88b54240c890289d083c418619dc20c0083c418619d5589e583ec14e9'
+    '697c04ff8b7c24288b8fe0ec5f0085c974398db7e01b48008b0685c0742439d874208b9614030000c1ea070f'
+    'b6d23b54241c750e8b961e03000083e20783fa01750b81c6200500004975cd31c0c35156578b0dc8477d04be'
+    'cc477d0485c9741c8b3e39df75073946047415eb09395e04750439c7740a83c6084975e431c0eb05b8010000'
+    '005f5e59c3')
+
+
 def build():
     import keystone
     ks = keystone.Ks(keystone.KS_ARCH_X86, keystone.KS_MODE_32)
@@ -2104,6 +2329,7 @@ def build():
     out['CEILING_BYTES'] = bytes(ks.asm(CEILING_SOURCE, CEILING_CODE)[0])
     out['NEED_PLAN_BYTES'] = bytes(ks.asm(NEED_PLAN_SOURCE, NEED_PLAN_CODE)[0])
     out['NEED_PICK_BYTES'] = bytes(ks.asm(NEED_PICK_SOURCE, NEED_PICK_CODE)[0])
+    out['INCOMING_BYTES'] = bytes(ks.asm(INCOMING_SOURCE, INCOMING_CODE)[0])
     return out
 
 
@@ -2177,6 +2403,7 @@ if __name__ == '__main__':
     print('memory   %08x - %08x' % (CAVE, CAVE + CAVE_SIZE - 1))
     print('memory 2 %08x - %08x (MLTransfers.lua)' % (CAVE_2, CAVE_2 + CAVE_2_SIZE - 1))
     print('memory 3 %08x - %08x (MLTransfers.lua, NEED)' % (CAVE_3, CAVE_3 + CAVE_3_SIZE - 1))
+    print('memory 4 %08x - %08x (MLTransfers.lua, INCOMING)' % (INCOMING_CODE, INCOMING_CODE + len(INCOMING_BYTES) - 1))
     for name, at, old, new in SITES:
         print('%-9s %08x: %s -> %s' % (name, at, old.hex(), new.hex()))
     for at, _, name in ROUTINES:

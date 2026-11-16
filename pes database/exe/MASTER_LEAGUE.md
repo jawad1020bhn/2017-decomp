@@ -1030,6 +1030,194 @@ one immediate in `years_limit` (`fcn_03887f5d(&player)`, 16 call sites, **run in
 emulator** for every age): `mov eax, 3` at `0x03887fc1`. `sider/MLMoney.lua` changes
 that number (6.6).
 
+### 7.4 The offers for the user's players
+
+Level: **read** (disassembly of `fcn_03649f1f`, `fcn_0364c065`, `fcn_036497b5`,
+`fcn_03658821`, `fcn_0315e472`, `fcn_036524ac`, `fcn_036582ac`, `fcn_03655628`,
+`fcn_03652df0`, `fcn_0381e2eb`), and `fcn_03652df0` **run** in `tools/emu.py` on
+made-up frames. This is the path a module would have to change to make the offers a club
+receives for its own players realistic; it is written down here because it is not the
+path of section 9.
+
+**The list.** 70 records of `0x14` bytes at `mode data + 0xd0e660` (the gap between the
+deal records and the scout slots). Only `fcn_03649f1f` and its two helpers read it in
+Master League:
+
+| offset | what |
+|---|---|
+| `+0` | first dword of an id pair; `fcn_0314a909` and `fcn_03649f1f` copy it with `fcn_03676372` and compare it with the user's club, so in Master League it holds a club |
+| `+4` | the second dword of that pair (0 when there is none: `0x024fea2c`/`0x024fea30`) |
+| `+8` | state, 1 to 7 (`fcn_03652df0` writes a club id here in the deal record, a different structure) |
+| `+0xc` | a date in Master League: the day the approach arrived |
+| `+0x10` | flags: bit `0x100000` is tested by `fcn_0314b223`; in Become a Legend the low part is the years (`fcn_036e2557` case 1) |
+
+**The step.** `fcn_0364c065` runs at the day end and, in Master League only
+(`fcn_038093f1` = 0xc), calls `fcn_03649f1f`. On the 10th of a month it also calls
+`fcn_0364b1b6`, which makes the news for these records. `fcn_0364b81c` (day begin,
+event 11) calls `fcn_036497b5`, which sends the messages of states 1, 3, 4, 5 and 7.
+
+For a record in state 1 `fcn_03649f1f` does, in this order:
+
+1. event `0x18` on this day → state 2 and message `0x3a`;
+2. the date at `+0xc` must be 10 to 45 days old, else the record is left alone;
+3. the club at `+0` and the user's club (key `0x02100846`) are looked up in the club
+   ranking (`fcn_03138333`). If the user's club is worse placed, state 4 and message
+   `0x39`; otherwise a chance of `100 + place(buyer) - place(user)` (at least 10) is
+   drawn against `rand(100)`: state 4 and `0x39`, or state 2 and `0x3a`.
+
+**No price, squad need, persona or rivalry is read.** The only thing that decides is
+the two places in the ranking and one draw.
+
+**The close.** `fcn_03658821` (called from `negotiation_step`, 0x03659b50) is handed a
+deal record and calls `complete_transfer` (`fcn_0389840a`). The fee of such a move is
+the one `do_transfer` computes (6.2), so it follows the value of `MLMoney.lua`; no
+figure of the offer is used for it.
+
+**The five suitors of a deal record.** The 70 deal records of 7.1 carry five entries of
+`0x20` bytes at `+0xf0` (the `+0xf8` of 7.1 is the day counter inside an entry). The
+accessor `fcn_0315e472(deal, out, i)` copies entry `i` (entry 0 when `i` is 5 or more);
+`fcn_036582ac(deal, entry)` checks the club and calls `fcn_036524ac`, which looks the
+club up among the five by its low 14 bits and, when it is not there, writes it into the
+first empty entry; the routine then sends event `0x3d`. Inside `fcn_03658eda` the
+attach call is at `0x03659325` (the accepted suitors) and `0x03659467` (the second
+list), and again at `0x03659759` and `0x0365980b` once a figure has been computed.
+Entry `i` is read before that, at `0x0365915e`-`0x036592f4`, so the routine works on
+**the five entries the deal already holds**: it copies them out, tests them
+(`fcn_02c7d227` is true when the club id is not the empty one at `0x024feac8`) and
+attaches the ones that pass again.
+
+**Where an offer is born.** The five entries are written by `fcn_03652df0`, whose only
+caller is `fcn_03655628` (1603 bytes; the three call sites of that one are the message
+pump). `fcn_03655628(player id pair, message)` is the handler of the messages a club
+sends when it wants a player of the user's club:
+
+* `*ecx` is a level. It becomes the window of club levels that may bid:
+  `low = level - 2` (0 when `level < 3`), `high = level + 2` (9 when `level >= 7`);
+  message codes `0x18` and `0x19` open it to `0..9`;
+* `[message + 0x10]` is how many clubs are tried;
+* it walks the per-club candidate lists (8-byte entries at `container + 8 + n*0x10`),
+  drops the clubs already counted — `fcn_0388ba8a(&player, &club, &buf, &flag,
+  message + 0x18)` returns the running count and the club is skipped when
+  `[message + 0x18]` is already below it. **`[message + 0x18]` is the cap on the
+  offers for a player.** It also drops the user's club (`0x024fea5c`) and, for code
+  `0x1b`, clubs of another federation (`[+0x310]`);
+* for message codes 1, `0x18` and `0x19` it then calls
+  `fcn_03652df0(player, deal proto, &club)`.
+
+`fcn_03652df0(player, proto, &club)` is the one that materialises an offer:
+
+1. the room test on the **buying** club: `([buyer + 0x328] >> 9 & 0x7f) -
+   fcn_03889077()` must be **more than 16**, unless `[player + 0x1c] == 1` (the direction
+   is from the emulator run below, not from the reading);
+2. `[proto + 8] = club`, the id pair into `+0`/`+4` and `+0xc`;
+3. bits 4-7 of `[proto + 0x14]` = the role (`fcn_03652d7a`), bits 8-11 = a chance from
+   `fcn_03855998(&age)` cut down to 1 when it is 0 or when a flag is set;
+4. `fcn_036524ac(proto)` appends the club to the five entries of `proto`;
+5. the salary is computed into the player at `+0x28`/`+0x2c`
+   (`fcn_038ac66e`/`fcn_038ab832`, then `fcn_038a9d95`), and the news message `0x21`
+   (roles 4 and 0xa) or `0x2c` is posted with `fcn_031538bf`.
+
+**There is no transfer fee in this path.** The only figure is the salary
+(`fcn_038a9d95`). The fee of an outgoing move is computed at the transfer itself
+(`do_transfer`, 6.2), so it follows the value of the player, not an offer.
+
+**What this means for a module.** The number of offers a player gets is
+`min(cap in [message+0x18], clubs in the level window)`, and the clubs are then
+checked one by one. Filtering there can only subtract. To *add* sensible offers, the
+module has to call `fcn_03652df0` itself with a club it picked — the three arguments
+are known, the room test, the salary and the news come with it — or widen the level
+window / raise the cap, which adds the wrong clubs (a window is a range of levels, not
+a judgement of need).
+
+**Not read:** `fcn_036527f2`, which builds the `proto` that `fcn_03652df0` writes into
+(the object is temporary: `fcn_03653bf9(&proto)` destroys it after the call, so the
+persistent record is written inside one of them); what `fcn_0388ba8a` counts and what
+it does with `message + 0x18`; which of the three callers of `fcn_03655628` runs in
+Master League and with which level; the other states of `fcn_03649f1f`.
+
+**Run, not just read: what `fcn_03652df0` writes.** `tools/emu.py` runs it with every
+look-up it calls answered with a chosen value (`fcn_0381c0e5` → a block whose `+0x30`
+points at mode data; `fcn_0381e2eb` writes `0x333` and zero; `fcn_03822835` → a club
+record; `fcn_03822969` → a club record whose `+0x328` is the squad count; `fcn_03652d7a`
+→ a block whose `+4` is the role; the six formula and news calls → numbers). The offer
+writer `fcn_036524ac` and the routine itself are the game's own code. Two runs, with the
+third argument pointing at `0x111`, the look-up answering `0x333`, and the third
+argument of the *caller's* kind in the last field:
+
+| written | value | where it comes from |
+|---|---|---|
+| `+8` | `0x333` | the routine's own look-up (`0x02100a66`), **not** an argument |
+| `+0xc` | `0x111` | the second argument (low 14 bits) |
+| `+0x14` | `0x0170` | bits 4-7 role `7`, bits 8-11 the chance `1` |
+| `+0x28`, `+0x2c` | the figure | `fcn_038a9d95` |
+| `+0x64` | `0x21` | the news code |
+| `+0x70` | the third argument | written straight through |
+
+and **the room test is `squad > 16`, not "at most 16 below the target"**: with a squad
+count of 0 it wrote nothing but `+0x70` and returned; with 40 it wrote the rest.
+`fcn_036524ac` left no readable id behind in the five slots at `+0xf0` in either run —
+the ids are stored scrambled, so the emulator cannot show which slot took the club.
+
+What this settles: the club that buys is the one the routine **looks up itself**, and
+the second argument is a different club (it only reaches the low 14 bits of `+0xc`).
+Redirecting the buyer therefore means changing what the look-up answers, that is the
+global behind `0x02100a66` that the posting code filled, and not the argument of
+`fcn_03652df0`. That global, and `fcn_036527f2` which runs just before the call, are
+the places left to read.
+
+**The byte the buyer comes from.** The key pushed at `0x03652e08` is `0x02100a66`
+(the decompiler printed it a digit short), and `fcn_0381e2eb(ecx = mode data, &out,
+key, &out2)` reads **one byte** there and answers a club id (`ret 0xc`):
+
+* it walks the club table at `mode data + 0x481be0`, stride `0x520`, count
+  `[mode data + 0x5fece0]` (up to 0x28d);
+* it skips the club equal to `[0x0251f85c]` (the club of the player being handled) and,
+  when `[[out2]] == 1`, the clubs whose `[+0x31e] & 7 == 1`;
+* it takes the first club whose `[+0x314] >> 7` equals that byte and writes its id to
+  `*out`; when none matches, `*out` gets `[0x0251f85c]`;
+* the byte is only ever **pushed** (8 sites: `0x03652e08`, `0x036541c8`, `0x036547d2`,
+  `0x03655cf5`, `0x03656a36`, `0x03656a76`, `0x036570ac`, `0x036570ec`) and never stored
+  through a literal address, so what fills it does so indirectly, most likely the screen
+  that opens the negotiation.
+
+So the buying club is "the club at slot `n` of the competition in hand", `n` being that
+byte, and the club record packs `n << 7` into `+0x314`. There are two ways to redirect
+it: write a different `n`, or repoint that one `push` to a byte of the module's own and
+fill it. The second is the clean one — `68 66 0a 10 02` is five bytes, so it can be
+replaced on its own and the other seven readers of the byte stay untouched.
+
+**What is done about it.** `sider/MLTransfers.lua` (version 7, `INCOMING`) answers that
+look-up itself, in the place of its prologue, for that one key: if the club the game would
+answer is a rival of the player's club it walks the club table once and answers the club
+whose slot is nearest to the game's own, among those that are not the player's club, are
+not flagged at `+0x31e`, are no rival, and count more than 16 players. Otherwise the
+game's answer stands. Nothing is written to the mode data, so the slot space does not have
+to be known: the answer is a club id, not an index. `sider/test_offer.py` runs it on a
+made-up table (three cases and the bytes of the module).
+
+**Not read still.** `fcn_036527f2` (the object `fcn_03652df0` writes into, destroyed right
+after), what `fcn_0388ba8a` counts, which of the three callers of `fcn_03655628` runs in
+Master League with which level, what `+0x314` holds below bit 7, and the other states of
+`fcn_03649f1f`.
+
+**What blocks a patch here.** Three things, in the order they were found:
+
+1. no fee. Settled: the fee of an outgoing move is computed at the transfer from the
+   value of the player, so `MLMoney.lua` already owns it and an offer has no amount to
+   write;
+2. `[record + 8]` does not come from the third argument. `fcn_03652df0` fills it from its
+   own look-up (`fcn_0381e2eb(&var_8, 0x02100a66, &var_10)` at `0x03652e08`), and that
+   same value is what `fcn_03822969` turns into the buying club's squad count. The third
+   argument (`[ebp + 0xc]`) only feeds the low 14 bits of `[record + 0xc]` and
+   `fcn_03652d7a`. Swapping the club in the argument alone therefore leaves the room
+   test, `[record + 8]` and the news on the club the game chose;
+3. no free memory. The cave at `0x047d4200` is used to its last byte (`LAST_AT` is
+   `0xde4` and holds seven numbers), `NEED_CAVE` has 0x13 bytes left, and the stub of a
+   chooser is bigger than either. A third block would have to come from the gaps
+   `0x047d5200`-`0x047d6000` (after `.reloc`) or `0x047d6550`-`0x047d7000` (after the
+   need block), neither of them known to be free; the module's own emptiness check is
+   what would keep a wrong guess harmless.
+
 ## 8 Scouts
 
 Level: **inferred** that these are the scouts; the step is **read**.

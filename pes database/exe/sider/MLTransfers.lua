@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 6: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 7: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -25,6 +25,11 @@
 --   * position need (NEED): a club looks for a better player for the weakest place of
 --     its eleven, the goalkeeper included. In the game a club looks for a player only
 --     when a place of its eleven is empty or when it has fewer than 25 players.
+--   * offers for your own players (INCOMING): the game picks the club that makes an offer
+--     for one of your players by a slot of the competition in hand. When that club is a
+--     rival of yours, the module answers with the club of the nearest slot that is not a
+--     rival and has room in its squad. The offer still comes: it only no longer comes
+--     from a rival.
 -- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
 -- did.
 --
@@ -615,7 +620,19 @@ local RIVALS = {
     { 0x040ec0cd, 0x059b40ce },  -- Los Angeles Galaxy, Los Angeles FC
 }
 
--- ========================= end of settings =========================
+-- Offers for your own players. The game decides which club makes an offer for a player of
+-- yours by a slot of the competition in hand: a club look-up answers the club that sits at
+-- that slot, and the routine that creates the offer asks it. The module takes that answer
+-- and, when the club is a rival of yours, answers with the club of the nearest slot instead
+-- that is not a rival, is not the club of the player himself, and counts more than 16
+-- players (below that the routine that creates the offer would drop it again).
+-- An offer that was already sensible is left alone, and when no club passes, the game's own
+-- answer stands. So this adds no offer and takes none away: the same number comes, only a
+-- rival no longer makes one of them.
+-- false: as in the game. Needs RIVALS; with no pair in RIVALS nothing changes.
+local INCOMING = true
+
+-- ========================= end of settings ===========================
 
 local CAVE = 0x047d4200         -- unused end of a page of the game's code: the tables and the routine
 local CAVE_SIZE = 0xe00
@@ -623,6 +640,24 @@ local CAVE_SIZE = 0xe00
 -- and its two routines
 local NEED_CAVE = 0x047d6400
 local NEED_CAVE_SIZE = 0x150
+-- a fourth piece, in the same unused page right after that one (MLSimToDate.lua starts at
+-- 0x047d6f60): the chooser of the club that makes an offer for one of your players
+local INCOMING_CAVE = 0x047d6550
+local INCOMING_CAVE_SIZE = 0x300
+local INCOMING_ROUTINE = "9c6083ec188b4424408944240c8b4424443d660a10020f850c010000833dc8477d04000f84ff000000a1e003"
+      .. "650285c00f84f20000008b403085c00f84e7000000894424148b1d5cf8510285db0f84d500000083fbff0f84"
+      .. "cc000000c744240400000000c70424000100000fb615660a1002895424088b7c24148b8fe0ec5f0085c90f84"
+      .. "a00000008db7e01b48008b0685c0746039d8745c8b961e03000083e20783fa01744e8b9628030000c1ea0983"
+      .. "e27f83fa10763d894424105152565753e8bd0000005b5f5e5a5984c075268b4424108b9614030000c1ea070f"
+      .. "b6d289d72b7c24087902f7df3b3c247307893c248944240481c6200500004975918b44240485c07513515256"
+      .. "57e82a0000005f5e5a5985c0750289d88b54240c890289d083c418619dc20c0083c418619d5589e583ec14e9"
+      .. "697c04ff8b7c24288b8fe0ec5f0085c974398db7e01b48008b0685c0742439d874208b9614030000c1ea070f"
+      .. "b6d23b54241c750e8b961e03000083e20783fa01750b81c6200500004975cd31c0c35156578b0dc8477d04be"
+      .. "cc477d0485c9741c8b3e39df75073946047415eb09395e04750439c7740a83c6084975e431c0eb05b8010000"
+      .. "005f5e59c3"
+-- The place that is changed: the club look-up itself, in the place of its six prologue
+-- bytes, so that the club the routine that creates an offer asks for is our answer.
+local INCOMING_SITE = { "incoming", 0x0381e2eb, "5589e583ec14", "e96082fb0090" }
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
 -- the rating range a computer club searches first, smallest clubs first (the game's numbers)
 local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
@@ -1083,6 +1118,7 @@ end
 -- nil, or what is wrong with the settings
 local function settings_fault()
     if type(WRITE) ~= "boolean" then return "WRITE is not true or false" end
+    if type(INCOMING) ~= "boolean" then return "INCOMING is not true or false" end
     if type(SELL_SIDE) ~= "boolean" then return "SELL_SIDE is not true or false" end
     if type(PERSONA) ~= "boolean" then return "PERSONA is not true or false" end
     if type(NEED) ~= "boolean" then return "NEED is not true or false" end
@@ -1186,6 +1222,17 @@ local function need_image()
     return out .. string.rep("\0", NEED_CAVE_SIZE - #out)
 end
 
+-- what goes into the memory of INCOMING. nil: the module file is damaged
+local function incoming_image()
+    local code = unhex(INCOMING_ROUTINE)
+    -- the routine reads the pairs of RIVALS out of the tables of the memory above: if that
+    -- memory moved, the bytes would have to be built again (python3 money_cave.py build)
+    if code == nil or #code > INCOMING_CAVE_SIZE or not string.find(code, u32(CAVE + RIVALS_AT), 1, true) then
+        return nil
+    end
+    return code .. string.rep("\0", INCOMING_CAVE_SIZE - #code)
+end
+
 -- one line of the log for a piece of memory that is compared: -> is it as expected?
 local function same(name, at, expected)
     local got = memory.read(at, #expected / 2)
@@ -1253,25 +1300,27 @@ local function report_persona()
 end
 
 function m.init(ctx)
-    log("MLTransfers 6: the transfers of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 7: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then
         log("RESULT: nothing written. Settings: " .. fault)
         return
     end
-    if CEILING == false and not SELL_SIDE and not PERSONA and not NEED and #RIVALS == 0 then
-        log("RESULT: nothing written. CEILING, SELL_SIDE, PERSONA and NEED are off and RIVALS is empty: the "
-            .. "computer clubs choose as in the game.")
+    if CEILING == false and not SELL_SIDE and not PERSONA and not NEED and not INCOMING and #RIVALS == 0 then
+        log("RESULT: nothing written. CEILING, SELL_SIDE, PERSONA, NEED and INCOMING are off and RIVALS is "
+            .. "empty: the computer clubs choose as in the game.")
         return
     end
     local memory_image = image()
     local need_memory = need_image()
+    local incoming_memory = incoming_image()
     local sites = { SITE }
     if NEED then
         for _, site in ipairs(NEED_SITES) do sites[#sites + 1] = site end
     end
-    if memory_image == nil or need_memory == nil then
+    if INCOMING then sites[#sites + 1] = INCOMING_SITE end
+    if memory_image == nil or need_memory == nil or (INCOMING and incoming_memory == nil) then
         log("RESULT: nothing written. The module file is damaged (routine).")
         return
     end
@@ -1300,6 +1349,12 @@ function m.init(ctx)
         room = memory.read(NEED_CAVE, NEED_CAVE_SIZE)
         local free = (room ~= nil and room == string.rep("\0", NEED_CAVE_SIZE))
         log(string.format("check: %-13s at %08x  %s", "free memory", NEED_CAVE, free and "empty" or "NOT EMPTY"))
+        empty = empty and free
+    end
+    if INCOMING then
+        room = memory.read(INCOMING_CAVE, INCOMING_CAVE_SIZE)
+        local free = (room ~= nil and room == string.rep("\0", INCOMING_CAVE_SIZE))
+        log(string.format("check: %-13s at %08x  %s", "free memory", INCOMING_CAVE, free and "empty" or "NOT EMPTY"))
         empty = empty and free
     end
     if not found then
@@ -1338,6 +1393,10 @@ function m.init(ctx)
     if written and NEED then
         memory.write(NEED_CAVE, need_memory)
         written = (memory.read(NEED_CAVE, NEED_CAVE_SIZE) == need_memory)
+    end
+    if written and INCOMING then
+        memory.write(INCOMING_CAVE, incoming_memory)
+        written = (memory.read(INCOMING_CAVE, INCOMING_CAVE_SIZE) == incoming_memory)
     end
     if not written then
         log("RESULT: the table could not be written; the game's code is unchanged. "
@@ -1380,6 +1439,11 @@ function m.init(ctx)
             .. "goalkeeper included, when he stands %d or more rating points below the mean of the others; it "
             .. "takes only a player rated %d or more above him", round(NEED_GAP), round(NEED_BETTER)))
         changed[#changed + 1] = "position need"
+    end
+    if INCOMING then
+        log("offers for your players: a rival of yours no longer makes one; the club of the nearest slot of "
+            .. "the competition takes its place, so no offer is lost")
+        changed[#changed + 1] = "offers for your players"
     end
     log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
 end
