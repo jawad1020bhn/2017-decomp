@@ -2180,7 +2180,9 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
    `tactics_rec + 0x248[0..10]` (falling back to the squad top-11 loop when invalid),
    evaluates each starter's positional OVR (`tactics_rec + 0x68[0..10]`, defaulting
    `> 12` or `slot > 0 and pos == 0` to `13`), replaces injured/suspended starters
-   (`fcn_0385b771`) with the best eligible non-starters from the bench, and (when
+   (`fcn_0385b771`) with the best eligible non-starters from the bench (a natural GK
+   only ever fills a missing slot while the XI has no keeper, mirroring the game's
+   own sub picker `fcn_03706d2e`, which never fields a GK in an outfield slot), and (when
    `CONDITION_STRENGTH = true`) adjusts each player's OVR via `player_eff_ovr` by
    condition arrow (`CONDITION_OVR = { -3, -1, 0, 1, 3 }`) and pre-match fatigue
    below `FATIGUE_THRESHOLD` (`72`, up to `FATIGUE_PENALTY = 5`). In version 7,
@@ -2277,7 +2279,7 @@ Read from the DLL's code and strings, not run:
   `0x047d4f60`-`0x047d4f7f`, inside what `MLTransfers.lua` version 3 uses; the two could
   not be installed together, so it was moved to the end of the `.xcode` page (`0x047d3fa0`-`0x047d3fff`, 96 bytes for v7).
   `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
-  `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b7a`, 2,875 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
+  `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b8b`, 2,891 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
   `MLTransfers.lua` version 6 uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
   and `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
   `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining tail ranges after

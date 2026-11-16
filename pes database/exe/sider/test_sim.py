@@ -1728,6 +1728,21 @@ def main(exe):
     # Restore elite starter GK (92)
     h.alloc_player(*h_gk_ids[0], team_id=100, ovr=86, pos=0, arrow=4, fitness=100, inj_days=0)
 
+    # An injured OUTFIELD starter is filled by a bench outfielder (60 CMF), never by the
+    # higher-rated backup GK (75): bench GKs only enter once the XI has no keeper,
+    # mirroring the game's own sub picker fcn_03706d2e (playable proficiency 0 outfield).
+    # (The GK counts in the overall at his outfield-arrow eff 86+3; the gk byte stays 92.)
+    h.set_team_squad(0, h_gk_ids + [(22, 9622)])
+    h.alloc_player(22, 9622, team_id=100, ovr=60, pos=5, arrow=2, fitness=100)
+    h.alloc_player(*h_gk_ids[10], team_id=100, ovr=78, pos=9, arrow=2, fitness=100, inj_days=5)
+    ovr_cf_out = g.call(sc.CAVE_ET, [], ecx=h.match, edx=100)
+    edx_cf_out = g.mu.reg_read(UC_X86_REG_EDX)
+    exp_cf_out = sc.compute_eff_atk_def([(89, 0)] + [(78, p) for p in t_pos[1:10]] + [(60, 5)])
+    assert (ovr_cf_out, edx_cf_out & 0xff, (edx_cf_out >> 8) & 0xff) == exp_cf_out, (
+        ovr_cf_out, hex(edx_cf_out), exp_cf_out)
+    assert ((edx_cf_out >> 16) & 0xff) == 92, hex(edx_cf_out)  # starter GK still in goal
+    h.alloc_player(*h_gk_ids[10], team_id=100, ovr=78, pos=9, arrow=2, fitness=100, inj_days=0)
+
     # Scoreline impact: Home win (Home GK 92 vs Away GK 62) vs Away win (Home GK 92 vs Away GK 62)
     # In Home wins, Winner=Home(GK=92 -> high CS, low gl); in Away wins, Winner=Away(GK=62) vs Loser=Home(GK=92 -> low gw)
     idx = [0]
