@@ -31,12 +31,21 @@ from keystone import Ks, KS_ARCH_X86, KS_MODE_32
 from lupa.luajit21 import LuaRuntime
 
 import test_money as tm
+import simdate_calendar as sc
 from test_money import Game, run, setting
 
 MODULE = tm.MODULE.replace('MLMoney.lua', 'MLSimToDate.lua')
 OTHERS = [tm.MODULE.replace('MLMoney.lua', n) for n in ('MLMoney.lua', 'MLTransfers.lua', 'MLYear.lua', 'MLSimMatch.lua')]
-ROUTINE, SIZE, SITE = 0x047d6f60, 140, 0x0360b786
-PLACES = ((SITE, 32), (0x0387a831, 16), (0x035fe5aa, 7), (0x038ae460, 7), (0x0387a865, 6))
+ROUTINE, SIZE, SITE = 0x047d6f60, 138, 0x0360b786
+PLACES = ((SITE, 32), (0x0387a831, 16), (0x035fe5aa, 7), (0x038ae460, 7), (0x0387a865, 6),
+          (0x038093f1, 18), (0x0251d454, 4), (0x0251d4a8, 4),
+          (0x03231df4, 16), (0x03231a90, 21), (0x03231c9e, 35),
+          (0x03231d41, 40), (0x033680c6, 38), (0x038ae33c, 32),
+          (0x03231ea0, 37), (0x033b7cd2, 7),
+          (sc.POLL_SITE, 16), (sc.TITLE_SITE, 16), (0x03230bb2, 16),
+          (0x033c7f90, 16), (0x033cdaf7, 16), (0x038ae3cc, 16), (0x0216bb60, 144))
+WRITES = [(sc.DATA, sc.DATA_SIZE), (sc.CAVE, sc.SIZE), (ROUTINE, SIZE),
+          (sc.TITLE_SITE, 5), (sc.POLL_SITE, 5), (SITE, 5), (sc.READY, 1)]
 MODE_OBJECT, MENU_OBJECT = 0x026503e0, 0x0264f3e8
 STOP_TEST, DAY_LOOP, GAME_STOP, DAY_STATE = 0x0360b713, 0x0360dbf0, 0x0387a831, 0x03877938
 DAY_BEGIN, MATCHES, AFTER, DAY_END = 0x0360a350, 0x03611277, 0x036101d9, 0x0360bf0c
@@ -52,12 +61,18 @@ BEFORE = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
 
 # The routine as written. At the call: esi = the career's data, bl = the game's answer.
 SOURCE = '''
+    cmp byte ptr [0x0298c0e7], 1            ; installation is complete?
+    jne normal
     mov eax, dword ptr [0x264f3e8]          ; the mode
     test eax, eax
     jz normal
-    cmp dword ptr [eax + 0x20], 0xc         ; Master League?
+    cmp dword ptr [eax + 0x20], 0x13        ; Master League mode numbers 19 and 40
+    je master_league
+    cmp dword ptr [eax + 0x20], 0x28
     jne normal
-    cmp dword ptr [esi + 0xc2cbb0], {target}    ; year and day of today against the date
+master_league:
+    mov eax, dword ptr [0x0298c0e0]         ; target (year and day)
+    cmp dword ptr [esi + 0xc2cbb0], eax     ; year and day of today against the date
     jae past
     mov byte ptr [esi + 0xdcb6a0], 1        ; before the date: keep advancing,
     mov byte ptr [esi + 0xdcb61c], 2        ; and the user's match is skipped (2: set by this routine)
@@ -89,19 +104,16 @@ done:
     add dword ptr [esp], 0x13               ; back behind the game's own handling of the switch
     ret
 past:
-    cmp byte ptr [esi + 0xdcb61c], 2        ; the date is reached: both off, if this routine set them
-    jne normal
-    mov byte ptr [esi + 0xdcb6a0], 0
-    mov byte ptr [esi + 0xdcb61c], 0
+    jmp 0x047d6b50                         ; clears a calendar target and our switches
 normal:
     mov eax, dword ptr [0x26503e0]          ; what the replaced call did
     ret
 '''
 
 
-def assembled(target, big, news):
+def assembled(big, news):
     code, _ = Ks(KS_ARCH_X86, KS_MODE_32).asm('\n'.join(l.split(';')[0] for l in SOURCE.splitlines()).format(
-        target=target, big=int(big), news=int(news)), ROUTINE)
+        big=int(big), news=int(news)), ROUTINE)
     return bytes(code)
 
 
@@ -112,7 +124,7 @@ def with_date(source, year, month, day, news='true', big='false'):
     return source
 
 
-def run_live(g, source, files, clock, sticky=True, sider_dir=b'.\\'):
+def run_live(g, source, files, clock, sticky=True, sider_dir=b'.\\', register_failure=False):
     """As test_money.run for one module, with what the text file needs: io.open on `files`
     (path -> bytes), os.time from clock[0], ctx.register. -> (log lines, reads, writes,
     registered functions by event, paths opened)"""
@@ -133,6 +145,8 @@ def run_live(g, source, files, clock, sticky=True, sider_dir=b'.\\'):
         return files.get(path)
 
     def register(name, fn):
+        if register_failure:
+            raise RuntimeError('simulated ctx.register failure')
         assert name not in handlers
         handlers[name] = fn
 
@@ -163,7 +177,7 @@ def run_live(g, source, files, clock, sticky=True, sider_dir=b'.\\'):
 class World:
     """A career as far as the stop test and the day loop look at it, and a made-up calendar."""
 
-    def __init__(self, g, kind=0xc):
+    def __init__(self, g, kind=0x13):
         self.g = g
         g.free_all()
         self.mode = g.alloc(size=0xe00000)
@@ -308,12 +322,17 @@ def main(exe):
     source = open(MODULE, encoding='utf-8').read()
     image = Game(exe)
     image.replace(UNUSED, lambda game, arg: 0)          # so that the list of stand-ins is never empty
-    old_site = image.read(SITE, 5)
+    sites = (SITE, sc.POLL_SITE, sc.TITLE_SITE)
+    original = {at: image.read(at, 5) for at in sites}
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    assert sc.lua_block() in source, 'calendar bytes differ from simdate_calendar.py'
 
     def fresh():
-        tm.poke(image, SITE, old_site)
+        for at in sites:
+            tm.poke(image, at, original[at])
         tm.poke(image, ROUTINE, bytes(SIZE))
+        tm.poke(image, sc.CAVE, bytes(sc.SIZE))
+        tm.poke(image, sc.DATA, bytes(sc.DATA_SIZE))
 
     def install(*args, **kw):
         fresh()
@@ -321,26 +340,40 @@ def main(exe):
         assert lines[-1].startswith(INSTALLED % (args[2], args[1], args[0])), lines[-1]
         return lines, reads, writes
 
-    # 1. as it comes: off. Then: the writes, the routine, the call
+    # 1. as it comes: installed but off. Then: the writes, routines, calls and state.
+    fresh()
     lines, reads, writes = run(image, source)
-    assert lines[-1] == NOTHING + 'SIM_YEAR is 0 and there is no MLSimToDate.txt: the module is switched off.'
-    assert not reads and not writes
+    assert lines[-1].startswith('RESULT: installed, switched off.')
+    assert writes == WRITES and image.read(sc.DATE, 4) == bytes(4)
+    image.replace(DAY_STATE, lambda game, arg: 2)
+    for mode in (0x13, 0x28):
+        w = World(image, mode)
+        w.today(2025, 30)
+        w.match(True)
+        assert w.stop_test() == 1 and not w.byte(FLAG) and not w.byte(SKIP)
+        w.byte(SKIP, 1)                       # the user's own Skip Match is not ours
+        assert w.stop_test() == 1 and w.byte(SKIP) == 1
+    del image.replaced[DAY_STATE]
     cases = 0
     for year, month, day in ((2024, 7, 1), (2025, 1, 15), (2031, 12, 31), (2000, 1, 1), (2200, 2, 28)):
         for news in ('true', 'false'):
             for big in ('true', 'false'):
                 lines, reads, writes = install(year, month, day, news=news, big=big)
-                assert writes == [(ROUTINE, SIZE), (SITE, 5)] and tm.inside(reads, PLACES + ((ROUTINE, SIZE),))
-                assert sum('as expected' in l for l in lines) == 5 and sum(l.endswith('empty') for l in lines) == 1
+                assert writes == WRITES and tm.inside(reads, PLACES + ((ROUTINE, SIZE),
+                                                (sc.CAVE, sc.SIZE), (sc.DATA, sc.DATA_SIZE)))
+                assert sum('as expected' in l for l in lines) == len(PLACES)
+                assert sum(l.endswith('empty') for l in lines) == 3
                 target = year << 16 | BEFORE[month - 1] + day - 1
-                assert image.read(ROUTINE, SIZE) == assembled(target, big == 'true', news == 'true')
+                assert image.read(sc.DATE, 4) == struct.pack('<I', target)
+                assert image.read(sc.CAVE, sc.SIZE) == sc.build()
+                assert image.read(ROUTINE, SIZE) == assembled(big == 'true', news == 'true')
                 call = next(md.disasm(image.read(SITE, 5), SITE))
                 assert (call.mnemonic, call.op_str) == ('call', hex(ROUTINE))
                 assert ('It stops for news.' in lines[-1]) == (news == 'true')
                 assert ('It stops at big matches.' in lines[-1]) == (big == 'true')
                 cases += 1
-    print('ok 1: as it comes the module is off and touches nothing; with a date (%d settings) it writes '
-          'the routine and one call, nothing else, and the routine is the source in this file' % cases)
+    print('ok 1: as it comes the module is installed but off; %d settings write only the checked state, '
+          'two code blocks and three calls; the emitted machine code matches its source' % cases)
 
     # 2. every day of the year: the module's number of the date is the game's
     year = 2027
@@ -348,7 +381,7 @@ def main(exe):
         (y, month, day), _ = date_of(image, year, index)
         image.free_all()
         install(year, month, day)
-        assert struct.unpack('<I', image.read(ROUTINE + 21, 4))[0] == year << 16 | index, (month, day)
+        assert struct.unpack('<I', image.read(sc.DATE, 4))[0] == year << 16 | index, (month, day)
     print('ok 2: for each of the 365 days the game\'s own date code and the module agree on the day number')
 
     # 3. the game's stop test, one day at a time (the day state and, on match days, the game's
@@ -395,8 +428,13 @@ def main(exe):
     image.write(w.mode + CALENDAR + 30 * 0x214 + 0x194, struct.pack('<I', 3) + raw)
     assert one(2025, 30, 1, False) == (0, 0, 0)                 # the game's test ran and switched off
     assert one(2025, 31, 1, False) == (0, 1, 2)                 # the next day: on again
-    for kind in (0xd, 0xb, 8, 0):                               # other modes: the game as it was
-        image.write(struct.unpack('<I', image.read(MENU_OBJECT, 4))[0] + 0x20, struct.pack('<I', kind))
+    selector = struct.unpack('<I', image.read(MENU_OBJECT, 4))[0]
+    image.write(selector + 0x20, struct.pack('<I', 0x28))
+    assert one(2025, 30, 2, True) == (0, 1, 2)                 # the second ML mode
+    for kind in list(range(0x46)) + [0xffffffff]:                # raw mode numbers, not kinds
+        if kind in (0x13, 0x28):
+            continue
+        image.write(selector + 0x20, struct.pack('<I', kind))
         assert one(2025, 30, 2, True) == (1, 0, 0) and one(2025, 30, 1, False) == (0, 0, 0)
         assert one(2025, 30, 1, True, skip=1) == (0, 0, 1)
         assert one(2025, 30, 1, True, flag=1, stand_in=1) == (1, 0, 0) and asked
@@ -424,7 +462,7 @@ def main(exe):
         assert control[0] == [n for n, k in enumerate(kinds) if k in ('news', 'match') and n > 0][:40]
         assert set(control[1].values()) == {'user'} and not control[3]
         assert all(not flag and not skip for _, flag, skip in control[2])
-        for kind in (0xd, 0xb):                         # another mode with the module in: the same
+        for kind in (0x0c, 0x12, 0x14):                 # other raw modes with the module in: the same
             install(2026, 6, 1)
             assert walk(World(image, kind), kinds, events, big, 0, 40) == control
         install(2024, 1, 1)                             # a date that is past: the same
@@ -480,7 +518,7 @@ def main(exe):
             assert lines[-1].startswith(NOTHING + 'Settings: STOP_FOR_NEWS') and not reads and not writes
             refused += 1
     count = 0
-    for at, n in PLACES + ((ROUTINE, SIZE),):
+    for at, n in PLACES + ((ROUTINE, SIZE), (sc.CAVE, sc.SIZE), (sc.DATA, sc.DATA_SIZE)):
         for k in range(n):
             fresh()
             was = image.read(at + k, 1)
@@ -490,13 +528,51 @@ def main(exe):
             assert lines[-1].startswith(NOTHING + 'This game does not hold') and not writes, (hex(at), k)
             assert sum('DIFFERENT' in l or 'NOT EMPTY' in l for l in lines) == 1
             count += 1
+    for at, text, expected in ((sc.DATA, 'calendar state', WRITES[:1]),
+                               (sc.CAVE, 'calendar', WRITES[:2]),
+                               (ROUTINE, 'the routine', WRITES[:3])):
+        fresh()
+        lines, reads, writes = run(image, with_date(source, 2025, 3, 1), sticky=lambda a: a != at)
+        assert lines[-1].startswith('RESULT: a change did not go in (' + text + ')') and writes == expected
+        assert all(image.read(site, 5) == original[site] for site in sites)
+    for at in (sc.TITLE_SITE, sc.POLL_SITE, SITE):
+        fresh()
+        lines, reads, writes = run(image, with_date(source, 2025, 3, 1), sticky=lambda a: a != at)
+        assert lines[-1].startswith('RESULT: a change did not go in. Hooks restored.'), lines[-1]
+        assert all(image.read(site, 5) == original[site] for site in sites)
     fresh()
-    lines, reads, writes = run(image, with_date(source, 2025, 3, 1), sticky=lambda a: a != ROUTINE)
-    assert lines[-1].startswith('RESULT: a change did not go in (the routine)') and writes == [(ROUTINE, SIZE)]
-    assert image.read(SITE, 5) == old_site
+    lines, _, _ = run(image, with_date(source, 2025, 3, 1), sticky=lambda a: a != sc.READY)
+    assert lines[-1].startswith('RESULT: the module could not be enabled.')
+    assert image.read(sc.READY, 1) == b'\0'
+    # The bundled Sider has no pcall: a thrown write must leave the activation byte off.
+    for at in (sc.DATA, sc.CAVE, ROUTINE, sc.TITLE_SITE, sc.POLL_SITE, SITE, sc.READY):
+        fresh()
+        def throws(address):
+            if address == at:
+                raise RuntimeError('simulated memory.write exception')
+            return True
+        try:
+            run(image, with_date(source, 2025, 3, 1), sticky=throws)
+            assert False, 'write should have raised'
+        except RuntimeError as error:
+            assert 'simulated memory.write exception' in str(error)
+        assert image.read(sc.READY, 1) == b'\0', hex(at)
     fresh()
-    lines, reads, writes = run(image, with_date(source, 2025, 3, 1), sticky=lambda a: a != SITE)
-    assert lines[-1].startswith('RESULT: a change did not go in. Quit'), lines[-1]
+    try:
+        run_live(image, source, {FILE: b'off'}, [1000], register_failure=True)
+        assert False, 'register should have raised'
+    except RuntimeError as error:
+        assert 'simulated ctx.register failure' in str(error)
+    assert image.read(sc.READY, 1) == b'\0'
+    fresh()
+    failed_files, failed_clock = {FILE: b'off'}, [1000]
+    lines, _, writes, handlers, _ = run_live(image, source, failed_files, failed_clock,
+                                              sticky=lambda a: a != sc.READY)
+    assert lines[-1].startswith('RESULT: the module could not be enabled.')
+    failed_files[FILE], failed_clock[0] = b'2025-03-01', 1001
+    before = list(writes)
+    handlers[b'livecpk_make_key']({}, b'file.bin')
+    assert writes == before and image.read(sc.DATE, 4) == bytes(4)
     fresh()
     install(2025, 3, 1)
     lines, reads, writes = run(image, with_date(source, 2025, 3, 1))            # a second time
@@ -518,21 +594,23 @@ def main(exe):
         return got
 
     def date_in():
-        return struct.unpack('<I', image.read(ROUTINE + 21, 4))[0]
+        return struct.unpack('<I', image.read(sc.DATE, 4))[0]
 
     clock, march15 = [1000], 2025 << 16 | 73
     assert date_of(image, 2025, 73)[0] == (2025, 3, 15)
     fresh()
     lines, reads, writes, handlers, opened = run_live(image, source, {}, clock)         # no file, no date
-    assert lines[-1].startswith(NOTHING + 'SIM_YEAR is 0 and there is no') and not writes and not handlers
+    assert lines[-1].startswith('RESULT: installed, switched off.') and writes == WRITES and not handlers
     assert opened == [FILE], opened
     assert lines[1] == 'date file: .\\MLSimToDate.txt  not there, the date in MLSimToDate.lua is used'
+    fresh()
     lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2025, 3, 15), {}, clock)
     assert lines[-1] == INSTALLED % (15, 3, 2025) + ' It stops for news.' and not handlers and date_in() == march15
     fresh()
     lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2025, 3, 15), {}, clock,
                                                       sider_dir=b'C:\\sider')
     assert opened == [b'C:\\sider\\MLSimToDate.txt']
+    fresh()
     lines, reads, writes, handlers, opened = run_live(image, source, {FILE: b'off'}, clock)
     assert lines[1] == 'date file: .\\MLSimToDate.txt  found'
     forms = 0
@@ -543,12 +621,12 @@ def main(exe):
             lines, reads, writes, handlers, opened = run_live(image, with_date(source, *lua_date), {FILE: text}, clock)
             assert lines[-1] == INSTALLED % (15, 3, 2025) + ' It stops for news.' + LIVE, lines[-1]
             assert date_in() == march15 and list(handlers) == [b'livecpk_make_key'], text
-            assert writes == [(ROUTINE, SIZE), (SITE, 5)] and probe() == (0, 1, 2)
+            assert writes == WRITES and probe() == (0, 1, 2)
             forms += 1
     for text in (b'off', b'OFF\r\n', b' Off ', b'', b'0', b'  \n'):
         fresh()
         lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2031, 6, 6), {FILE: text}, clock)
-        assert lines[-1].startswith('RESULT: installed, switched off: MLSimToDate.txt says off.'), lines[-1]
+        assert lines[-1].startswith('RESULT: installed, switched off.'), lines[-1]
         assert lines[-1].endswith(LIVE) and date_in() == 0 and list(handlers) == [b'livecpk_make_key']
         assert probe() == (1, 0, 0)                                 # in, and the game as it was
         forms += 1
@@ -557,8 +635,9 @@ def main(exe):
     for text in bad:
         fresh()
         lines, reads, writes, handlers, opened = run_live(image, with_date(source, 2031, 6, 6), {FILE: text}, clock)
-        assert lines[-1].startswith(NOTHING + 'MLSimToDate.txt holds neither a date'), (text, lines[-1])
-        assert not reads and not writes and not handlers
+        assert any('invalid date; starting switched off' in line for line in lines), (text, lines)
+        assert lines[-1].startswith('RESULT: installed, switched off.')
+        assert writes == WRITES and list(handlers) == [b'livecpk_make_key'] and date_in() == 0
 
     # while the game runs: the registered function, called as Sider would on a file load
     fresh()
@@ -579,7 +658,8 @@ def main(exe):
         del writes[:], opened[:]
         for _ in range(calls):
             assert look({}, b'common/some/file.bin') is None            # no key of its own: Sider goes on
-        assert all(w == (ROUTINE + 21, 4) for w in writes) and all(o == FILE for o in opened)
+        allowed = ((sc.DATE, 6),)
+        assert all(w in allowed for w in writes) and all(o == FILE for o in opened)
         return lines[before:], len(writes), len(opened)
 
     assert loaded(b'off') == ([], 0, 1) and probe() == (1, 0, 0)
@@ -590,6 +670,11 @@ def main(exe):
     assert date_in() == march15
     assert loaded(b'15.3.2025') == ([], 0, 1)                           # nothing new
     assert loaded(b'2025-03-15\n') == ([], 0, 1) and date_in() == march15      # the same date, written otherwise
+    # A changed file overrides a later calendar choice, even if its date matches an earlier file value.
+    image.write(sc.DATE, struct.pack('<I', 2025 << 16 | 90))
+    image.write(sc.OWNER, b'\1\1')
+    assert loaded(b'15.3.2025') == (['MLSimToDate: the date is now 15.3.2025 (from MLSimToDate.txt)'], 1, 1)
+    assert date_in() == march15 and image.read(sc.OWNER, 2) == b'\0\0'
     got = loaded(b'soon')
     assert got[1:] == (0, 1) and len(got[0]) == 1 and 'holds neither a date nor the word off' in got[0][0]
     assert loaded(b'soon') == ([], 0, 1) and date_in() == march15       # said once, the date stays
@@ -598,13 +683,17 @@ def main(exe):
     assert loaded(b'31.12.2024') == (['MLSimToDate: the date is now 31.12.2024 (from MLSimToDate.txt)'], 1, 1)
     assert date_in() == 2024 << 16 | 364 and probe() == (1, 0, 0)       # a date that is past
     assert loaded(b'off') == (['MLSimToDate: switched off (from MLSimToDate.txt)'], 1, 1) and date_in() == 0
-    as_written = assembled(march15, False, True)
-    assert image.read(ROUTINE, SIZE) == as_written[:21] + bytes(4) + as_written[25:]    # only the date changed
+    assert image.read(ROUTINE, SIZE) == assembled(False, True)       # date changes never rewrite code
     fresh()
     files = {FILE: b'off'}
-    lines, reads, writes, handlers, opened = run_live(image, source, files, clock, sticky=lambda a: a != ROUTINE + 21)
+    can_write = [True]
+    lines, reads, writes, handlers, opened = run_live(image, source, files, clock,
+                                                       sticky=lambda a: a != sc.DATE or can_write[0])
+    can_write[0] = False
     look = handlers[b'livecpk_make_key']
     assert loaded(b'1.3.2025') == (['MLSimToDate: the new date did not go in; send this log'], 1, 1)
+    can_write[0] = True
+    assert loaded(b'1.3.2025') == (['MLSimToDate: the date is now 1.3.2025 (from MLSimToDate.txt)'], 1, 1)
 
     # a run, a new date, a second run: the game's day loop on a made-up calendar
     kinds, events, big = calendar(3)
@@ -625,8 +714,8 @@ def main(exe):
     assert day >= 640 and presses < 40
     print('ok 6: the date from MLSimToDate.txt: %d ways to write a date or "off" are understood and %d are '
           'refused; the file wins over the date in the Lua file; without the file nothing is registered; '
-          'while the game runs a new date goes in on the next file load, at most once a second, and only '
-          'its four bytes are written; a faulty or missing file leaves the date as it was; the day loop '
+          'while the game runs a new date goes in on the next file load, at most once a second, and '
+          'calendar ownership is cleared; a faulty or missing file leaves the date as it was; the day loop '
           'runs to a first date, then on to a later one (%d presses for 640 days)' % (forms, len(bad), presses))
 
     # 7. with the other four modules
@@ -638,7 +727,7 @@ def main(exe):
         lines, reads, writes = run(image, tm.SPLIT.join(order))
         got = [l for l in lines if l.startswith('RESULT')]
         assert len(got) == 5 and all(l.startswith('RESULT: installed.') for l in got), got
-        assert image.read(ROUTINE, SIZE) == assembled(2025 << 16 | 59, False, True)
+        assert image.read(ROUTINE, SIZE) == assembled(False, True)
         w = World(image)
         image.replace(DAY_STATE, lambda game, arg: 2)
         w.today(2025, 30)
