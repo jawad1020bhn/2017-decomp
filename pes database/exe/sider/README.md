@@ -2094,7 +2094,8 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
 
 1. **Match outcome (`0x03707a1f`):** replaces vanilla's harsh `diff >= 4` / `diff >= 2`
    step function with a smooth Davidson win/draw/loss table plus `HOME_ADVANTAGE`
-   (`1.6` OVR, `ELO_SCALE = 4.0`, `BASE_DRAW = 0.28`) and ML captain role bonus via
+   (`2.5` OVR since the post-audit retune below; `ELO_SCALE = 4.0`, `BASE_DRAW = 0.28`)
+   and ML captain role bonus via
    `CAPTAIN_WEIGHT` (`0.125`: +-10 gives +-1 OVR, +-20 gives +-2).
    **Version 8** changed these four defaults (version 7: `2.4`, `6.2`, `0.27`, `0.2`),
    because the tables of version 7 were too flat. Model of the module's own tables on
@@ -2115,6 +2116,12 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
    per e-fold made the best club win barely more than half its matches. The draws were
    already right (one match in four), so `BASE_DRAW` moved only to keep them there.
    `test_sim.py` (test 24) holds the defaults to this.
+   **After the suggestion audit** the home advantage was raised again, from `1.6` to `2.5`
+   (just above version 7's `2.4`): between equal teams home/draw/away becomes 48/27/25%,
+   and in test 24's model of the twenty best clubs home wins rise from 43% to 47% while
+   draws stay at 26% and the champion's points move by less than one (74 -> 73). Home
+   wins now sit a touch above the ~45% of real football, accepted deliberately; test 24's
+   bound for them was widened to 50% for this.
 2. **Scorelines, Attack/Defense split & GK modifier (`0x03705feb`, `ATTACK_DEFENSE_SPLIT`, `GK_SCORE_MOD`):**
    moves `score_hook` to `CAVE_ET` and replaces vanilla's narrow goal tables with a
    7x7 2D conditional Poisson table (`WIN_CDF_2D`, 1,029 B) indexed by
@@ -2158,20 +2165,22 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
      players using exponential weights (`SCORER_SHARPNESS`, zero for GKs) and assigns
      assists across the remaining outfielders (`UNASSISTED_PCT`, `ASSIST_SHARPNESS`).
    - **Version 8** spreads the goals: position table `(0, -22, -24, -24, -18, -4, 6, 6,
-     8, 8, 8, 12, 14)` (GK, CB, LB, RB, DMF, CMF, LMF, RMF, AMF, LWF, RWF, SS, CF),
+     8, 10, 10, 12, 12)` (GK, CB, LB, RB, DMF, CMF, LMF, RMF, AMF, LWF, RWF, SS, CF;
+     wingers were raised from `8` to `10` and CF lowered from `14` to `12` after the
+     suggestion audit, so elite wingers sit nearer the CFs in the scoring charts),
      `SCORER_SHARPNESS = 0.05`, and the weight table is read with `gap >> 2` for goals
      too (version 7: `gap >> 1`, so every gap above 46 counted alike and no table could
      keep defenders low without a steep curve). Measured on the best eleven of the 499
      clubs of `ML saves/ML00000013 (before)`:
 
-     | | version 7 | version 8 |
-     |---|---|---|
-     | goals by CF | 50% | 32% |
-     | SS, wingers, AMF | 37% | 41% |
-     | CMF, DMF | 7% | 14% |
-     | defenders | 6% | 12% |
-     | best scorer's share of his club's goals: median / 90th / most | 47 / 66 / 88% | 30 / 38 / 57% |
-     | Haaland / Kane / Mbappé | 83 / 68 / 40% | 48 / 37 / 25% |
+     | | version 7 | version 8 | after the audit |
+     |---|---|---|---|
+     | goals by CF | 50% | 32% | 30% |
+     | SS, wingers, AMF | 37% | 41% | 44% |
+     | CMF, DMF | 7% | 14% | 14% |
+     | defenders | 6% | 12% | 12% |
+     | best scorer's share of his club's goals: median / 90th / most | 47 / 66 / 88% | 30 / 38 / 57% | 28 / 35 / 55% |
+     | Haaland / Kane / Mbappé | 83 / 68 / 40% | 48 / 37 / 25% | 45 / 34 / 22% |
 
      (The "~26% CF" that the settings comment of version 7 gave was not what real
      squads produced.) Assists are unchanged.

@@ -68,10 +68,13 @@ local WRITE = true
 --   false       : leave outcomes and scorelines as in the vanilla game
 local SCOPE = "all"
 
--- Effective team OVR boost for the home side (0.0 to 15.0).
--- 1.6 gives ~43% home win / ~28% draw / ~29% away win between equal teams, and
--- ~44% / ~25% / ~31% over a whole league. (Version 7: 2.4, with ELO_SCALE 6.2.)
-local HOME_ADVANTAGE = 1.6
+-- Effective team OVR boost for the home side (0.0 to 15.0). The outcome table uses
+-- the exact value; the scoreline band shift and the extra-time diff use it rounded.
+-- 2.5 gives ~48% home win / ~27% draw / ~25% away win between equal teams, and
+-- ~47% / ~26% / ~27% over a whole league -- a touch above the ~45% home wins of
+-- real football, raised from 1.6 after the suggestion audit. (Version 7: 2.4,
+-- with ELO_SCALE 6.2.)
+local HOME_ADVANTAGE = 2.5
 
 -- OVR points per e-fold of odds ratio (2.0 to 30.0).
 -- Smaller = stronger favorites; larger = more upsets. Version 7 had 6.2, which was too
@@ -158,9 +161,9 @@ local SCORERS = true
 local ASSISTS = true
 
 -- Attribute decay sharpness for goals (0.01 to 0.50). Higher concentrates goals on the
--- best finisher of the club. 0.05 gives, over the clubs of a real save: ~32% CF /
--- ~41% SS, wingers and AMF / ~14% CMF-DMF / ~12% defenders, and the best scorer of a
--- club gets ~30% of its goals (a striker far above his team mates up to ~50%).
+-- best finisher of the club. 0.05 gives, over the clubs of a real save: ~30% CF /
+-- ~44% SS, wingers and AMF / ~14% CMF-DMF / ~12% defenders, and the best scorer of a
+-- club gets ~28% of its goals (a striker far above his team mates up to ~55%).
 -- Version 7 had 0.11: 50% CF, best scorer 47% (up to 88%).
 local SCORER_SHARPNESS = 0.05
 
@@ -818,7 +821,9 @@ local function build_data_d2()
     t[#t + 1] = u32_bytes(SMART_SUBS and 1 or 0)
     t[#t + 1] = u32_bytes(LINEUP_STRENGTH and 1 or 0)
     t[#t + 1] = u32_bytes(ATTACK_DEFENSE_SPLIT and 1 or 0)
-    local scorer_pos = { 0, -22, -24, -24, -18, -4, 6, 6, 8, 8, 8, 12, 14 }
+    -- scorer modifier by position (GK..CF); wingers 10 / CF 12 since the suggestion
+    -- audit (version 8 at launch: 8 / 14), so elite wingers sit nearer the CFs
+    local scorer_pos = { 0, -22, -24, -24, -18, -4, 6, 6, 8, 10, 10, 12, 12 }
     for i = 1, 13 do
         local v = scorer_pos[i]
         t[#t + 1] = string.char((v < 0) and (v + 256) or v)

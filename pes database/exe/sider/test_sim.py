@@ -1631,8 +1631,8 @@ def main(exe):
         (4,  65, 65, 70, 82, 80, 3, 100),  # DMF -> scorer -18, assist -8, green arrow +2
         (5,  72, 74, 65, 86, 84, 2, 100),  # CMF -> scorer -4, assist +0
         (8,  80, 84, 60, 90, 88, 4, 100),  # AMF -> scorer +8, assist +6, blue arrow +6
-        (9,  88, 90, 65, 85, 82, 2, 100),  # LWF -> scorer +8, assist +4
-        (12, 95, 96, 92, 72, 65, 4, 100),  # CF -> scorer +14, assist +0, blue arrow +6
+        (9,  88, 90, 65, 85, 82, 2, 100),  # LWF -> scorer +10, assist +4
+        (12, 95, 96, 92, 72, 65, 4, 100),  # CF -> scorer +12, assist +0, blue arrow +6
         (12, 99, 99, 99, 99, 99, 4, 100),  # High values: (119, 204)
         (1,  40, 40, 40, 40, 40, 0, 36),   # Low values with red arrow and fatigue: (7, 49)
         (1,  10, 10, 10, 10, 10, 0, 36),   # Clamp floor to 1!
@@ -1859,7 +1859,9 @@ def calibration(exe):
         ph, phd = out[max(sc.DIFF_MIN, min(sc.DIFF_MAX, best[i] - best[j])) - sc.DIFF_MIN]
         wins[i] += ph / 1000; wins[j] += 1 - phd / 1000; draws += (phd - ph) / 1000; home += ph / 1000; games += 1
     first, last = max(wins) / 38, min(wins) / 38
-    assert 0.55 <= first <= 0.75 and last <= 0.28 and 0.23 <= draws / games <= 0.27 and 0.42 <= home / games <= 0.47, (first, last, draws / games, home / games)
+    # home wins up to 50%: HOME_ADVANTAGE was raised to 2.5 after the suggestion audit
+    # (just above version 7's 2.4), putting home wins a touch above real football's ~45%
+    assert 0.55 <= first <= 0.75 and last <= 0.28 and 0.23 <= draws / games <= 0.27 and 0.42 <= home / games <= 0.50, (first, last, draws / games, home / games)
     print(f"ok 24: version 8 defaults on {n} clubs of a save: CF {cf:.0%} of the goals, defenders {defenders:.0%}, best scorer of a club {median:.0%} "
           f"(most {max(top):.0%}); the 20 best clubs among themselves: first wins {first:.0%}, last {last:.0%}, draws {draws / games:.0%}, home wins {home / games:.0%}")
 
