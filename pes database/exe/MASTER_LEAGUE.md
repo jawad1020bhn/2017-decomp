@@ -1186,14 +1186,31 @@ it: write a different `n`, or repoint that one `push` to a byte of the module's 
 fill it. The second is the clean one — `68 66 0a 10 02` is five bytes, so it can be
 replaced on its own and the other seven readers of the byte stay untouched.
 
-**What is done about it.** `sider/MLTransfers.lua` (version 7, `INCOMING`) answers that
-look-up itself, in the place of its prologue, for that one key: if the club the game would
-answer is a rival of the player's club it walks the club table once and answers the club
-whose slot is nearest to the game's own, among those that are not the player's club, are
-not flagged at `+0x31e`, are no rival, and count more than 16 players. Otherwise the
-game's answer stands. Nothing is written to the mode data, so the slot space does not have
-to be known: the answer is a club id, not an index. `sider/test_offer.py` runs it on a
-made-up table (three cases and the bytes of the module).
+**What is done about it.** `sider/MLTransfers.lua` (version 8, `INCOMING`) answers that
+look-up itself, in the place of its prologue, for that one key. Version 7 only refused a
+rival; version 8 keeps the club of the game's slot when it passes and otherwise answers the
+club whose slot is **nearest** to the game's own among those that pass all four rules: no
+rival of the player's club, a persona that wants him (the age band with `AGE_SHIFT`, the
+ambition, the prestige, the strictness — the genes and the tables of the selling side, so
+it is the same arithmetic as `ai_candidates`), a place in the buyer's own plan record
+(`+0xccb80c`, `0x118` bytes, ranking order, count `+0xd06434`: a slot with `kind` whose
+position is his and whose state is 0 or 7, or the position need written at `+0x109`), and
+a price it can afford (the value `MLMoney.lua` gives the player, less `CEILING_FREE` or
+`CEILING_LISTED`, at most `CEILING[level] x wealth x (1 + premium + panic)`, the club
+passing when its level has no ceiling). The rule of version 7 that guessed the room of the
+substitute from the squad count is gone: `fcn_03652df0` runs its own room test on the
+answered club, and if it refuses, that is the game's decision. Nothing is written to the
+mode data, so the slot space does not have to be known: the answer is a club id, not an
+index. The fee is untouched (`MLMoney.lua` computes it at the transfer), and the module
+answers the game's own club when no club passes, so it neither adds nor removes an offer by
+its own choice.
+
+`sider/test_offer.py` runs the real look-up at that place on a made-up mode data (club
+table, plan records, club ranking, personas, rivals, the player's record) for 200 cases
+against `money_cave.offer_pick`, the same rules in Python: 142 keep the game's club, 19
+answer another club, 39 have no club at the game's slot. The source is `sider/incoming.c`,
+assembled by `offer_source.py` into the 1,661 bytes at `0x047d6550` that the module ships.
+`MLSimToDate.lua` uses the same page, so the two cannot be installed together.
 
 **Not read still.** `fcn_036527f2` (the object `fcn_03652df0` writes into, destroyed right
 after), what `fcn_0388ba8a` counts, which of the three callers of `fcn_03655628` runs in
@@ -1212,11 +1229,11 @@ Master League with which level, what `+0x314` holds below bit 7, and the other s
    `fcn_03652d7a`. Swapping the club in the argument alone therefore leaves the room
    test, `[record + 8]` and the news on the club the game chose;
 3. no free memory. The cave at `0x047d4200` is used to its last byte (`LAST_AT` is
-   `0xde4` and holds seven numbers), `NEED_CAVE` has 0x13 bytes left, and the stub of a
-   chooser is bigger than either. A third block would have to come from the gaps
-   `0x047d5200`-`0x047d6000` (after `.reloc`) or `0x047d6550`-`0x047d7000` (after the
-   need block), neither of them known to be free; the module's own emptiness check is
-   what would keep a wrong guess harmless.
+   `0xde4` and holds seven numbers) and `NEED_CAVE` has 0x13 bytes left. Version 8 took the
+   0x700 bytes after the need block, `0x047d6550`-`0x047d6c4f` (1,661 used), which hold
+   zeros in the file; the module's own emptiness check is what keeps a wrong guess
+   harmless. `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f`, so the two modules refuse
+   each other.
 
 ## 8 Scouts
 

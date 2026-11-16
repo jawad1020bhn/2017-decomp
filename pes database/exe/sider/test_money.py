@@ -55,11 +55,12 @@ MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and
 # its memory. Writes: its memory and the places it changes.
 CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
 # version 7 of MLTransfers.lua adds a fourth piece for the offers for the user's players
-INCOMING = ((mc.INCOMING_CODE, 0x300),)
+# (version 8 gives it the whole 0x700 place and the site it replaces)
+INCOMING = ((mc.INCOMING_CODE, 0x700), (mc.INCOMING_SITE, 6))
 READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
 # (the third piece, of the position need, only with NEED on)
-CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE), (mc.INCOMING_CODE, 0x300))
+CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE), (mc.INCOMING_CODE, 0x700))
 READS_2 = tuple((at, n) for _, at, n in mc.CONTEXT_CEILING) + CAVE_2
 # ai_candidates: its two calls in ai_pick_candidate (the call, where it returns to), and what it asks
 CHOOSE_CALLS = ((0x03660d53, 0x03660d58), (0x03660db4, 0x03660db9))

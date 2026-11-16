@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 7: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 8: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -26,10 +26,12 @@
 --     its eleven, the goalkeeper included. In the game a club looks for a player only
 --     when a place of its eleven is empty or when it has fewer than 25 players.
 --   * offers for your own players (INCOMING): the game picks the club that makes an offer
---     for one of your players by a slot of the competition in hand. When that club is a
---     rival of yours, the module answers with the club of the nearest slot that is not a
---     rival and has room in its squad. The offer still comes: it only no longer comes
---     from a rival.
+--     for one of your players by a slot of the competition in hand. The module answers that
+--     look-up itself, with the club of the nearest slot among those that would really take
+--     him: no rival of yours, a character that wants him (age band, ambition, prestige), a
+--     place for his position in its plan (or its position need asking for it), and money
+--     enough for his value (the ceiling of its level, with the wealth, premium and panic of
+--     its character). The same offers come; when no club passes, the game's answer stands.
 -- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
 -- did.
 --
@@ -622,14 +624,22 @@ local RIVALS = {
 
 -- Offers for your own players. The game decides which club makes an offer for a player of
 -- yours by a slot of the competition in hand: a club look-up answers the club that sits at
--- that slot, and the routine that creates the offer asks it. The module takes that answer
--- and, when the club is a rival of yours, answers with the club of the nearest slot instead
--- that is not a rival, is not the club of the player himself, and counts more than 16
--- players (below that the routine that creates the offer would drop it again).
+-- that slot, and the routine that creates the offer asks it. The module answers that look-up
+-- itself, with the club whose slot is nearest to the game's own among those that would
+-- really take him:
+--   * not a rival of yours (RIVALS), and not the club the game itself skips;
+--   * its character wants him (PERSONA): he is in its age band, he is not too good for it
+--     (prestige) nor too poor for it (ambition, as it judges him);
+--   * it buys for his position at all (NEED): a free place of its plan asks for that
+--     position, or the position need marked it;
+--   * it can afford him (CEILING): his value after the discount for a player without a
+--     contract or one on the list does not exceed the ceiling of its level raised by its
+--     wealth and premium, and by its panic when it is in need.
+-- A club with a full squad is answered too: the room test of the routine that creates the
+-- offer is the game's own and decides whether the offer is made.
 -- An offer that was already sensible is left alone, and when no club passes, the game's own
--- answer stands. So this adds no offer and takes none away: the same number comes, only a
--- rival no longer makes one of them.
--- false: as in the game. Needs RIVALS; with no pair in RIVALS nothing changes.
+-- answer stands: nothing is added.
+-- false: as in the game.
 local INCOMING = true
 
 -- ========================= end of settings ===========================
@@ -643,18 +653,45 @@ local NEED_CAVE_SIZE = 0x150
 -- a fourth piece, in the same unused page right after that one (MLSimToDate.lua starts at
 -- 0x047d6f60): the chooser of the club that makes an offer for one of your players
 local INCOMING_CAVE = 0x047d6550
-local INCOMING_CAVE_SIZE = 0x300
-local INCOMING_ROUTINE = "9c6083ec188b4424408944240c8b4424443d660a10020f850c010000833dc8477d04000f84ff000000a1e003"
-      .. "650285c00f84f20000008b403085c00f84e7000000894424148b1d5cf8510285db0f84d500000083fbff0f84"
-      .. "cc000000c744240400000000c70424000100000fb615660a1002895424088b7c24148b8fe0ec5f0085c90f84"
-      .. "a00000008db7e01b48008b0685c0746039d8745c8b961e03000083e20783fa01744e8b9628030000c1ea0983"
-      .. "e27f83fa10763d894424105152565753e8bd0000005b5f5e5a5984c075268b4424108b9614030000c1ea070f"
-      .. "b6d289d72b7c24087902f7df3b3c247307893c248944240481c6200500004975918b44240485c07513515256"
-      .. "57e82a0000005f5e5a5985c0750289d88b54240c890289d083c418619dc20c0083c418619d5589e583ec14e9"
-      .. "697c04ff8b7c24288b8fe0ec5f0085c974398db7e01b48008b0685c0742439d874208b9614030000c1ea070f"
-      .. "b6d23b54241c750e8b961e03000083e20783fa01750b81c6200500004975cd31c0c35156578b0dc8477d04be"
-      .. "cc477d0485c9741c8b3e39df75073946047415eb09395e04750439c7740a83c6084975e431c0eb05b8010000"
-      .. "005f5e59c3"
+local INCOMING_CAVE_SIZE = 0x700
+local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e89304000083"
+      .. "c40c85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec20"
+      .. "89e58b5d308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86b"
+      .. "d507ff83c40c0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8"
+      .. "894de48b45ecf765e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565383ec7c894584"
+      .. "8b028b155cf85102894d90b940000000894594a1c8477d0439c80f47c18d34c5cc477d04b8cc477d0439f00f"
+      .. "84320100008b188b4804395d94750839ca0f841901000083c00839da75df394d9475dae9080100008b328d5a"
+      .. "10397594740889da39c275f089ca0fb7420889857cffffff0fb6420ebac000000089458ca160427d0439d00f"
+      .. "47c289c283e8010f82f70000008b0c85c8447d04394d9475e90fb68207447d046bc01431db05c8427d048945"
+      .. "88694594b179379e89458069d3930100018b7d808b0d44427d048b3548427d048b458831fa01d869d26bcaeb"
+      .. "850fb600c1ea180fafd6c1ea0801cab9e8030000e8d3feffff89449d984383fb1475bca14c427d048bb57cff"
+      .. "ffffba0900000039558c0f46558c0faff08b0d50427d0489f001c80fb68a64427d04c1e81039c873070fb682"
+      .. "64427d040fb68a6e427d0439c173070fb6826e427d048b7d908b4dc48b770801c18b570439f1735131c0e977"
+      .. "0200008b4584ba8a0200008d88cc84cc008b80a028000039d00f47c289cac1e00401c8e9d8feffffb8090000"
+      .. "0039458c0f46458c695594b179379ec1ea1d8d84c278427d040fb600e9f7feffff8b5d808b4dac31d38d1409"
+      .. "895d8069db656b54e642c1eb180fafd389f329cbc1ea088d3c1a8b55c089bd7cffffff01fa39c20f8277ffff"
+      .. "ffa1fc4f7d04694d9441a11ddf8b7d908b15fc4f7d0401c040c1e9180357140fafc1c1e80829c28b45880fb6"
+      .. "400e39c2720b8b45880fb6400f39d073358b45908b55ccb96400000083781c0075068b0de84f7d0469458093"
+      .. "35871b0fafd1c1e8186bc064c1e8086bc06439d00f8206ffffff8b45908b7d84b9530300008b400c8b973464"
+      .. "d0008945888b4584050cb8cc0039ca0f47d169d21801000001c239c20f84d2feffff8b188d8818010000395d"
+      .. "94740489c8ebe785c00f84b9feffff8db8100100008d4810897d94bf810000008b11f7c200c03f00741589d3"
+      .. "c1eb0783e37f395d887508c1ea160fa3d7722a83c110394d9475d98b4d880fb690090100004139ca0f856efe"
+      .. "ffff0fb6800a01000039f00f835ffeffff8b5d8cb80100000081c380501f018b149d00000000420f84c10000"
+      .. "0050508b4590ffb57cffffffff30e84bfcffff83c41089c68b45908b401c83f802742085c075088b153c427d"
+      .. "04eb068b1540427d0489f0b964000000e86ffcffff89c68b049d000000008b55b0b96400000083cfffe856fc"
+      .. "ffff8b55b889c3a138427d04e847fcffff8d506489d8e83dfcffff8b55b489c3a134427d04e82efcffff6955"
+      .. "806bcaeb85b900640000c1ea180fafd089d8e815fcffffb9a086010001c38b45900f42df8b50180faf55bc89"
+      .. "d8e8fafbffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e557565383ec3c837d08000f84a00100"
+      .. "00a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100008b308b580451ff75085356"
+      .. "e88ffbffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639f10f854e01000069db930100"
+      .. "0131d3895dcc8b5004c1ea1c8955d452528d55d85250e82bfbffff8b55c883c41031c98945d08b421cc1e807"
+      .. "83e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f4883f80176128b82b8000000"
+      .. "2500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff0300000f87cb0000008b450831d28d"
+      .. "98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b8814030000c1e9070fb6c93b4d"
+      .. "10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b85ff7449397dc474"
+      .. "448b831e03000083e0074874388b45088d4dc889dae8b2faffff85c074278b83140300008b5510c1e8070fb6"
+      .. "c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d69d220050000"
+      .. "8b45088d4dc801dae867faffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3"
 -- The place that is changed: the club look-up itself, in the place of its six prologue
 -- bytes, so that the club the routine that creates an offer asks for is our answer.
 local INCOMING_SITE = { "incoming", 0x0381e2eb, "5589e583ec14", "e96082fb0090" }
@@ -1441,8 +1478,8 @@ function m.init(ctx)
         changed[#changed + 1] = "position need"
     end
     if INCOMING then
-        log("offers for your players: a rival of yours no longer makes one; the club of the nearest slot of "
-            .. "the competition takes its place, so no offer is lost")
+        log("offers for your players: the club that makes one is the one of the nearest slot that would take "
+            .. "him (no rival, its character wants him, a place in its plan, its ceiling), so none is lost")
         changed[#changed + 1] = "offers for your players"
     end
     log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
