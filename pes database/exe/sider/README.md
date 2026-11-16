@@ -805,7 +805,7 @@ What version 3 does about them (three settings, each can be switched off):
 | setting | as shipped | what it does |
 |---|---|---|
 | `KEEP_BEST` | `{ 4, 12, 2 }` | a club holds on to its first team. A player counts as first team if his rating is at most 4 points below the rating of his club's eleven. For each point above that line, 12 percent are added to `keeps` of his club. Not against a buyer whose eleven is 2 or more points better: a club cannot hold a player against a clearly bigger one. Listed players are not kept. Second number 0: off |
-| `KNOWN_FROM` | 80 | a player of this rating or more is known to every club (no scouting draw). 100: off |
+| `KNOWN_FROM` | 70 | a player of this rating or more is known to every club (no scouting draw). 100: off |
 | `AGE_SHIFT` | 2 | the ages of a persona are moved by up to 2 years down or up, fixed by the club: clubs with ages 24-28 want 22-26, 23-27, ... or 26-30. 0: off |
 
 With `KEEP_BEST = { 4, 0, 2 }`, `KNOWN_FROM = 100` and `AGE_SHIFT = 0` the routine does
@@ -1087,7 +1087,7 @@ not touched.
 | `KEEP_BEST` (0 to 99, 0 to 100, 0 to 99) | `{ 4, 12, 2 }`, version 3: see "New in version 3" |
 | `KNOWN_FROM` (0 to 100) | 80, version 3 |
 | `AGE_SHIFT` (0 to 5) | 2, version 3 |
-| `KNOWN_FAME` (0 to 4096) | 700 (version 5: 600): see "New in version 4" |
+| `KNOWN_FAME` (0 to 4096) | 400 (version 5: 600, version 4: 700): see "New in version 4" |
 | `STRICT_FREE` (0 to 100) | 35 (version 4: 50) |
 | `ARCHETYPES` | the thirteen personas above (at most 15) |
 | `PERSONA_GROUPS` | ten lists of 1 to 8 persona names, best clubs first |
