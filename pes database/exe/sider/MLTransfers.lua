@@ -306,9 +306,9 @@ local ARCHETYPES = {
     { "Youth elite", free = 10, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 30,
       age = { 19, 25 }, strict = 65, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
       ambition = 8, prestige = 8, keeps = 35 },
-    { "Retirement team", free = 40, listed = 15, clubs = 40, second = { "free", "clubs" }, winter = 50,
-      age = { 30, 37 }, strict = 55, knows = 70, fog = 3, wealth = 250, premium = 150, panic = 60, fame = 200,
-      ambition = 7, prestige = 10, keeps = 35 },
+    { "Retirement team", free = 0, listed = 30, clubs = 65, second = { "listed", "clubs" }, winter = 70,
+      age = { 33, 40 }, strict = 65, knows = 80, fog = 2, wealth = 250, premium = 250, panic = 150, fame = 250,
+      ambition = 4, prestige = 22, keeps = 45 },
 }
 
 -- The personas a club without an entry in CLUBS draws from, by its place in the game's

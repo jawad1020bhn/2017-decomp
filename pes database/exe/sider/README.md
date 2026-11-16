@@ -816,7 +816,8 @@ further down has the new numbers): Galactico ages 22-30 and strict 70; State-bac
 wealth 160 and premium 150; Survival churner premium 80; Crisis and Selling farm keeps
 10 (was 0); New-money wealth 250 and prestige 8 (was 180 and 3). Two new personas:
 **Youth elite** (pays well for players of 19 to 24 from other clubs) and **Retirement
-team** (pays for famous players of 31 to 37). Chelsea is now Youth elite; Al Nassr,
+team** (players of 33 to 40, the famous ones above all: `fame` 250 and `prestige` 22, so
+it takes a player far above its eleven if his name is worth it). Chelsea is now Youth elite; Al Nassr,
 Inter Miami, Al Ittihad and Al Sadd are Retirement team. In `PERSONA_GROUPS` Crisis is
 drawn less often (46 clubs instead of 60), New-money less often among the first fifty,
 and the last three groups are no longer the same list.
@@ -962,7 +963,7 @@ the same way on the same day.
 | New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-33 (55) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 35 |
 | Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 18-23 (80) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 10 |
 | Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 19-25 (65) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 35 |
-| Retirement team | 40 / 15 / 40 / 5 | free, clubs | 50 | 30-37 (55) | 70 | 3 | 250 | 150 | 60 | 200 | 7 | 10 | 35 |
+| Retirement team | 0 / 30 / 65 / 5 | listed, clubs | 70 | 33-40 (65) | 80 | 2 | 250 | 250 | 150 | 250 | 4 | 22 | 45 |
 
 "Does not buy" stands for a club that fills a place from its own academy: the module
 cannot make a youth player, it can only keep the club from buying.
