@@ -3,8 +3,8 @@
     python3 simdate_calendar.py --lua
 
 The Lua module contains the resulting bytes and needs no assembler at runtime. The
-calendar uses the game's own selected day; F8 and F9 are polled only while its Schedule
-screen is running in a foreground Master League. See test_simdate_calendar.py.
+calendar uses the game's own selected day; F8, F9 and F10 are polled only while its
+Schedule screen is running in a foreground Master League. See test_simdate_calendar.py.
 """
 import re
 import sys
@@ -18,9 +18,12 @@ POLL, SELECT, TITLE, ARRIVED = CAVE, 0x047d6750, 0x047d6950, 0x047d6b50
 DATA, DATA_SIZE = 0x0298c0e0, 0x120
 DATE, OWNER, ERROR, LATCH, READY, KEYFUNC = DATA, DATA + 4, DATA + 5, DATA + 6, DATA + 7, DATA + 8
 LAST_DATE, LAST_ERROR = DATA + 0x0c, DATA + 0x10
+# F10 switches stop-for-news at runtime; the day-loop routine reads NEWS each day.
+NEWS, LAST_NEWS = DATA + 0x18, DATA + 0x19
 BUFFER = DATA + 0x20
 USER32, KEYNAME = 0x047d6be0, 0x047d6bf0
 FMT_OFF, FMT_ON, FMT_ERROR = 0x047d6c10, 0x047d6c60, 0x047d6cc0
+NEWS_ON, NEWS_OFF = 0x047d6d40, 0x047d6d50
 POLL_SITE, TITLE_SITE = 0x03231ec5, 0x03230d54
 
 # Poll only after both Schedule controls say they are ready. The replaced call
@@ -94,32 +97,49 @@ f9:
     test ax, 0x8000
     jnz f9_down
     and byte ptr [{latch}], 0xfd
-    jmp refresh_status
+    jmp f10
 f9_down:
     test byte ptr [{latch}], 2
-    jnz refresh_status
+    jnz f10
     or byte ptr [{latch}], 2
     mov dword ptr [{date}], 0
     mov byte ptr [{owner}], 0
     mov byte ptr [{error}], 0
+f10:
+    push 0x79                         ; F10: stop for news on/off
+    call ebx
+    test ax, 0x8000
+    jnz f10_down
+    and byte ptr [{latch}], 0xfb
+    jmp refresh_status
+f10_down:
+    test byte ptr [{latch}], 4
+    jnz refresh_status
+    or byte ptr [{latch}], 4
+    xor byte ptr [{news}], 1
 refresh_status:
     mov eax, dword ptr [{date}]
     cmp eax, dword ptr [{last_date}]
     jne refresh
     mov al, byte ptr [{error}]
     cmp al, byte ptr [{last_error}]
+    jne refresh
+    mov al, byte ptr [{news}]
+    cmp al, byte ptr [{last_news}]
     je done
 refresh:
     mov eax, dword ptr [{date}]
     mov dword ptr [{last_date}], eax
     mov al, byte ptr [{error}]
     mov byte ptr [{last_error}], al
+    mov al, byte ptr [{news}]
+    mov byte ptr [{last_news}], al
     push 0
     mov ecx, esi
     call 0x03230bb2                   ; also reflect changes from the optional file
     jmp done
 unfocused:
-    mov byte ptr [{latch}], 3          ; require a release after the game loses focus
+    mov byte ptr [{latch}], 7          ; require a release after the game loses focus
 done:
     popad
     popfd
@@ -233,6 +253,12 @@ TITLE_SOURCE = '''
     cmp dword ptr [eax + 0x20], 0x28
     jne original
 master_league:
+    mov edx, {news_off}               ; the heading always shows whether it stops for news
+    cmp byte ptr [{news}], 0
+    je news_text
+    mov edx, {news_on}
+news_text:
+    push edx
     cmp byte ptr [{error}], 0
     jne invalid
     mov eax, dword ptr [{date}]
@@ -265,7 +291,7 @@ master_league:
     push 256
     push {buffer}
     call dword ptr [0x047d75cc]       ; sprintf_s
-    add esp, 28
+    add esp, 32                       ; four numbers, two texts
     jmp formatted
 invalid:
     push esi
@@ -278,7 +304,7 @@ format_simple:
     push 256
     push {buffer}
     call dword ptr [0x047d75cc]
-    add esp, 16
+    add esp, 20                       ; two numbers, two texts
 formatted:
     test eax, eax
     js original
@@ -316,6 +342,7 @@ normal:
 def build():
     values = dict(keyfunc=KEYFUNC, user32=USER32, keyname=KEYNAME, latch=LATCH,
                   select=SELECT, date=DATE, owner=OWNER, error=ERROR, ready=READY,
+                  news=NEWS, last_news=LAST_NEWS, news_on=NEWS_ON, news_off=NEWS_OFF,
                   last_date=LAST_DATE, last_error=LAST_ERROR, fmt_off=FMT_OFF, fmt_on=FMT_ON, fmt_error=FMT_ERROR, buffer=BUFFER)
     # Mark even unused padding so a later mod cannot mistake our reserved cave for free space.
     result = bytearray([0xcc]) * SIZE
@@ -336,9 +363,11 @@ def build():
         put(at, bytes(code), limit)
     for at, limit, text in ((USER32, KEYNAME, b'user32.dll\0'),
                             (KEYNAME, FMT_OFF, b'GetAsyncKeyState\0'),
-                            (FMT_OFF, FMT_ON, b'%.64s | SIM OFF | F8 SET\0'),
-                            (FMT_ON, FMT_ERROR, b'%.64s | SIM %02u.%02u.%04u | F9 OFF\0'),
-                            (FMT_ERROR, CAVE + SIZE, b'%.64s | FUTURE DATE ONLY | SIM OFF\0')):
+                            (FMT_OFF, FMT_ON, b'%.64s | SIM OFF | F8 SET | %s\0'),
+                            (FMT_ON, FMT_ERROR, b'%.64s | SIM %02u.%02u.%04u | F9 OFF | %s\0'),
+                            (FMT_ERROR, NEWS_ON, b'%.64s | FUTURE DATE ONLY | SIM OFF | %s\0'),
+                            (NEWS_ON, NEWS_OFF, b'NEWS ON\0'),
+                            (NEWS_OFF, CAVE + SIZE, b'NEWS OFF\0')):
         put(at, text, limit)
     return bytes(result)
 

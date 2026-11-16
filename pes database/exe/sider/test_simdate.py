@@ -36,7 +36,7 @@ from test_money import Game, run, setting
 
 MODULE = tm.MODULE.replace('MLMoney.lua', 'MLSimToDate.lua')
 OTHERS = [tm.MODULE.replace('MLMoney.lua', n) for n in ('MLMoney.lua', 'MLTransfers.lua', 'MLYear.lua', 'MLSimMatch.lua')]
-ROUTINE, SIZE, SITE = 0x047d6f60, 138, 0x0360b786
+ROUTINE, SIZE, SITE = 0x047d6f60, 141, 0x0360b786
 PLACES = ((SITE, 32), (0x0387a831, 16), (0x035fe5aa, 7), (0x038ae460, 7), (0x0387a865, 6),
           (0x038093f1, 18), (0x0251d454, 4), (0x0251d4a8, 4),
           (0x03231df4, 16), (0x03231a90, 21), (0x03231c9e, 35),
@@ -86,7 +86,7 @@ master_league:
     xor bl, bl                              ; go on: the match is simulated
     jmp done
 no_match:
-    mov al, {news}
+    mov al, byte ptr [{news}]              ; F10 switches stop-for-news while the game runs
     and al, bl                              ; the game would stop today, and that is wanted
     jz ask
     mov byte ptr [esi + 0xdcb6a0], 0
@@ -111,9 +111,9 @@ normal:
 '''
 
 
-def assembled(big, news):
+def assembled(big):
     code, _ = Ks(KS_ARCH_X86, KS_MODE_32).asm('\n'.join(l.split(';')[0] for l in SOURCE.splitlines()).format(
-        big=int(big), news=int(news)), ROUTINE)
+        big=int(big), news=sc.NEWS), ROUTINE)
     return bytes(code)
 
 
@@ -366,7 +366,7 @@ def main(exe):
                 target = year << 16 | BEFORE[month - 1] + day - 1
                 assert image.read(sc.DATE, 4) == struct.pack('<I', target)
                 assert image.read(sc.CAVE, sc.SIZE) == sc.build()
-                assert image.read(ROUTINE, SIZE) == assembled(big == 'true', news == 'true')
+                assert image.read(ROUTINE, SIZE) == assembled(big == 'true')
                 call = next(md.disasm(image.read(SITE, 5), SITE))
                 assert (call.mnemonic, call.op_str) == ('call', hex(ROUTINE))
                 assert ('It stops for news.' in lines[-1]) == (news == 'true')
@@ -440,6 +440,12 @@ def main(exe):
         assert one(2025, 30, 1, True, flag=1, stand_in=1) == (1, 0, 0) and asked
     image.write(MENU_OBJECT, struct.pack('<I', 0))              # no mode at all
     assert one(2025, 30, 2, True) == (1, 0, 0) and one(2025, 30, 1, False) == (0, 0, 0)
+    image.write(MENU_OBJECT, struct.pack('<I', selector))       # back to mode 19
+    image.write(selector + 0x20, struct.pack('<I', 0x13))
+    image.write(sc.NEWS, b'\0')                  # what F10 does in Schedule: news off
+    assert one(2025, 30, 2, False, stand_in=0) == (0, 1, 2) and asked       # the routine reads the byte
+    image.write(sc.NEWS, b'\1')
+    assert one(2025, 30, 2, False) == (1, 0, 0)                             # and stops again
     install(2025, 3, 1, news='false', big='true')
     w = World(image)
     image.replace(DAY_STATE, lambda game, arg: w.state_now)
@@ -683,7 +689,7 @@ def main(exe):
     assert loaded(b'31.12.2024') == (['MLSimToDate: the date is now 31.12.2024 (from MLSimToDate.txt)'], 1, 1)
     assert date_in() == 2024 << 16 | 364 and probe() == (1, 0, 0)       # a date that is past
     assert loaded(b'off') == (['MLSimToDate: switched off (from MLSimToDate.txt)'], 1, 1) and date_in() == 0
-    assert image.read(ROUTINE, SIZE) == assembled(False, True)       # date changes never rewrite code
+    assert image.read(ROUTINE, SIZE) == assembled(False)        # date changes never rewrite code
     fresh()
     files = {FILE: b'off'}
     can_write = [True]
@@ -727,7 +733,7 @@ def main(exe):
         lines, reads, writes = run(image, tm.SPLIT.join(order))
         got = [l for l in lines if l.startswith('RESULT')]
         assert len(got) == 5 and all(l.startswith('RESULT: installed.') for l in got), got
-        assert image.read(ROUTINE, SIZE) == assembled(False, True)
+        assert image.read(ROUTINE, SIZE) == assembled(False)
         w = World(image)
         image.replace(DAY_STATE, lambda game, arg: 2)
         w.today(2025, 30)

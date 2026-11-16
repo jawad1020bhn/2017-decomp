@@ -73,6 +73,7 @@ def main(exe):
     source = open(sd.MODULE, encoding='utf-8').read()
     lines, _, writes = tm.run(g, source)
     assert writes == sd.WRITES and lines[-1].startswith('RESULT: installed, switched off.')
+    assert g.read(sc.NEWS, 2) == b'\1\1'          # stop for news on, the heading's copy agrees
     assert g.read(sc.CAVE, sc.SIZE) == sc.build()
     # Match the relevant PE page protections: .link is RX, .text is RW.
     # Emulated game code must not write to its own code page.
@@ -88,7 +89,7 @@ def main(exe):
     put(g, pad, vtable)
     put(g, vtable + 0x1c, zero_button)
 
-    state = {'focus': True, 'same_pid': True, 'f8': False, 'f9': False,
+    state = {'focus': True, 'same_pid': True, 'f8': False, 'f9': False, 'f10': False,
              'first_ready': True, 'second_ready': True, 'pad': True,
              'lookups': 0, 'keys': 0, 'refresh': 0, 'text': []}
     pid = 1234
@@ -112,9 +113,9 @@ def main(exe):
         return 0x00301850
 
     def key(a):
-        assert a(0) in (0x77, 0x78)
+        assert a(0) in (0x77, 0x78, 0x79)
         state['keys'] += 1
-        return 0x8000 if state['f8' if a(0) == 0x77 else 'f9'] else 0
+        return 0x8000 if state[{0x77: 'f8', 0x78: 'f9', 0x79: 'f10'}[a(0)]] else 0
 
     api(g, 0x00301830, IMPORTS['module'], 1, module)
     api(g, 0x00301840, IMPORTS['proc'], 2, proc)
@@ -123,10 +124,11 @@ def main(exe):
     def sprintf(a):
         buf, size, fmt = a(0), a(1), string(g, a(2)).decode('ascii')
         original = string(g, a(3)).decode('ascii')
+        news = string(g, a(7) if '%02u' in fmt else a(4)).decode('ascii')
         if '%02u' in fmt:
-            result = fmt % (original, a(4), a(5), a(6))
+            result = fmt % (original, a(4), a(5), a(6), news)
         else:
-            result = fmt % original
+            result = fmt % (original, news)
         assert buf == sc.BUFFER and len(result) < size == 256
         g.write(buf, result.encode('ascii') + b'\0')
         return len(result)
@@ -171,8 +173,8 @@ def main(exe):
     def target():
         return number(g, sc.DATE)
 
-    def press(f8=False, f9=False):
-        state['f8'], state['f9'] = f8, f9
+    def press(f8=False, f9=False, f10=False):
+        state['f8'], state['f9'], state['f10'] = f8, f9, f10
         return g.call(SCHEDULE_INPUT, [], ecx=schedule)
 
     def status():
@@ -239,7 +241,17 @@ def main(exe):
     press(f8=True)
     assert (target(), status(), state['refresh']) == (0, b'\0\1', 4)
     press()
-    print('ok 2: real Schedule handler sets, replaces and cancels a date once per key press; same day is refused')
+    refreshes = state['refresh']
+    press(f10=True)                                 # F10: stop for news off
+    assert g.read(sc.NEWS, 2) == b'\0\0' and state['refresh'] == refreshes + 1
+    press(f10=True)                                 # hold does not switch it again
+    assert g.read(sc.NEWS, 2) == b'\0\0' and state['refresh'] == refreshes + 1
+    press()
+    press(f10=True)                                 # back on; no target is touched
+    assert g.read(sc.NEWS, 2) == b'\1\1' and target() == 0 and state['refresh'] == refreshes + 2
+    press()
+    print('ok 2: real Schedule handler sets, replaces and cancels a date once per key press; F10 switches '
+          'stop-for-news once per key press; same day is refused')
 
     # Neither background input nor an incomplete screen may arm or cancel a run.
     for blocked in ('focus', 'same_pid', 'first_ready', 'second_ready', 'pad'):
@@ -305,19 +317,22 @@ def main(exe):
 
     put(g, sc.DATE, 0)
     g.write(sc.ERROR, b'\0')
-    assert title() == b'July 2024/2025 | SIM OFF | F8 SET'
+    assert title() == b'July 2024/2025 | SIM OFF | F8 SET | NEWS ON'
     put(g, sc.DATE, 2025 << 16 | 73)
-    assert title() == b'July 2024/2025 | SIM 15.03.2025 | F9 OFF'
+    assert title() == b'July 2024/2025 | SIM 15.03.2025 | F9 OFF | NEWS ON'
+    g.write(sc.NEWS, b'\0')
+    assert title() == b'July 2024/2025 | SIM 15.03.2025 | F9 OFF | NEWS OFF'
+    g.write(sc.NEWS, b'\1')
     g.write(sc.ERROR, b'\1')
-    assert title() == b'July 2024/2025 | FUTURE DATE ONLY | SIM OFF'
+    assert title() == b'July 2024/2025 | FUTURE DATE ONLY | SIM OFF | NEWS ON'
     mode(0x28)
     g.write(sc.ERROR, b'\0')
-    assert title() == b'July 2024/2025 | SIM 15.03.2025 | F9 OFF'
+    assert title() == b'July 2024/2025 | SIM 15.03.2025 | F9 OFF | NEWS ON'
     mode(0x0c)
     assert title() == b'July 2024/2025'
     mode(0x13)
     g.write(original, b'x' * 300 + b'\0')
-    assert title() == b'x' * 64 + b' | SIM 15.03.2025 | F9 OFF'
+    assert title() == b'x' * 64 + b' | SIM 15.03.2025 | F9 OFF | NEWS ON'
     # A file update while the screen is open must not leave a stale headline.
     put(g, sc.LAST_DATE, 2025 << 16 | 73)
     g.write(sc.LAST_ERROR, b'\0')
@@ -327,8 +342,17 @@ def main(exe):
     assert state['refresh'] == refreshes + 1
     press()
     assert state['refresh'] == refreshes + 1
-    assert title() == b'x' * 64 + b' | SIM 16.03.2025 | F9 OFF'
-    print('ok 4: headline shows current, invalid and off states, including live file changes; other modes are untouched')
+    assert title() == b'x' * 64 + b' | SIM 16.03.2025 | F9 OFF | NEWS ON'
+    # A switched byte reaches the heading on the next poll, like a file change.
+    refreshes = state['refresh']
+    g.write(sc.NEWS, b'\0')
+    press()
+    assert state['refresh'] == refreshes + 1 and title().endswith(b' | NEWS OFF')
+    g.write(sc.NEWS, b'\1')
+    press()
+    assert state['refresh'] == refreshes + 2 and title().endswith(b' | NEWS ON')
+    print('ok 4: headline shows current, invalid and off states and the stop-for-news switch, including '
+          'live file and F10 changes; other modes are untouched')
 
     # If Sider aborts a partial installation, all installed hooks behave as their originals.
     g.write(sc.READY, b'\0')

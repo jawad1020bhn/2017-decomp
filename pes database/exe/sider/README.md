@@ -13,7 +13,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `MLTeamSpirit.lua` | **changes the game.** Team Spirit has no effect in a played Master League match: every player's value is 99, so no ability is lowered (a skipped match never read it). One place of five bytes; needs no other module. Has run in the emulator only |
 | `test_spirit.py <PES2017.exe>` | runs `MLTeamSpirit.lua` on the exe in the emulator, then the game's function that gives a player his Team Spirit value and the one of the match set-up that stores the values for the match (needs `pip install lupa unicorn capstone`) |
-| `MLSimToDate.lua` | **changes the game.** "Sim to Date": choose a future day in the Master League Schedule with F8, cancel with F9; matches before it are simulated via Skip Match. Off as it comes. Optional existing Lua/text-file date controls remain. Needs no other module. **Emulator only; not tested in-game** |
+| `MLSimToDate.lua` | **changes the game.** "Sim to Date": choose a future day in the Master League Schedule with F8, cancel with F9, switch stopping for news with F10; matches before it are simulated via Skip Match. Off as it comes. Optional existing Lua/text-file date controls remain. Needs no other module. **Emulator only; not tested in-game** |
 | `simdate_calendar.py` | source and generator for the x86 Schedule hooks embedded in `MLSimToDate.lua` (needs `keystone-engine` only when regenerating) |
 | `test_simdate.py <PES2017.exe>` | runs the sim routine, day loop, installation checks and file-control logic in the emulator (needs `pip install lupa unicorn keystone-engine capstone`) |
 | `test_simdate_calendar.py <PES2017.exe>` | runs the Schedule input hook, date selection, status and day loop with emulator stand-ins (same dependencies) |
@@ -315,7 +315,7 @@ Not shown: a January window, a second season (whether a renewed contract gets a 
 start day and so looks like a signing is not known), a loan, a save from a career
 without `MLMoney.lua`, and Windows (it ran on Linux only).
 
-## `MLSimToDate.lua`, version 2: "Sim to Date"
+## `MLSimToDate.lua`, version 3: "Sim to Date"
 
 **Experimental: tested in a CPU emulator only, not in Windows, Sider or the running
 game.** The Schedule controls, status text, real matches and save effects still need
@@ -341,18 +341,24 @@ the only copy until you have checked the results.
 4. Load the copied career. Open **Schedule** and use the game's normal calendar controls
    to highlight a future day in the current season. With the game in focus, press **F8**
    on the keyboard (on some laptops, Fn+F8). The calendar heading is intended to show
-   `SIM DD.MM.YYYY | F9 OFF`; confirm that it shows the date you selected before
-   proceeding. Press F8 on another future day to replace the target. Selecting today or
-   an earlier day cancels the target and shows `FUTURE DATE ONLY | SIM OFF`.
+   `SIM DD.MM.YYYY | F9 OFF | NEWS ON`; confirm that it shows the date you selected
+   before proceeding. Press F8 on another future day to replace the target. Selecting
+   today or an earlier day cancels the target and shows
+   `FUTURE DATE ONLY | SIM OFF | NEWS ON`.
 5. Return to the Master League menu and use the normal **advance** action. Matches
    before the target are simulated as Skip Match; the match on the arrival day is left
    for you. The game may stop early for news, a big match (if enabled), or its own
    events such as a transfer window; handle the event and advance again. It finishes
    on the first natural stop **on or after** the selected date.
 6. To cancel while at a menu, open Schedule and press **F9**. Check for
-   `SIM OFF | F8 SET` before advancing. A date selected in Schedule also switches off
-   automatically when the target is reached. There is no controller shortcut: F8/F9
-   require a keyboard; you can still navigate the calendar with the game's controls.
+   `SIM OFF | F8 SET | NEWS ON` (or `NEWS OFF`) before advancing. A date selected in
+   Schedule also switches off automatically when the target is reached. There is no
+   controller shortcut: F8/F9/F10 require a keyboard; you can still navigate the
+   calendar with the game's controls.
+7. **F10** in Schedule switches stopping for news on and off while the game runs: the
+   heading shows `NEWS ON` or `NEWS OFF`, and the next day advanced follows it. This
+   lasts until the game is restarted; the `STOP_FOR_NEWS` setting only decides its
+   state at startup.
 
 **Important:** an unfinished target is held in game memory, not tied to a specific
 save. Cancel it before loading another Master League in the same session or it may
@@ -361,7 +367,7 @@ normally first. The game's calendar has no 29 February. The calendar control onl
 selects within the displayed season; choose another target after a season change for a
 longer run.
 
-If F8/F9 or the confirmation text do not work, **do not advance on the assumption
+If F8/F9/F10 or the confirmation text do not work, **do not advance on the assumption
 that a target was set**. Check that the game window is focused, the Schedule screen is
 ready, and `sider.log` contains `RESULT: installed`. If a clearly future date shows
 `FUTURE DATE ONLY`, the calendar's season bounds may not match this module; do not
@@ -372,8 +378,9 @@ the module until the problem is understood.
 ### Behavior and optional settings
 
 - `STOP_FOR_NEWS = true` by default: on days without your match it stops for the same
-  news a normal advance would. Set it to `false` in the Lua file to skip those stops;
-  the skipped screens are not shown and nobody answers an offer.
+  news a normal advance would. Set it to `false` in the Lua file to skip those stops,
+  or switch it in Schedule with **F10**; the skipped screens are not shown and nobody
+  answers an offer. The F10 switch is held in game memory until the game restarts.
 - `STOP_AT_BIG_MATCHES = false` by default: all matches before the target are simulated.
   `true` asks the game's own test to stop at important matches; its full list is not
   known. Save changes to these settings before starting the game.
@@ -400,7 +407,7 @@ reports changes. File updates require `livecpk.enabled = 1` and may be delayed b
 other modules. If the file did not exist at startup it is not monitored until restart.
 A non-English Sider folder path may prevent the file being found. Change the file at a
 menu, not during an advance; reopen Schedule and verify the displayed target after a
-file change. None of these callback/cache requirements apply to F8/F9.
+file change. None of these callback/cache requirements apply to F8/F9/F10.
 
 ### How and what was checked
 
@@ -425,10 +432,11 @@ python3 test_simdate_calendar.py <PES2017.exe>
 The tests run the real game's stop test, day loop, Schedule input handler and date
 conversion in an emulator with stand-ins for days, Windows, controller input and UI.
 They cover 288 synthetic multi-day runs, 15,330 calendar choices across year/season
-boundaries, both Master League mode numbers, cancel/invalid/focus cases, startup and
-write failures, file overrides, and coexistence with the other four modules. The
-`.link` page is marked read/execute in the calendar test, so runtime state writes must
-work without writable code. These tests do **not** establish that the interface is
+boundaries, both Master League mode numbers, cancel/invalid/focus cases, the F10
+stop-for-news switch through the real input handler and the byte the day loop reads,
+startup and write failures, file overrides, and coexistence with the other four
+modules. The `.link` page is marked read/execute in the calendar test, so runtime state
+writes must work without writable code. These tests do **not** establish that the interface is
 visible or responsive in the real game, that a simulated match is booked correctly in a
 real save, or that Sider's file callbacks arrive at a particular time.
 
