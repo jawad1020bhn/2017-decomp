@@ -949,24 +949,27 @@ the same way on the same day.
 
 `ARCHETYPES` in the file; at most 15, every number can be changed.
 
-| persona | looks first: free / listed / clubs / does not buy | second search | winter | ages (strict) | knows | fog | wealth | premium | panic | fame | ambition | prestige | keeps |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Galactico | 25 / 10 / 65 / 0 | clubs, free | 45 | 21-31 (60) | 85 | 1 | 150 | 150 | 100 | 40 | 7 | 12 | 30 |
-| State-backed | 25 / 15 / 60 / 0 | clubs, listed | 50 | 21-30 (70) | 85 | 2 | 160 | 150 | 150 | 25 | 7 | 10 | 20 |
-| Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 35 | 19-29 (75) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 15 |
-| Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 35 | 18-25 (45) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 |
-| Academy purist | 15 / 15 / 40 / 30 | clubs, free | 25 | 17-25 (40) | 60 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 25 |
-| Old-money | 30 / 20 / 50 / 0 | clubs, free | 50 | 23-32 (50) | 75 | 2 | 110 | 100 | 120 | 30 | 7 | 8 | 20 |
-| Mid-table | 25 / 30 / 40 / 5 | listed, clubs | 50 | 23-30 (40) | 70 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 15 |
-| Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 27-36 (40) | 60 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 15 |
-| Crisis | 60 / 30 / 10 / 0 | free, listed | 70 | 17-38 (20) | 50 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 |
-| New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-31 (60) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 40 |
-| Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 17-26 (60) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 5 |
-| Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 18-25 (45) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 30 |
-| Retirement team | 0 / 30 / 65 / 5 | listed, clubs | 70 | 32-40 (75) | 80 | 2 | 250 | 250 | 150 | 250 | 4 | 22 | 5 |
+| persona | looks first: free / listed / clubs / does not buy | second search | winter | ages (strict) | knows | fog | wealth | premium | panic | fame | ambition | prestige | keeps | `rating` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Galactico | 5 / 10 / 85 / 0 | clubs, free | 45 | 21-31 (70) | 85 | 0 | 150 | 150 | 100 | 40 | 7 | 12 | 30 | off |
+| State-backed | 25 / 15 / 60 / 0 | clubs, listed | 50 | 21-30 (70) | 85 | 1 | 160 | 150 | 150 | 25 | 7 | 10 | 20 | on |
+| Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 35 | 19-29 (75) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 15 | on |
+| Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 35 | 18-25 (45) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 | on |
+| Academy purist | 15 / 15 / 40 / 30 | clubs, free | 25 | 17-25 (40) | 60 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 25 | on |
+| Old-money | 30 / 20 / 50 / 0 | clubs, free | 50 | 23-32 (50) | 75 | 2 | 110 | 100 | 120 | 30 | 7 | 8 | 20 | on |
+| Mid-table | 25 / 30 / 40 / 5 | listed, clubs | 50 | 23-30 (40) | 70 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 15 | on |
+| Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 27-36 (40) | 60 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 15 | on |
+| Crisis | 60 / 30 / 10 / 0 | free, listed | 70 | 17-38 (20) | 50 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 | on |
+| New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-31 (60) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 40 | on |
+| Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 17-26 (60) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 5 | on |
+| Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 18-25 (45) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 30 | on |
+| Retirement team | 0 / 30 / 65 / 5 | listed, clubs | 70 | 32-40 (95) | 80 | 0 | 250 | 250 | 150 | 250 | 4 | 22 | 5 | off |
 
 "Does not buy" stands for a club that fills a place from its own academy: the module
-cannot make a youth player, it can only keep the club from buying.
+cannot make a youth player, it can only keep the club from buying. `rating` is the
+`CEILING_RATING` rule: `off` (Galactico and Retirement team) means that in its second
+search the club may also take a player rated above the top of its own rating range; `on`
+every other persona keeps that limit.
 
 **Which club has which persona.** 183 clubs are named in `CLUBS` (the game's id of the
 club and the name of a persona; at most 192). The choice is mine, from what the real
@@ -1402,7 +1405,10 @@ New in version 5, changed in version 6, in `MLTransfers.lua` since version 7:
   A player the club cannot reach is passed over and the search goes on with the next
   one, so the three players it notes are the best three it can afford.
   With `CEILING_RATING` the second search also stops at the top of the club's own
-  rating range: it looks further down, not further up.
+  rating range: it looks further down, not further up. A persona with `rating = false`
+  is exempt: Galactico and Retirement team look past that top (a famous player above
+  their eleven is what the one buys and the other is famous for), and every other
+  persona keeps the limit.
 
   What it does not do: no money is booked. A computer club still has no account, the
   ceiling is the same for a club every time, and a club that sold a player for 100
@@ -1480,7 +1486,7 @@ mode `0x28`, the growth of players, the rest of the way computer clubs choose pl
 | `CEILING_LISTED` (0 to 100) | 70: percent of the value that counts for a player listed for sale; 100 = he counts like any other |
 | `CEILING_FREE` (0 to 100) | 75 (version 1: 50; versions 2 to 4: 100): the same for a player without a contract |
 | `SELL_SIDE`, `PERSONA`, `SCOUTING` and the persona settings | new in version 2: see the section on version 2 above |
-| `CEILING_RATING` | `true`: in its second search a computer club takes nobody rated above the top of its own rating range; `false`: from 99 down, as in the game. Used only with `CEILING` |
+| `CEILING_RATING` | `true`: in its second search a computer club takes nobody rated above the top of its own rating range; `false`: from 99 down, as in the game. Used only with `CEILING`. A persona can switch it off for itself with `rating = false`: Galactico and Retirement team have it that way |
 
 Where the prize defaults come from. Cups: the fixed payments per stage of 2025/26
 (Champions League, Europa League, UEFA Super Cup), of 2025 (Libertadores, Sudamericana,
