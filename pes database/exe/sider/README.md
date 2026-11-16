@@ -2301,9 +2301,18 @@ Read from the DLL's code and strings, not run:
   and `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
   `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining tail ranges after
   `0x047d6550` are `0x047d6e50`-`0x047d6f5f` and `0x047d6fea`-`0x047d6fff`.
+  `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f9a` (the season award, 148
+  bytes, five bytes short of `MLSimMatch.lua`'s v7 tables), `0x047d5b8c`-`0x047d5bde`
+  (the age curve, 83 of the 84 bytes between `MLSimMatch.lua`'s hook code and its
+  scoreline tables), `0x047d6377`-`0x047d63fa` (the exp award, 132 bytes, up to
+  `MLTransfers.lua` version 6), and `0x047d6e50`-`0x047d6ef7` (the season walk, 168 of
+  the 176 bytes before `MLSimToDate.lua`'s day-loop hook).
   `MLSimToDate.lua` also
   checks and uses `0x0298c0e0`-`0x0298c1ff` in the writable, zero-filled `.text` stub
-  for its state. A module must see zeros in its ranges before it writes.
+  for its state, and `MLGrowth.lua` checks and uses the page tail behind it,
+  `0x0298c200`-`0x0298c2eb` (236 bytes of tables; `.text` holds `0x200` bytes at
+  `0x0298c000`, the rest of its last page is zero-filled by the loader). A module must
+  see zeros in its ranges before it writes.
 - A plan record (`MASTER_LEAGUE.md` 9.1) has spare bytes at `+0x109`-`+0x10b`; `MLTransfers.lua`
   version 6 uses the first two. Do not store anything in the low 7 bits of a slot word: the
   game uses them.
