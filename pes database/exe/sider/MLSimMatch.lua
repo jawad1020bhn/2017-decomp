@@ -69,22 +69,29 @@ local WRITE = true
 local SCOPE = "all"
 
 -- Effective team OVR boost for the home side (0.0 to 15.0).
--- 2.4 gives ~46% home win / ~26% draw / ~28% away win between equal teams.
-local HOME_ADVANTAGE = 2.4
+-- 1.6 gives ~43% home win / ~28% draw / ~29% away win between equal teams, and
+-- ~44% / ~25% / ~31% over a whole league. (Version 7: 2.4, with ELO_SCALE 6.2.)
+local HOME_ADVANTAGE = 1.6
 
 -- OVR points per e-fold of odds ratio (2.0 to 30.0).
--- Smaller = stronger favorites; larger = more upsets. 6.2 respects OVR gaps realistically.
-local ELO_SCALE = 6.2
+-- Smaller = stronger favorites; larger = more upsets. Version 7 had 6.2, which was too
+-- flat: the lineups of a top league are only 11 OVR points apart, so the best club
+-- won 53% of its matches and the champion ended on ~76 points. With 4.0 the best
+-- club wins 60 to 73% and the champion ends on 81 to 92 points.
+local ELO_SCALE = 4.0
 
 -- Draw probability when effective home and away strengths are equal (0.05 to 0.55).
-local BASE_DRAW = 0.27
+-- 0.28 keeps about one match in four drawn over a whole league.
+local BASE_DRAW = 0.28
 
 -- Scales the game's Master League captain role bonus (+-10 / +-20) into OVR points
--- (0.0 to 1.0). At 0.2, +-10 becomes +-2 OVR and +-20 becomes +-4 OVR. 0.0 disables.
-local CAPTAIN_WEIGHT = 0.2
+-- (0.0 to 1.0). At 0.125, +-10 becomes +-1 OVR and +-20 becomes +-2 OVR. 0.0 disables.
+-- (Version 7: 0.2; halved with ELO_SCALE so the captain weighs what he did.)
+local CAPTAIN_WEIGHT = 0.125
 
 -- Multiplier for expected goals in decisive wins (0.50 to 2.00).
--- 1.0 averages ~2.56 total goals per match across a league; lower for tighter games.
+-- 1.0 gives about 2.5 to 2.65 goals a match in a top league (keepers near 82) and
+-- about 3.0 in a league whose keepers are far below 82; lower for tighter games.
 local GOAL_SCALE = 1.0
 
 -- Relative weights for draw scorelines: { 0-0, 1-1, 2-2, 3-3, 4-4 }.
@@ -150,9 +157,12 @@ local SCORERS = true
 -- Enable exponential attribute-weighted assist selection across all 10 outfielders.
 local ASSISTS = true
 
--- Attribute decay sharpness for goals (0.01 to 0.50). Higher concentrates goals on top
--- attackers; 0.11 gives ~26% CF / ~38% wingers / ~14% AMF / ~16% CMF-DMF / ~6% defenders.
-local SCORER_SHARPNESS = 0.11
+-- Attribute decay sharpness for goals (0.01 to 0.50). Higher concentrates goals on the
+-- best finisher of the club. 0.05 gives, over the clubs of a real save: ~32% CF /
+-- ~41% SS, wingers and AMF / ~14% CMF-DMF / ~12% defenders, and the best scorer of a
+-- club gets ~30% of its goals (a striker far above his team mates up to ~50%).
+-- Version 7 had 0.11: 50% CF, best scorer 47% (up to 88%).
+local SCORER_SHARPNESS = 0.05
 
 -- Attribute decay sharpness for assists (0.01 to 0.50).
 local ASSIST_SHARPNESS = 0.045
@@ -247,7 +257,7 @@ local ROUTINES = {
     { 0x018c, "535689ce89d30fb7460483f83c740583f83d7514b865888003ffd08b402083f827745183f828744c833d503a7d0400744880bb1cb6dc0000743aff760c89d9b869298203ffd085c0740d8b8014030000c1e8073cff7522ff761089d9b869298203ffd085c0740d8b8014030000c1e8073cff750531c05e5bc3b8010000005e5bc3" },
     { 0x0210, "6a00518d4424048d0c245051b898598503ffd083c410c3" },
     { 0x0228, "5053b8e5c08103ffd08b50308b4d10b8dc3b7d04ffd084c0750d5b588b4d0883f902e9a050f3febb70417d048b7424048b55100fb642140fb64a17837d0c0074019189c229ca83fafc7d05bafcffffff83fa047e05ba040000000faf530c89d09929d0d1f8518b4d0883f902740a3b4d0c740a034308eb07034304eb020303598b560cc1ea0e83e20f85c9750f83fa037605034314eb1c034310eb1783f903721283fa02770d83e9023b4b2c76038b4b2c29c80fb64e080faf4b1801c80fb64e090faf4b1c01c8e8dc230000508b4b208d0c4d01000000b8603c7d04ffd05a2b432001c23b53247d038b53243b53287e038b532888d189f05b83c404e9fa4ff3fe" },
-    { 0x032c, "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d0400752c31c9894de4e99831f3fe833da4417d040074edb964000000b8603c7d04ffd03b05a8417d047305e91e35f3fe8b45108b308b400439c67205e90d35f3fe0fb65608525083ec1831db31ff89f13b4c2418736483fb0b735f0fb6410884c07449807d080075168b5514668b12663b11750b8b55148b52043b5104742d8b54241c29c2790231d28d05ac417d04d1ea807d08007505d1ea83c01883fa177605ba170000000fb60410eb0231c001c766893c5c4383c10ceb9685ff750883c420e98834f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972f3496bc90c01ce8b7e048b368975d8897ddc83c420e9b633f3fe" },
+    { 0x032c, "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d0400752c31c9894de4e99831f3fe833da4417d040074edb964000000b8603c7d04ffd03b05a8417d047305e91e35f3fe8b45108b308b400439c67205e90d35f3fe0fb65608525083ec1831db31ff89f13b4c2418736383fb0b735e0fb6410884c07448807d080075168b5514668b12663b11750b8b55148b52043b5104742c8b54241c29c2790231d28d05ac417d04c1ea02807d0800750383c01883fa177605ba170000000fb60410eb0231c001c766893c5c4383c10ceb9785ff750883c420e98934f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972f3496bc90c01ce8b7e048b368975d8897ddc83c420e9b733f3fe" },
     { 0x0440, "833dc03f7d0400745a8b4d088b95a0feffffe835fdffff84c074488b8db4feffff8d955cfeffffb80d000000e8d316000050c785b4feffff040000008d85bbfeffff508d85b4feffff50e8b91a08ff83c4085901c83dff0000007616b8ff000000eb0fc785b4feffff64000000e8961a08ffe9e141f3fe" },
 }
 
@@ -744,7 +754,7 @@ local function build_data_d()
         u32_bytes(round(UNASSISTED_PCT)),
     }
     for i = 0, 23 do
-        t[#t + 1] = string.char(clamp(round(120.0 * math.exp(-SCORER_SHARPNESS * (2 * i))), 1, 255))
+        t[#t + 1] = string.char(clamp(round(120.0 * math.exp(-SCORER_SHARPNESS * (4 * i))), 1, 255))
     end
     for i = 0, 23 do
         t[#t + 1] = string.char(clamp(round(120.0 * math.exp(-ASSIST_SHARPNESS * (4 * i))), 1, 255))
@@ -808,7 +818,7 @@ local function build_data_d2()
     t[#t + 1] = u32_bytes(SMART_SUBS and 1 or 0)
     t[#t + 1] = u32_bytes(LINEUP_STRENGTH and 1 or 0)
     t[#t + 1] = u32_bytes(ATTACK_DEFENSE_SPLIT and 1 or 0)
-    local scorer_pos = { 0, -14, -12, -12, -12, -7, 0, 0, 0, 4, 4, 8, 8 }
+    local scorer_pos = { 0, -22, -24, -24, -18, -4, 6, 6, 8, 8, 8, 12, 14 }
     for i = 1, 13 do
         local v = scorer_pos[i]
         t[#t + 1] = string.char((v < 0) and (v + 256) or v)

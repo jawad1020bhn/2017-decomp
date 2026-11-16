@@ -276,7 +276,10 @@ PK_PAIRS = ((5, 4), (4, 3), (4, 2), (5, 3), (6, 5), (3, 1), (4, 1), (7, 6))
 DEFAULT_CARD_POS_W = (2, 18, 16, 20, 14, 10, 8, 7, 7, 8)
 
 # Goalscorer / assist positional modifiers by reg_pos (0..12: GK,CB,LB,RB,DMF,CMF,LMF,RMF,AMF,LWF,RWF,SS,CF)
-DEFAULT_SCORER_POS_ADJ = (0, -14, -12, -12, -12, -7, 0, 0, 0, 4, 4, 8, 8)
+# Version 8: the position decides most of who scores, the ability less (version 7 had
+# (0, -14, -12, -12, -12, -7, 0, 0, 0, 4, 4, 8, 8) with sharpness 0.11, which gave the
+# centre forward half of all goals and the best scorer 47% of his club's goals).
+DEFAULT_SCORER_POS_ADJ = (0, -22, -24, -24, -18, -4, 6, 6, 8, 8, 8, 12, 14)
 DEFAULT_ASSIST_POS_ADJ = (0, -20, -10, -10, -8, 0, 2, 2, 6, 4, 4, 0, 0)
 
 # Draw tempo multipliers for 5 tempo bands (tempo = (ATK_H - DEF_A) + (ATK_A - DEF_H))
@@ -297,10 +300,10 @@ GK_BASELINE = 82
 # Default settings (matching MLSimMatch.lua v8)
 DEFAULT_SETTINGS = {
     "SCOPE": "all",
-    "HOME_ADVANTAGE": 2.4,
-    "ELO_SCALE": 6.2,
-    "BASE_DRAW": 0.27,
-    "CAPTAIN_WEIGHT": 0.2,
+    "HOME_ADVANTAGE": 1.6,
+    "ELO_SCALE": 4.0,
+    "BASE_DRAW": 0.28,
+    "CAPTAIN_WEIGHT": 0.125,
     "GOAL_SCALE": 1.0,
     "DRAW_WEIGHTS": (28.0, 46.0, 21.0, 4.5, 0.5),
     "ATTACK_DEFENSE_SPLIT": True,
@@ -321,7 +324,7 @@ DEFAULT_SETTINGS = {
     "RATING_RANGE": (4.5, 9.5),
     "SCORERS": True,
     "ASSISTS": True,
-    "SCORER_SHARPNESS": 0.11,
+    "SCORER_SHARPNESS": 0.05,
     "ASSIST_SHARPNESS": 0.045,
     "UNASSISTED_PCT": 28,
     "EXTRA_TIME_PK": True,
@@ -479,8 +482,10 @@ def build_win_cdf_2d(*, goal_scale=1.0):
     return table
 
 
-def build_scorer_weights(sharpness=0.11):
-    return [max(1, min(255, int(round(120.0 * math.exp(-sharpness * (2 * i)))))) for i in range(24)]
+def build_scorer_weights(sharpness=0.05):
+    """Weight by gap to the best scorer stat, index gap >> 2 (version 7: gap >> 1, so every
+    gap above 46 counted the same)."""
+    return [max(1, min(255, int(round(120.0 * math.exp(-sharpness * (4 * i)))))) for i in range(24)]
 
 
 def build_assist_weights(sharpness=0.045):
@@ -1693,10 +1698,9 @@ def assemble():
         xor edx, edx
     gap_pos:
         lea eax, [0x{SCORER_W:08x}]
-        shr edx, 1
+        shr edx, 2
         cmp byte ptr [ebp + 8], 0
         jne gap_clamped
-        shr edx, 1
         add eax, 24
     gap_clamped:
         cmp edx, 23
@@ -2945,12 +2949,12 @@ CODE_PARTS = {
         "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d0400752c"
         "31c9894de4e99831f3fe833da4417d040074edb964000000b8603c7d04ffd0"
         "3b05a8417d047305e91e35f3fe8b45108b308b400439c67205e90d35f3fe0f"
-        "b65608525083ec1831db31ff89f13b4c2418736483fb0b735f0fb6410884c0"
-        "7449807d080075168b5514668b12663b11750b8b55148b52043b5104742d8b"
-        "54241c29c2790231d28d05ac417d04d1ea807d08007505d1ea83c01883fa17"
-        "7605ba170000000fb60410eb0231c001c766893c5c4383c10ceb9685ff7508"
-        "83c420e98834f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972"
-        "f3496bc90c01ce8b7e048b368975d8897ddc83c420e9b633f3fe",
+        "b65608525083ec1831db31ff89f13b4c2418736383fb0b735e0fb6410884c0"
+        "7448807d080075168b5514668b12663b11750b8b55148b52043b5104742c8b"
+        "54241c29c2790231d28d05ac417d04c1ea02807d0800750383c01883fa1776"
+        "05ba170000000fb60410eb0231c001c766893c5c4383c10ceb9785ff750883"
+        "c420e98934f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972f3"
+        "496bc90c01ce8b7e048b368975d8897ddc83c420e9b733f3fe",
     ),
     "eff_strength": (
         0x047d5040,

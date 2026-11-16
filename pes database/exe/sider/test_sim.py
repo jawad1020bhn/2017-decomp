@@ -713,12 +713,14 @@ def main(exe):
     counts = [0, 0, 0]
     for _ in range(1000):
         counts[h.run_outcome(80, 80)] += 1
-    exp_row = sc.build_outcome_table()[4 - sc.DIFF_MIN]
+    cap_ovr = int(20 * sc.DEFAULT_SETTINGS["CAPTAIN_WEIGHT"])
+    assert cap_ovr == 2
+    exp_row = sc.build_outcome_table()[cap_ovr - sc.DIFF_MIN]
     assert counts[0] == exp_row[0], (counts, exp_row)
     g.replace(0x03822835, lambda gm, a: h.player_map.get((a(0), a(1)), h.dummy_player))
     g.replace(CAP_ROLES_VEC, lambda gm, a: (gm.write(a(1), b"\x00" * 12), a(1))[1])
     h.set_mode_kind(0x13)
-    print("ok 8: ML captain role bonus scales cleanly (+20 raw -> +4 OVR)")
+    print("ok 8: ML captain role bonus scales cleanly (+20 raw -> +2 OVR)")
 
     # 8. Feature 1: Dynamic Match Ratings (real fcn_03708cc4)
     h.restore()
@@ -824,7 +826,7 @@ def main(exe):
 
     # Exact deterministic sweep for goal scorer distribution (matches SCORER_W weights!)
     sw = sc.build_scorer_weights()
-    exp_gw = [sw[min(23, (84 - st) >> 1)] if st > 0 else 0 for _, _, st, _, _, _ in scorer_squad]
+    exp_gw = [sw[min(23, (84 - st) >> 2)] if st > 0 else 0 for _, _, st, _, _, _ in scorer_squad]
     tot_gw = sum(exp_gw)
     got_g_counts = collections.Counter()
     for r_i in range(tot_gw):
@@ -1624,15 +1626,15 @@ def main(exe):
     sv_cases = [
         # (pos, fin, atk_prow, header, low_pass, lofted_pass, arrow, fitness)
         (0,  99, 99, 99, 99, 99, 4, 100),  # GK -> always (0, 0)
-        (1,  50, 50, 75, 65, 65, 2, 100),  # CB -> scorer -14, assist -20
-        (2,  55, 60, 60, 75, 78, 2, 100),  # LB -> scorer -12, assist -10
-        (4,  65, 65, 70, 82, 80, 3, 100),  # DMF -> scorer -12, assist -8, green arrow +2
-        (5,  72, 74, 65, 86, 84, 2, 100),  # CMF -> scorer -7, assist +0
-        (8,  80, 84, 60, 90, 88, 4, 100),  # AMF -> scorer +0, assist +6, blue arrow +6
-        (9,  88, 90, 65, 85, 82, 2, 100),  # LWF -> scorer +4, assist +4
-        (12, 95, 96, 92, 72, 65, 4, 100),  # CF -> scorer +8, assist +0, blue arrow +6
-        (12, 99, 99, 99, 99, 99, 4, 100),  # Clamp high -> 113 -> 113; assists 198+6=204
-        (1,  40, 40, 40, 40, 40, 0, 36),   # Clamp low -> 40-14-6-6=14; assist 80-20-6-6=48
+        (1,  50, 50, 75, 65, 65, 2, 100),  # CB -> scorer -22, assist -20
+        (2,  55, 60, 60, 75, 78, 2, 100),  # LB -> scorer -24, assist -10
+        (4,  65, 65, 70, 82, 80, 3, 100),  # DMF -> scorer -18, assist -8, green arrow +2
+        (5,  72, 74, 65, 86, 84, 2, 100),  # CMF -> scorer -4, assist +0
+        (8,  80, 84, 60, 90, 88, 4, 100),  # AMF -> scorer +8, assist +6, blue arrow +6
+        (9,  88, 90, 65, 85, 82, 2, 100),  # LWF -> scorer +8, assist +4
+        (12, 95, 96, 92, 72, 65, 4, 100),  # CF -> scorer +14, assist +0, blue arrow +6
+        (12, 99, 99, 99, 99, 99, 4, 100),  # High values: (119, 204)
+        (1,  40, 40, 40, 40, 40, 0, 36),   # Low values with red arrow and fatigue: (7, 49)
         (1,  10, 10, 10, 10, 10, 0, 36),   # Clamp floor to 1!
     ]
     for idx_c, (pos, fin, ap, hdr, lp, loft, arr, fit) in enumerate(sv_cases):
@@ -1660,11 +1662,11 @@ def main(exe):
     p_cb = h.alloc_player(21, 9521, pos=1, finishing=50, atk_prow=90, header=90, low_pass=75, lofted_pass=75, arrow=4, fitness=100)
     assert eval_sim_vec(p_cb) == (40, 136)  # vanilla CB scorer 50-10=40, v7 assist 150-20+6=136
 
-    # SCORERS=true + ASSISTS=false: v7 scorer, vanilla CB(-20)/FB(-10) assist
+    # SCORERS=true + ASSISTS=false: v8 scorer, vanilla CB(-20)/FB(-10) assist
     h.restore()
     l2, _, _ = run(g, set_lua(source, "ASSISTS", "false"))
     assert l2[-1].startswith("RESULT: installed."), l2
-    assert eval_sim_vec(p_cb) == (66, 130)  # v7 scorer 74-14+6=66, vanilla CB assist 150-20=130
+    assert eval_sim_vec(p_cb) == (58, 130)  # v8 scorer 74-22+6=58, vanilla CB assist 150-20=130
 
     # SCOPE="skip_only" when not skip-match falls back to vanilla for both
     h.restore()
@@ -1797,6 +1799,54 @@ def main(exe):
         res_lines = [l for l in l_all if l.startswith("RESULT")]
         assert len(res_lines) == 4 and all(l.startswith("RESULT: installed.") for l in res_lines), res_lines
     print("ok 20: installs cleanly alongside MLMoney.lua, MLTransfers.lua, and MLYear.lua in any order")
+
+    calibration(exe)
+
+
+SAVE = os.path.join(HERE, "..", "ML saves", "ML00000013 (before)")
+
+
+def calibration(exe):
+    """Version 8 defaults on the clubs of a real save (best eleven of each club, all fit):
+    who scores the goals, and how far the twenty best clubs spread in a league of their own."""
+    import window_report as wr
+    save, rate = wr.Save(SAVE), wr.Rater(exe)
+    squads = collections.defaultdict(list)
+    for r in save.players.values():
+        if wr.club(r) in save.ranking:
+            squads[wr.club(r)].append((rate(r), wr.position(r), r))
+    table, share, top, strength = sc.build_scorer_weights(), collections.Counter(), [], {}
+    for club, squad in squads.items():
+        squad.sort(key=lambda t: -t[0])
+        xi = []
+        for positions, count in (((0,), 1), ((1,), 2), ((2,), 1), ((3,), 1)):
+            xi += [t for t in squad if t[1] in positions][:count]
+        for t in squad:                                  # six more: no keeper, at most two SS/CF
+            if len(xi) < 11 and t not in xi and t[1] and (t[1] < 11 or sum(x[1] > 10 for x in xi) < 2):
+                xi.append(t)
+        if len(xi) < 11:
+            continue
+        stat = [sc.compute_sim_vec_weights(pos, wr.u32(r, 8) & 0x7f, r[3] & 0x7f, wr.u32(r, 8) >> 21 & 0x7f, 0, 0, 2, 100)[0]
+                for _, pos, r in xi]
+        w = [table[min(23, (max(stat) - x) >> 2)] if x else 0 for x in stat]
+        top.append(max(w) / sum(w))
+        for (_, pos, _), x in zip(xi, w):
+            share["CF" if pos == 12 else "defenders" if 1 <= pos <= 3 else "others"] += x / sum(w)
+        strength[save.ranking[club]["place"]] = sc.compute_eff_atk_def([(o, pos) for o, pos, _ in xi])[0]
+    n = len(top)
+    cf, defenders, median = share["CF"] / n, share["defenders"] / n, sorted(top)[n // 2]
+    assert n > 400 and 0.27 <= cf <= 0.38 and defenders <= 0.15 and median <= 0.35 and max(top) <= 0.60, (n, cf, defenders, median, max(top))
+
+    best = [strength[k] for k in sorted(strength)[:20]]
+    out = sc.build_outcome_table()
+    wins, draws, home, games = [0.0] * 20, 0.0, 0.0, 0
+    for i, j in ((i, j) for i in range(20) for j in range(20) if i != j):
+        ph, phd = out[max(sc.DIFF_MIN, min(sc.DIFF_MAX, best[i] - best[j])) - sc.DIFF_MIN]
+        wins[i] += ph / 1000; wins[j] += 1 - phd / 1000; draws += (phd - ph) / 1000; home += ph / 1000; games += 1
+    first, last = max(wins) / 38, min(wins) / 38
+    assert 0.55 <= first <= 0.75 and last <= 0.28 and 0.23 <= draws / games <= 0.27 and 0.42 <= home / games <= 0.47, (first, last, draws / games, home / games)
+    print(f"ok 24: version 8 defaults on {n} clubs of a save: CF {cf:.0%} of the goals, defenders {defenders:.0%}, best scorer of a club {median:.0%} "
+          f"(most {max(top):.0%}); the 20 best clubs among themselves: first wins {first:.0%}, last {last:.0%}, draws {draws / games:.0%}, home wins {home / games:.0%}")
 
 
 if __name__ == "__main__":

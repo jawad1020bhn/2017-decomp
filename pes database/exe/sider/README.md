@@ -2147,8 +2147,27 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
 
 1. **Match outcome (`0x03707a1f`):** replaces vanilla's harsh `diff >= 4` / `diff >= 2`
    step function with a smooth Davidson win/draw/loss table plus `HOME_ADVANTAGE`
-   (`2.4` OVR, `ELO_SCALE = 6.2`, `BASE_DRAW = 0.27`) and ML captain role bonus via
-   `CAPTAIN_WEIGHT`.
+   (`1.6` OVR, `ELO_SCALE = 4.0`, `BASE_DRAW = 0.28`) and ML captain role bonus via
+   `CAPTAIN_WEIGHT` (`0.125`: +-10 gives +-1 OVR, +-20 gives +-2).
+   **Version 8** changed these four defaults (version 7: `2.4`, `6.2`, `0.27`, `0.2`),
+   because the tables of version 7 were too flat. Model of the module's own tables on
+   the 20, 18 and 20 clubs of England, Germany and Spain in `ML saves/ML00000013
+   (before)` (best eleven of each club, all fit; home and away against every other
+   club; 2,000 seasons):
+
+   | | version 7 | version 8 | real football (about) |
+   |---|---|---|---|
+   | points of the champion, England / Germany / Spain | 76 / 73 / 83 | 83 / 81 / 92 | 90 / 80 / 88 |
+   | points of the last club | 29 / 25 / 30 | 23 / 20 / 25 | 21 / 22 / 24 |
+   | best club: matches won | 53% / 63% / 63% | 60% / 73% / 72% | 70 to 75% |
+   | best club: goals for a match | 1.50 / 1.79 / 1.76 | 1.71 / 2.03 / 1.98 | 2.3 to 2.6 |
+   | home wins / draws / away wins, England | 44 / 26 / 31% | 44 / 25 / 31% | 45 / 24 / 31% |
+   | goals a match | 2.36 / 2.49 / 2.46 | 2.51 / 2.65 / 2.62 | 2.8 / 3.0 / 2.6 |
+
+   The lineups of such a league are only about 11 OVR points apart, which is why 6.2 points
+   per e-fold made the best club win barely more than half its matches. The draws were
+   already right (one match in four), so `BASE_DRAW` moved only to keep them there.
+   `test_sim.py` (test 24) holds the defaults to this.
 2. **Scorelines, Attack/Defense split & GK modifier (`0x03705feb`, `ATTACK_DEFENSE_SPLIT`, `GK_SCORE_MOD`):**
    moves `score_hook` to `CAVE_ET` and replaces vanilla's narrow goal tables with a
    7x7 2D conditional Poisson table (`WIN_CDF_2D`, 1,029 B) indexed by
@@ -2191,6 +2210,24 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
    - `scorer_hook` (`0x03706ef6`): distributes goals across all 10 outfield
      players using exponential weights (`SCORER_SHARPNESS`, zero for GKs) and assigns
      assists across the remaining outfielders (`UNASSISTED_PCT`, `ASSIST_SHARPNESS`).
+   - **Version 8** spreads the goals: position table `(0, -22, -24, -24, -18, -4, 6, 6,
+     8, 8, 8, 12, 14)` (GK, CB, LB, RB, DMF, CMF, LMF, RMF, AMF, LWF, RWF, SS, CF),
+     `SCORER_SHARPNESS = 0.05`, and the weight table is read with `gap >> 2` for goals
+     too (version 7: `gap >> 1`, so every gap above 46 counted alike and no table could
+     keep defenders low without a steep curve). Measured on the best eleven of the 499
+     clubs of `ML saves/ML00000013 (before)`:
+
+     | | version 7 | version 8 |
+     |---|---|---|
+     | goals by CF | 50% | 32% |
+     | SS, wingers, AMF | 37% | 41% |
+     | CMF, DMF | 7% | 14% |
+     | defenders | 6% | 12% |
+     | best scorer's share of his club's goals: median / 90th / most | 47 / 66 / 88% | 30 / 38 / 57% |
+     | Haaland / Kane / Mbappé | 83 / 68 / 40% | 48 / 37 / 25% |
+
+     (The "~26% CF" that the settings comment of version 7 gave was not what real
+     squads produced.) Assists are unchanged.
 6. **Extra Time & Penalty Shootouts (`0x037062ca`, `0x037063bb`):** adds strength-scaled
    Extra Time goal chances (`ET_GOAL_SCALE`) and replaces vanilla's broken
    100%-home-win Penalty Shootout table with a symmetric OVR-weighted shootout
@@ -2229,7 +2266,7 @@ with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
 
 All toggles and tuning parameters live at the top of `MLSimMatch.lua` and are validated
 by `settings_fault()` before any byte is written. `python3 test_sim.py <PES2017.exe>`
-runs 23 tests (all passing): generated block & Keystone byte-for-byte equivalence across
+runs 24 tests (all passing): generated block & Keystone byte-for-byte equivalence across
 all 16 routines and 6 caves, 76 invalid-setting rejections, 9 partial-mode installs,
 tamper detection across all 13 patch sites and 6 caves, real `PES2017.exe` execution for
 all match-sim hooks (`ok 6`–`ok 19`, `ok 21`–`ok 23`), and coexistence with `MLMoney.lua`,
