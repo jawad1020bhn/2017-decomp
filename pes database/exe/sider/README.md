@@ -8,7 +8,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
-| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); version 3 has run in the emulator only |
+| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 5 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `MLSimToDate.lua` | **changes the game.** "Sim to Date": a Master League whose date is before the date set in the file runs on to that date when you advance, and your own matches on the way are simulated the Skip Match way. Off as it comes (`SIM_YEAR = 0`). From version 2 the date can also stand in a text file, `MLSimToDate.txt`, and be changed while the game runs. Needs no other module. Has run in the emulator only, on a small part of the game's code |
@@ -419,12 +419,90 @@ passed with nothing changed.
   career is not known (see above, `address-cache.enabled`).
 - Sider, Windows, the running game.
 
-## `MLTransfers.lua`, version 4: the selling side, club personas, scouting, rivals
+## `MLTransfers.lua`, version 5: the selling side, club personas, scouting, rivals
 
 Version 2 ran in the game: one transfer window played with it was read from two save
-files (see "What the second window showed" below). **Versions 3 and 4 have run in the
+files (see "What the second window showed" below). **Versions 3, 4 and 5 have run in the
 emulator only.** It needs `MLMoney.lua` version 7 as before. The price ceiling of
 version 1 is still there and is described in the next section.
+
+### New in version 5
+
+Settings only; the routine is the one of version 4, byte for byte. From a third list by
+the user, after a window of a second season (237 signings by computer clubs, 2 of them by
+the first twenty clubs, no player without a contract rated 80 or more signed).
+
+| | version 4 | version 5 |
+|---|---|---|
+| `CEILING_FREE` | 100 | 75 |
+| `KNOWN_FAME` | 700 (395 players) | 600 (942 players, 509 of them rated under 80) |
+| `STRICT_FREE` | 50 | 35 |
+| `knows` | 30 to 90 | 50 to 90: Crisis 50 (30), Academy purist and Survival churner 60 (40), Mid-table 70 (50), New-money 65 (50), Old-money 75 (60), Galactico and State-backed 85 (70, 75), Selling farm and Retirement team 70 (60) |
+| `keeps` | 10 to 60 | 10 to 35: Galactico and State-backed 30 (50), Old-money, Academy purist, New-money, Youth elite and Retirement team 35 (50 or 60), Mid-table 30 (40), Moneyball and Survival churner 25 (30) |
+| ages | | wider by one to three years for ten personas (Galactico 22-32, Old-money 24-32, Mid-table 23-30, Survival churner 26-34, ...), and `strict` of the same ten 5 to 10 lower |
+| `ambition` | Galactico, State-backed 4; Old-money, New-money 5; Youth elite, Retirement team 6 | 7, 7, 7, 7, 8, 7: a big club takes a player a little further below its eleven |
+| where a club looks, `winter` | | a few points moved (the table of the personas below); `winter` 5 to 15 higher for ten personas |
+
+To go back to version 4: `git show 339dd67:"pes database/exe/sider/MLTransfers.lua"`.
+
+**Not taken from the list**, with the numbers of the model below:
+
+- `prestige` raised for Mid-table (4 to 8), Survival churner (4 to 7), Crisis, Selling
+  farm and Academy purist: 385 of the 499 clubs. A player without a contract rated 75
+  to 79 would then be 5 or more points above the eleven of 29 percent of the clubs that
+  can sign him (now 4 percent), and with the next point of this list too, a player with
+  a contract rated 85 or more above that of 63 percent (now 32). That is the flood of
+  version 1 again, in a milder form.
+- `KEEP_BEST = { 3, 6, 5 }`: with it and the lower `keeps` the first twenty clubs let 53
+  percent of their best eleven go (version 4: 17, version 5: 27). The third number, 5
+  for 2, also makes it harder for a bigger club to take a player, which the list did not
+  want.
+- `CEILING_NEED = 50`: one to three percent more clubs can pay. Left at 30.
+
+**What it should give, worked out and not played.** The save of 1 July 2024 of
+`ML saves/2nd test`, 498 computer clubs. For each player, the number of clubs that could
+sign him: his club lets him go, he would join, he is good enough, the club knows him,
+his age fits, it can pay, and it has fewer than 32 players. Left out: the place the club
+looks in on that day, the game's own tests and its rule about the players of the first
+fifty clubs. So these are not numbers of signings, and they are another count than the
+tables of versions 3 and 4 below.
+
+| players | how many | version 4 | version 5 | 5 or more above the club's eleven, 4 / 5 |
+|---|---|---|---|---|
+| no contract, rated 83 or more | 4 | 18.2 | 22.8 | 49 / 52 percent |
+| no contract, rated 80 to 82 | 15 | 36.9 | 47.7 | 33 / 31 percent |
+| no contract, rated 75 to 79 | 428 | 50.4 | 76.1 | 4 / 4 percent |
+| no contract, rated 70 to 74 | 1,951 | 93.9 | 152.2 | 0 / 0 percent |
+| with a contract, not listed, rated 85 or more | 88 | 0.8 | 1.4 | 27 / 32 percent |
+| with a contract, not listed, rated 80 to 84 | 403 | 5.2 | 8.8 | 25 / 24 percent |
+| with a contract, not listed, rated 75 to 79 | 1,363 | 13.0 | 23.2 | 3 / 3 percent |
+
+Players with a contract whom no club can buy: 69, 182 and 468 in version 4; 61, 116 and
+317 in version 5.
+
+The share of its players (not listed) a club lets go to a buyer that is not clearly
+bigger (best eleven / places 12 to 18 / the rest):
+
+| clubs | version 4 | version 5 |
+|---|---|---|
+| Galactico | 18 / 53 / 57 percent | 32 / 70 / 74 percent |
+| State-backed | 9 / 48 / 51 percent | 20 / 67 / 70 percent |
+| Old-money | 14 / 46 / 49 percent | 26 / 61 / 64 percent |
+| New-money | 7 / 33 / 41 percent | 21 / 57 / 65 percent |
+| Mid-table | 18 / 52 / 60 percent | 26 / 62 / 70 percent |
+| the first twenty clubs | 17 / 52 / 55 percent | 27 / 66 / 69 percent |
+| all 498 | 26 / 61 / 69 percent | 31 / 68 / 76 percent |
+
+**What it does not change.** A club with 32 players cannot sign, and 15 of the first
+nineteen clubs of that save have 32. The module can only refuse a player; it cannot make
+room. More selling by the big clubs gives room for the next day on which the clubs
+choose, not for the same one. Whether that is what holds the big clubs back in a second
+season is not known: no save of one was read, only the list of that window's transfers.
+
+**In the game, look at:** the first log line (`MLTransfers 5`); how many players the
+first twenty clubs sign and sell; whether players of 75 to 79 without a contract find a
+club; whether too many starters of big clubs leave (then put `keeps` of Galactico,
+State-backed and Old-money back to 50).
 
 ### New in version 4
 
@@ -432,7 +510,7 @@ From a second list of suggestions by the user (five points). Three were taken, t
 not; the reasons are below, with numbers from the model on the save from before the
 window played with version 2 (`ML saves/2nd test`, 19,921 players, 498 computer clubs).
 
-| | as shipped | what it does |
+| | in version 4 | what it does |
 |---|---|---|
 | `KNOWN_FAME` (new) | 700 | a player whose popularity is this or more is known to every club (no scouting draw), whatever his rating. 4096: off |
 | `STRICT_FREE` (new) | 50 | for a player without a contract, `strict` of the buying club's persona counts only this many percent: he costs no fee, so his age matters less. 100: off |
@@ -596,7 +674,7 @@ version 1 did.
 
 | part | switch | what it does |
 |---|---|---|
-| price ceiling | `CEILING` | as in version 1 (next section). `CEILING_FREE` is now 100: a player without a contract counts at his full value. With 50, a player worth twice a small club's ceiling was within its reach |
+| price ceiling | `CEILING` | as in version 1 (next section). `CEILING_FREE` was 100 in versions 2 to 4 (a player without a contract counts at his full value; with the 50 of version 1 a player worth twice a small club's ceiling was within its reach) and is 75 in version 5 |
 | selling side | `SELL_SIDE` | the question of point 2 above is asked before a player takes one of the three places, so the list holds only players who can move |
 | club personas | `PERSONA` | every club has a character: where it looks and in which order, which ages it wants, how well it judges, how far it goes, how good a player must be for it, how good a player still joins it, how many of its players it keeps |
 | scouting | `SCOUTING` | a club knows only a part of the players (not those another club has listed: they are known to all) |
@@ -626,7 +704,7 @@ passed them, in this order; "refused" means the club looks at the next player:
 2. **Scouting.** The club knows `knows` percent of the players. Which ones is drawn
    from club and player and stays the same for the whole career. A listed player is
    known to every club, and so is a player rated `KNOWN_FROM` (80) or more (version 3)
-   or of a popularity of `KNOWN_FAME` (700) or more (version 4).
+   or of a popularity of `KNOWN_FAME` (600) or more (version 4).
 3. **The player.** He does not join a club whose first eleven is more than `prestige`
    rating points below him. The eleven's rating is worked out from the club's points in
    the game's club ranking (`STRENGTH`).
@@ -638,7 +716,7 @@ passed them, in this order; "refused" means the club looks at the next player:
    buys only `winter` percent of the time. If the first search gives nobody, the
    second search (among all ratings) looks in the next place the persona names
    (`second`). Then the ages: a player outside `age` is refused `strict` percent of the
-   time; a player without a contract only `STRICT_FREE` (50) percent of that
+   time; a player without a contract only `STRICT_FREE` (35) percent of that
    (version 4). The two ages are moved by up to `AGE_SHIFT` years from club to club
    (version 3).
 5. **The rating as the club sees it.** Up to `fog` points too low or too high (drawn
@@ -669,19 +747,19 @@ the same way on the same day.
 
 | persona | looks first: free / listed / clubs / does not buy | second search | winter | ages (strict) | knows | fog | wealth | premium | panic | fame | ambition | prestige | keeps |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Galactico | 20 / 5 / 75 / 0 | clubs, free | 30 | 22-30 (70) | 70 | 1 | 150 | 150 | 100 | 40 | 4 | 12 | 50 |
-| State-backed | 20 / 15 / 65 / 0 | clubs, listed | 40 | 22-29 (80) | 75 | 2 | 160 | 150 | 150 | 25 | 4 | 10 | 50 |
-| Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 30 | 20-24 (85) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 30 |
-| Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 30 | 19-23 (85) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 |
-| Academy purist | 10 / 10 / 30 / 50 | clubs, free | 15 | 18-23 (90) | 40 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 50 |
-| Old-money | 30 / 20 / 50 / 0 | clubs, free | 40 | 25-30 (75) | 60 | 2 | 110 | 100 | 120 | 30 | 5 | 8 | 50 |
-| Mid-table | 20 / 25 / 45 / 10 | listed, clubs | 40 | 24-28 (50) | 50 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 40 |
-| Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 28-34 (70) | 40 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 30 |
-| Crisis | 60 / 35 / 5 / 0 | free, listed | 70 | 17-36 (20) | 30 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 |
-| New-money | 45 / 0 / 55 / 0 | clubs, free | 60 | 25-32 (60) | 50 | 3 | 250 | 200 | 150 | 30 | 5 | 8 | 60 |
-| Selling farm | 20 / 20 / 30 / 30 | listed, free | 30 | 18-22 (85) | 60 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 10 |
-| Youth elite | 8 / 12 / 65 / 15 | clubs, listed | 20 | 19-24 (70) | 85 | 1 | 140 | 120 | 80 | 15 | 6 | 8 | 60 |
-| Retirement team | 40 / 10 / 40 / 10 | free, clubs | 40 | 31-37 (60) | 60 | 3 | 250 | 150 | 60 | 200 | 6 | 10 | 60 |
+| Galactico | 25 / 10 / 65 / 0 | clubs, free | 45 | 22-32 (60) | 85 | 1 | 150 | 150 | 100 | 40 | 7 | 12 | 30 |
+| State-backed | 25 / 15 / 60 / 0 | clubs, listed | 50 | 22-31 (70) | 85 | 2 | 160 | 150 | 150 | 25 | 7 | 10 | 30 |
+| Moneyball | 15 / 25 / 60 / 0 | clubs, listed | 35 | 20-24 (85) | 90 | 0 | 90 | 40 | 50 | 0 | 8 | 6 | 25 |
+| Elite trader | 15 / 20 / 55 / 10 | clubs, listed | 35 | 19-23 (85) | 85 | 1 | 100 | 60 | 60 | 0 | 9 | 6 | 15 |
+| Academy purist | 15 / 15 / 40 / 30 | clubs, free | 25 | 18-24 (85) | 60 | 2 | 70 | 50 | 50 | 0 | 12 | 4 | 35 |
+| Old-money | 30 / 20 / 50 / 0 | clubs, free | 50 | 24-32 (65) | 75 | 2 | 110 | 100 | 120 | 30 | 7 | 8 | 35 |
+| Mid-table | 25 / 30 / 40 / 5 | listed, clubs | 50 | 23-30 (45) | 70 | 2 | 100 | 100 | 100 | 5 | 8 | 4 | 30 |
+| Survival churner | 40 / 35 / 25 / 0 | free, listed | 80 | 26-34 (60) | 60 | 3 | 90 | 80 | 200 | 5 | 9 | 4 | 25 |
+| Crisis | 60 / 30 / 10 / 0 | free, listed | 70 | 17-36 (20) | 50 | 3 | 50 | 30 | 100 | 0 | 12 | 2 | 10 |
+| New-money | 35 / 10 / 55 / 0 | clubs, free | 60 | 24-33 (55) | 65 | 3 | 250 | 200 | 150 | 30 | 7 | 8 | 35 |
+| Selling farm | 20 / 25 / 40 / 15 | listed, free | 40 | 18-23 (80) | 70 | 2 | 60 | 40 | 50 | 0 | 12 | 4 | 10 |
+| Youth elite | 10 / 15 / 65 / 10 | clubs, listed | 30 | 19-25 (65) | 85 | 1 | 140 | 120 | 80 | 15 | 8 | 8 | 35 |
+| Retirement team | 40 / 15 / 40 / 5 | free, clubs | 50 | 30-37 (55) | 70 | 3 | 250 | 150 | 60 | 200 | 7 | 10 | 35 |
 
 "Does not buy" stands for a club that fills a place from its own academy: the module
 cannot make a youth player, it can only keep the club from buying.
@@ -789,11 +867,11 @@ club go for a player of the club you play was not looked at; if it does, the pai
 your club (Athletic Club - Real Sociedad) counts there too. What you buy yourself is
 not touched.
 
-### Settings new in versions 2, 3 and 4
+### Settings new in versions 2 to 5
 
 | setting | as shipped; meaning |
 |---|---|
-| `CEILING_FREE` | 100 (was 50) |
+| `CEILING_FREE` | 75 (version 1: 50; versions 2 to 4: 100) |
 | `SELL_SIDE` | `true`; `false`: the game's order (list three, then ask the club) |
 | `PERSONA` | `true`; `false`: all clubs alike, and the settings below are not used |
 | `SCOUTING` | `true`; `false`: every club knows every player |
@@ -804,8 +882,8 @@ not touched.
 | `KEEP_BEST` (0 to 99, 0 to 100, 0 to 99) | `{ 4, 12, 2 }`, version 3: see "New in version 3" |
 | `KNOWN_FROM` (0 to 100) | 80, version 3 |
 | `AGE_SHIFT` (0 to 5) | 2, version 3 |
-| `KNOWN_FAME` (0 to 4096) | 700, version 4: see "New in version 4" |
-| `STRICT_FREE` (0 to 100) | 50, version 4 |
+| `KNOWN_FAME` (0 to 4096) | 600 (version 4: 700): see "New in version 4" |
+| `STRICT_FREE` (0 to 100) | 35 (version 4: 50) |
 | `ARCHETYPES` | the thirteen personas above (at most 15) |
 | `PERSONA_GROUPS` | ten lists of 1 to 8 persona names, best clubs first |
 | `CLUBS` | the 180 named clubs (at most 192); `{ }` names none |
@@ -816,7 +894,7 @@ A faulty setting is named in `sider.log` and nothing is written, as before.
 ### What the log says
 
 ```
-MLTransfers 4: the transfers of the computer clubs from the settings in MLTransfers.lua
+MLTransfers 5: the transfers of the computer clubs from the settings in MLTransfers.lua
 check: MLMoney.lua   at 047b065c  installed, version 7
 check: value routine at 047b0c90  as expected
 check: numbers       at 047b0654  as expected
@@ -839,8 +917,8 @@ then the ceilings, `selling side: ...`, `club personas: 13 personas, 180 clubs n
 player stands above its eleven minus 4, 12 percent more often; not against a buyer
 whose eleven is 2 or more points better` and `players rated 80 or more are known to
 every club; the ages of a persona are moved by up to 2 years from club to club`), the
-line of version 4 (``players of a popularity of 700 or more are known to every club; for
-a player without a contract 50 percent of `strict` count``), one
+line of version 4 (``players of a popularity of 600 or more are known to every club; for
+a player without a contract 35 percent of `strict` count``), one
 line per persona, `rivals: 61 pairs of clubs do not buy each other's
 players who have a contract`, and `RESULT: installed. Changed: price ceiling of the
 computer clubs, selling side, club personas, scouting, rivals.`
@@ -941,7 +1019,7 @@ The lists are used little (40 of 816) because the listed players are weak: none 
 
 ### What is not known
 
-- Versions 3 and 4 have not run in the game. Their numbers above come from the model.
+- Versions 3, 4 and 5 have not run in the game. Their numbers above come from the model.
 - What `STRICT_FREE` does to the ages of the players signed is an estimate from how
   many clubs could sign a player, not from a played window.
 - The winter window, a second season and the fees paid were not looked at.
@@ -1166,7 +1244,7 @@ mode `0x28`, the growth of players, the rest of the way computer clubs choose pl
 | `CEILING_STRETCH` (0 to 300) | 50: a club reaches a player up to 50 percent above its ceiling, the further above the less often; 0 = nothing above the ceiling, as in version 5 |
 | `CEILING_NEED` (0 to 300) | 30: the ceiling of a club in need (second search, or a slot that asks for a player of a certain standing) counts 30 percent higher; 0 = need changes nothing |
 | `CEILING_LISTED` (0 to 100) | 70: percent of the value that counts for a player listed for sale; 100 = he counts like any other |
-| `CEILING_FREE` (0 to 100) | 100 (version 1: 50): the same for a player without a contract |
+| `CEILING_FREE` (0 to 100) | 75 (version 1: 50; versions 2 to 4: 100): the same for a player without a contract |
 | `SELL_SIDE`, `PERSONA`, `SCOUTING` and the persona settings | new in version 2: see the section on version 2 above |
 | `CEILING_RATING` | `true`: in its second search a computer club takes nobody rated above the top of its own rating range; `false`: from 99 down, as in the game. Used only with `CEILING` |
 

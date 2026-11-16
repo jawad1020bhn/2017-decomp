@@ -1197,7 +1197,7 @@ def main(exe):
                                 random.randint(0, 1)) == t.ceiling[level] for level in range(10) for _ in range(50))
         assert h.choose_cases(400, t)[0] > 0
     t, _ = install(only(CEILING=None), 'values, price ceiling of the computer clubs')
-    assert (t.ceiling_stretch, t.ceiling_need, t.ceiling_listed, t.ceiling_free) == (50, 30, 70, 100)
+    assert (t.ceiling_stretch, t.ceiling_need, t.ceiling_listed, t.ceiling_free) == (50, 30, 70, 75)
     # 200 millions, a club in need, every step of the hash: from 260 millions to just under 390
     reach = sorted({mc.limit(t, 9, (i, 0), 0, True) for i in range(4000)})
     assert len(reach) == 256 and reach[0] == 2600000 and reach[-1] == 2600000 + 2600000 * (255 * 50) // 25600
@@ -1208,7 +1208,7 @@ def main(exe):
     # (KEEP_BEST, KNOWN_FROM, AGE_SHIFT, KNOWN_FAME, STRICT_FREE: as in the file, at their lowest,
     # off (version 3 for the last two), and three more)
     for case, (spread, strength, winter, squad, scouting, keep, known, shift, fame, strict_free) in enumerate((
-            ('0', '{ 0.0533, 9.45 }', '0', '0', 'true', (4, 12, 2), 80, 2, 700, 50),
+            ('0', '{ 0.0533, 9.45 }', '0', '0', 'true', (4, 12, 2), 80, 2, 600, 35),
             ('50', '{ 0.5, 99 }', '12', '32', 'false', (99, 100, 99), 0, 5, 0, 0),
             ('20', '{ 0, 0 }', '1', '23', 'true', (0, 0, 0), 100, 0, 4096, 100),
             ('33.4', '{ 0.02, 40 }', '9', '25', 'true', (10, 3, 0), 70, 1, 300, 25),
@@ -1294,7 +1294,7 @@ def main(exe):
     assert sum(l.startswith('  ') and 'looks first: free' in l for l in lines) == 13
     assert not any('name a club that a later entry names again' in l for l in lines)
     assert ((t.keep_from, t.keep_step, t.keep_bigger), t.known, t.age_shift) == ((4, 12, 2), 80, 2)
-    assert (t.known_fame, t.strict_free) == (700, 50)
+    assert (t.known_fame, t.strict_free) == (600, 35)
     twice = settings(source).hand[7][0]
     _, lines = install(source.replace('local CLUBS = {', 'local CLUBS = {\n    { 0x%08x, "Crisis" },' % twice), everything)
     assert ('  note: 1 entries of CLUBS name a club that a later entry names again; the last entry of a club counts') in lines
@@ -1545,20 +1545,20 @@ def main(exe):
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 12, -1 }')),
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '12')),
            ('ARCHETYPES: entry 1 (Galactico): free + listed + clubs is above 100',
-            source.replace('free = 20, listed = 5, clubs = 75', 'free = 21, listed = 5, clubs = 75')),
+            source.replace('free = 25, listed = 10, clubs = 65', 'free = 26, listed = 10, clubs = 65')),
            ('ARCHETYPES: entry 3 (Moneyball): knows is not a number from 1 to 100', source.replace('knows = 90', 'knows = 0')),
            ('ARCHETYPES: entry 2 (State-backed): wealth is not a number from 10 to 250', source.replace('wealth = 160', 'wealth = 251')),
            ('ARCHETYPES: entry 4 (Elite trader): fog is not a number from 0 to 10',
             source.replace('fog = 1, wealth = 100, premium = 60', 'fog = 11, wealth = 100, premium = 60')),
-           ('ARCHETYPES: entry 7 (Mid-table): keeps is not a number from 0 to 100', source.replace('prestige = 4, keeps = 40', 'prestige = 4')),
+           ('ARCHETYPES: entry 7 (Mid-table): keeps is not a number from 0 to 100', source.replace('prestige = 4, keeps = 30', 'prestige = 4')),
            ('ARCHETYPES: entry 9 (Crisis): age is not', source.replace('age = { 17, 36 }', 'age = { 36, 17 }')),
-           ('ARCHETYPES: entry 10 (New-money): age is not', source.replace('age = { 25, 32 }', 'age = { 25, 64 }')),
+           ('ARCHETYPES: entry 10 (New-money): age is not', source.replace('age = { 24, 33 }', 'age = { 24, 64 }')),
            ('ARCHETYPES: entry 11 (Selling farm): second is not two different places',
             source.replace('second = { "listed", "free" }', 'second = { "listed", "listed" }')),
            ('ARCHETYPES: entry 8 (Survival churner): second is not two different places',
             source.replace('second = { "free", "listed" }, winter = 80', 'second = { "free", "loan" }, winter = 80')),
            ('ARCHETYPES: entry 6 (Galactico): the name stands twice', source.replace('{ "Old-money", free = 30', '{ "Galactico", free = 30')),
-           ('ARCHETYPES: entry 5 has no name', source.replace('{ "Academy purist", free = 10', '{ free = 10')),
+           ('ARCHETYPES: entry 5 has no name', source.replace('{ "Academy purist", free = 15', '{ free = 15')),
            ('ARCHETYPES is not a list of 1 to 15 personas', setting(source, 'ARCHETYPES', archetypes_text(some_archetypes(16)))),
            ('ARCHETYPES is not a list of 1 to 15 personas', setting(source, 'ARCHETYPES', '{ }')),
            ('PERSONA_GROUPS: entry 1 names a persona', source.replace('{ "Galactico", "Old-money", "State-backed", "Elite trader" }',

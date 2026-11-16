@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 4: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 5: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -108,8 +108,9 @@ local CEILING_LISTED = 70
 -- Version 1 had 50 here. In a career played with it, 506 of 511 signings of one window
 -- were players without a contract, and the small clubs took the best of them: with the
 -- discount a player worth twice a club's ceiling was within its reach. 100 takes the
--- discount away.
-local CEILING_FREE = 100
+-- discount away (versions 2 to 4). 75 since version 5: by now `prestige` of the personas
+-- keeps a good player away from a small club, whatever he costs.
+local CEILING_FREE = 75
 
 -- The second search. A computer club looks for a player in a rating range that goes by
 -- its place in the ranking (the smallest clubs 47 to 74, the ten best 83 to 99). When it
@@ -155,16 +156,17 @@ local KNOWN_FROM = 80
 -- A player of this popularity or more is known to every club as well: a famous name is
 -- not overlooked, whatever his rating. The game keeps a popularity for every player; in
 -- the career the module was set against the highest is 1,110, a player rated 80 to 84 has
--- about 660, and 700 or more have 395 players of 19,921 (109 of them rated under 80).
+-- about 660, and 600 or more have 942 players of 19,921 (509 of them rated under 80);
+-- 700 or more, the number of version 4, have 395 (109).
 -- 0 to 4096; 4096: off, no player is known for his name (version 3). Needs SCOUTING.
-local KNOWN_FAME = 700
+local KNOWN_FAME = 600
 
 -- A player without a contract costs no fee, so a club is less strict about his age: for
--- him `strict` of the persona (below) counts only this many percent. With 50 a club that
--- refuses 70 of 100 players outside its ages refuses 35 of 100 such players without a
--- contract. 0 to 100; 100: off, as for every other player (version 3); 0: his age is
--- never a reason. Needs PERSONA.
-local STRICT_FREE = 50
+-- him `strict` of the persona (below) counts only this many percent. With 35 a club that
+-- refuses 60 of 100 players outside its ages refuses 21 of 100 such players without a
+-- contract. 0 to 100; 100: off, as for every other player (version 3); 50: version 4; 0:
+-- his age is never a reason. Needs PERSONA.
+local STRICT_FREE = 35
 
 -- A club holds on to its first team. Three numbers:
 --   1. a player counts as first team if his rating is at most this many points below
@@ -239,45 +241,45 @@ local SQUAD_NEED = 23
 -- At most 15 personas. Numbers without a range given: 0 to 100 (knows: 1 to 100; ambition
 -- and prestige: 0 to 99; ages 0 to 63).
 local ARCHETYPES = {
-    { "Galactico", free = 20, listed = 5, clubs = 75, second = { "clubs", "free" }, winter = 30,
-      age = { 22, 30 }, strict = 70, knows = 70, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
-      ambition = 4, prestige = 12, keeps = 50 },
-    { "State-backed", free = 20, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 40,
-      age = { 22, 29 }, strict = 80, knows = 75, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
-      ambition = 4, prestige = 10, keeps = 50 },
-    { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 30,
+    { "Galactico", free = 25, listed = 10, clubs = 65, second = { "clubs", "free" }, winter = 45,
+      age = { 22, 32 }, strict = 60, knows = 85, fog = 1, wealth = 150, premium = 150, panic = 100, fame = 40,
+      ambition = 7, prestige = 12, keeps = 30 },
+    { "State-backed", free = 25, listed = 15, clubs = 60, second = { "clubs", "listed" }, winter = 50,
+      age = { 22, 31 }, strict = 70, knows = 85, fog = 2, wealth = 160, premium = 150, panic = 150, fame = 25,
+      ambition = 7, prestige = 10, keeps = 30 },
+    { "Moneyball", free = 15, listed = 25, clubs = 60, second = { "clubs", "listed" }, winter = 35,
       age = { 20, 24 }, strict = 85, knows = 90, fog = 0, wealth = 90, premium = 40, panic = 50, fame = 0,
-      ambition = 8, prestige = 6, keeps = 30 },
-    { "Elite trader", free = 15, listed = 20, clubs = 55, second = { "clubs", "listed" }, winter = 30,
+      ambition = 8, prestige = 6, keeps = 25 },
+    { "Elite trader", free = 15, listed = 20, clubs = 55, second = { "clubs", "listed" }, winter = 35,
       age = { 19, 23 }, strict = 85, knows = 85, fog = 1, wealth = 100, premium = 60, panic = 60, fame = 0,
       ambition = 9, prestige = 6, keeps = 15 },
-    { "Academy purist", free = 10, listed = 10, clubs = 30, second = { "clubs", "free" }, winter = 15,
-      age = { 18, 23 }, strict = 90, knows = 40, fog = 2, wealth = 70, premium = 50, panic = 50, fame = 0,
-      ambition = 12, prestige = 4, keeps = 50 },
-    { "Old-money", free = 30, listed = 20, clubs = 50, second = { "clubs", "free" }, winter = 40,
-      age = { 25, 30 }, strict = 75, knows = 60, fog = 2, wealth = 110, premium = 100, panic = 120, fame = 30,
-      ambition = 5, prestige = 8, keeps = 50 },
-    { "Mid-table", free = 20, listed = 25, clubs = 45, second = { "listed", "clubs" }, winter = 40,
-      age = { 24, 28 }, strict = 50, knows = 50, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
-      ambition = 8, prestige = 4, keeps = 40 },
+    { "Academy purist", free = 15, listed = 15, clubs = 40, second = { "clubs", "free" }, winter = 25,
+      age = { 18, 24 }, strict = 85, knows = 60, fog = 2, wealth = 70, premium = 50, panic = 50, fame = 0,
+      ambition = 12, prestige = 4, keeps = 35 },
+    { "Old-money", free = 30, listed = 20, clubs = 50, second = { "clubs", "free" }, winter = 50,
+      age = { 24, 32 }, strict = 65, knows = 75, fog = 2, wealth = 110, premium = 100, panic = 120, fame = 30,
+      ambition = 7, prestige = 8, keeps = 35 },
+    { "Mid-table", free = 25, listed = 30, clubs = 40, second = { "listed", "clubs" }, winter = 50,
+      age = { 23, 30 }, strict = 45, knows = 70, fog = 2, wealth = 100, premium = 100, panic = 100, fame = 5,
+      ambition = 8, prestige = 4, keeps = 30 },
     { "Survival churner", free = 40, listed = 35, clubs = 25, second = { "free", "listed" }, winter = 80,
-      age = { 28, 34 }, strict = 70, knows = 40, fog = 3, wealth = 90, premium = 80, panic = 200, fame = 5,
-      ambition = 9, prestige = 4, keeps = 30 },
-    { "Crisis", free = 60, listed = 35, clubs = 5, second = { "free", "listed" }, winter = 70,
-      age = { 17, 36 }, strict = 20, knows = 30, fog = 3, wealth = 50, premium = 30, panic = 100, fame = 0,
+      age = { 26, 34 }, strict = 60, knows = 60, fog = 3, wealth = 90, premium = 80, panic = 200, fame = 5,
+      ambition = 9, prestige = 4, keeps = 25 },
+    { "Crisis", free = 60, listed = 30, clubs = 10, second = { "free", "listed" }, winter = 70,
+      age = { 17, 36 }, strict = 20, knows = 50, fog = 3, wealth = 50, premium = 30, panic = 100, fame = 0,
       ambition = 12, prestige = 2, keeps = 10 },
-    { "New-money", free = 45, listed = 0, clubs = 55, second = { "clubs", "free" }, winter = 60,
-      age = { 25, 32 }, strict = 60, knows = 50, fog = 3, wealth = 250, premium = 200, panic = 150, fame = 30,
-      ambition = 5, prestige = 8, keeps = 60 },
-    { "Selling farm", free = 20, listed = 20, clubs = 30, second = { "listed", "free" }, winter = 30,
-      age = { 18, 22 }, strict = 85, knows = 60, fog = 2, wealth = 60, premium = 40, panic = 50, fame = 0,
+    { "New-money", free = 35, listed = 10, clubs = 55, second = { "clubs", "free" }, winter = 60,
+      age = { 24, 33 }, strict = 55, knows = 65, fog = 3, wealth = 250, premium = 200, panic = 150, fame = 30,
+      ambition = 7, prestige = 8, keeps = 35 },
+    { "Selling farm", free = 20, listed = 25, clubs = 40, second = { "listed", "free" }, winter = 40,
+      age = { 18, 23 }, strict = 80, knows = 70, fog = 2, wealth = 60, premium = 40, panic = 50, fame = 0,
       ambition = 12, prestige = 4, keeps = 10 },
-    { "Youth elite", free = 8, listed = 12, clubs = 65, second = { "clubs", "listed" }, winter = 20,
-      age = { 19, 24 }, strict = 70, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
-      ambition = 6, prestige = 8, keeps = 60 },
-    { "Retirement team", free = 40, listed = 10, clubs = 40, second = { "free", "clubs" }, winter = 40,
-      age = { 31, 37 }, strict = 60, knows = 60, fog = 3, wealth = 250, premium = 150, panic = 60, fame = 200,
-      ambition = 6, prestige = 10, keeps = 60 },
+    { "Youth elite", free = 10, listed = 15, clubs = 65, second = { "clubs", "listed" }, winter = 30,
+      age = { 19, 25 }, strict = 65, knows = 85, fog = 1, wealth = 140, premium = 120, panic = 80, fame = 15,
+      ambition = 8, prestige = 8, keeps = 35 },
+    { "Retirement team", free = 40, listed = 15, clubs = 40, second = { "free", "clubs" }, winter = 50,
+      age = { 30, 37 }, strict = 55, knows = 70, fog = 3, wealth = 250, premium = 150, panic = 60, fame = 200,
+      ambition = 7, prestige = 10, keeps = 35 },
 }
 
 -- The personas a club without an entry in CLUBS draws from, by its place in the game's
@@ -1107,7 +1109,7 @@ local function report_persona()
 end
 
 function m.init(ctx)
-    log("MLTransfers 4: the transfers of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 5: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then
