@@ -449,10 +449,11 @@ To go back to version 4: `git show 339dd67:"pes database/exe/sider/MLTransfers.l
 
 - `prestige` raised for Mid-table (4 to 8), Survival churner (4 to 7), Crisis, Selling
   farm and Academy purist: 385 of the 499 clubs. A player without a contract rated 75
-  to 79 would then be 5 or more points above the eleven of 29 percent of the clubs that
-  can sign him (now 4 percent), and with the next point of this list too, a player with
-  a contract rated 85 or more above that of 63 percent (now 32). That is the flood of
-  version 1 again, in a milder form.
+  to 79 would then be 5 or more points above the eleven of 13 percent of the clubs that
+  can sign him (now 2 percent), one rated 70 to 74 above that of 9 percent (now none),
+  a player with a contract rated 75 to 79 above that of 10 percent (now 1). That is a
+  step back towards version 1, where the signed players stood 3.9 points above the
+  eleven of their new club.
 - `KEEP_BEST = { 3, 6, 5 }`: with it and the lower `keeps` the first twenty clubs let 53
   percent of their best eleven go (version 4: 17, version 5: 27). The third number, 5
   for 2, also makes it harder for a bigger club to take a player, which the list did not
@@ -461,24 +462,33 @@ To go back to version 4: `git show 339dd67:"pes database/exe/sider/MLTransfers.l
 
 **What it should give, worked out and not played.** The save of 1 July 2024 of
 `ML saves/2nd test`, 498 computer clubs. For each player, the number of clubs that could
-sign him: his club lets him go, he would join, he is good enough, the club knows him,
-his age fits, it can pay, and it has fewer than 32 players. Left out: the place the club
-looks in on that day, the game's own tests and its rule about the players of the first
-fifty clubs. So these are not numbers of signings, and they are another count than the
-tables of versions 3 and 4 below.
+sign him: his club lets him go, he is not rated above the top of the club's rating range
+(`CEILING_RATING`), he would join, he is good enough, the club knows him, his age fits,
+it can pay, and it has fewer than 32 players. Left out: the place the club looks in on
+that day, the other tests of the game and its rule about the players of the first fifty
+clubs. So these are not numbers of signings, and they are another count than the tables
+of versions 3 and 4 below.
 
 | players | how many | version 4 | version 5 | 5 or more above the club's eleven, 4 / 5 |
 |---|---|---|---|---|
-| no contract, rated 83 or more | 4 | 18.2 | 22.8 | 49 / 52 percent |
-| no contract, rated 80 to 82 | 15 | 36.9 | 47.7 | 33 / 31 percent |
-| no contract, rated 75 to 79 | 428 | 50.4 | 76.1 | 4 / 4 percent |
+| no contract, rated 83 or more | 4 | 5.5 | 6.5 | 0 / 0 percent |
+| no contract, rated 80 to 82 | 15 | 17.1 | 22.7 | 0 / 0 percent |
+| no contract, rated 75 to 79 | 428 | 49.5 | 74.8 | 2 / 2 percent |
 | no contract, rated 70 to 74 | 1,951 | 93.9 | 152.2 | 0 / 0 percent |
-| with a contract, not listed, rated 85 or more | 88 | 0.8 | 1.4 | 27 / 32 percent |
-| with a contract, not listed, rated 80 to 84 | 403 | 5.2 | 8.8 | 25 / 24 percent |
-| with a contract, not listed, rated 75 to 79 | 1,363 | 13.0 | 23.2 | 3 / 3 percent |
+| with a contract, not listed, rated 85 or more | 88 | 0.5 | 0.8 | 0 / 0 percent |
+| with a contract, not listed, rated 80 to 84 | 403 | 3.2 | 5.5 | 0 / 0 percent |
+| with a contract, not listed, rated 75 to 79 | 1,363 | 12.8 | 22.8 | 1 / 1 percent |
 
-Players with a contract whom no club can buy: 69, 182 and 468 in version 4; 61, 116 and
+Players with a contract whom no club can buy: 70, 183 and 468 in version 4; 63, 118 and
 317 in version 5.
+
+**The best players without a contract** stay hard to place: 6.5 and 22.7 clubs, most of
+them full or looking elsewhere on the day. The one setting that opens more clubs to them
+is `CEILING_RATING = false` (a fourth list by the user asked for it): 22.8 and 47.7
+clubs for the two groups, 76.1 for those of 75 to 79. The price: 52 and 31 percent of
+those clubs have an eleven 5 or more points below the player (with the rule: none); it is
+`prestige` that then says how far down he goes, not the ceiling. Not switched: it is one
+word to try in a window.
 
 The share of its players (not listed) a club lets go to a buyer that is not clearly
 bigger (best eleven / places 12 to 18 / the rest):
