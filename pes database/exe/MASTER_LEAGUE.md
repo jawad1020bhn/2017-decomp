@@ -1663,12 +1663,75 @@ read far enough to see that they are not the growth arithmetic (nor is
 |---|---|
 | growth | `process::CmnGrowthCheck` (`fcn_0360f02d`, `fcn_0360f0fc`), `process::CmnSeasonGrowthCheck` (`fcn_0360df60`, `fcn_0360e02f`), `process::InfoNewsGrowth`; `menu::MenuModeGrowthReport`; `fcn_038b805c` (15 callers), `fcn_038679a9` (16 callers). Large bodies next to the role code, purpose not established: `fcn_038b9827` (736 lines; called from the day-end step `fcn_036365e6`; constants 0.5, 2, 3, 16; random numbers; tables `0x0216f510`, `0x0216f518`) and `fcn_038b765b` (156 lines; constants 0.7, 3.1, 100) |
 | report day | event 48: `fcn_0363beba` |
-| team spirit | the strings `teamSpirit_value` and `teamSpirit_decrease` are used by myClub screens (`menu::OnlineMyClubSquadTacticsTrainingItemResult`), `PERFECT_TEAM_SPIRIT` by `fcn_04682dc2`; no Master League code for team spirit was found |
+| team spirit | read: section 12.1 |
 | youth | strings `PlayerList::CreateObjectYouth` (`0x01f69540`), `ML/MLYouthMemberList` (`0x01f69560`); no class of its own in the type records; the rule that makes youth players is not found |
 | retirement, new players | string `RETIREMENT_PLAYER` (`0x01f21500`); on the first day of a season the Become a Legend branch of the day begin sets a mark on the user's player from age 37 (from 36 with a condition); the Master League rule is not found |
 | contracts | events 12 to 15 on 30 June and 31 December: `fcn_036e1665` (405 lines), `fcn_036e20d2`, `fcn_036e067a`, `fcn_036e1568`; string `PlayerList::CreateObjectUpdateContract`; years of a deal: `fcn_0388a1be` (96 lines, 9 callers) |
 | draws, titles, awards | draws, events 32 to 39: `process::ProcessCmnLotCheck` (`fcn_035e6c9a`), `fcn_036cdb49`; titles, events 41 to 44: `fcn_0362eb70`, `fcn_036696e1`, `process::SpecialTitle…`; award holders: `fcn_0318c209` (12 callers) |
 | news, staff reports | `process::InfoNews…`, `process::InfoStaffReportML`, `process::InfoEventML`; `fcn_038551f2(&kind, &value)` posts a news item, `fcn_031538bf(…)` a staff report |
+
+### 12.1 Team spirit
+
+Level: **read** (November 2026, C and disassembly); the value function and the match
+set-up were run in the emulator on a made-up player (`sider/test_spirit.py`). Nothing was
+seen in the game. `sider/MLTeamSpirit.lua` switches it off for Master League.
+
+**Where it counts.** `fcn_038ddff7` is the gate: the mode number is `0x13` (Master
+League) or `0x34` to `0x3d` (kind 21, taken to be myClub: its branch uses the strings
+`teamSpirit_full`, `teamSpirit_decrease` of the myClub screens). Outside it every value is 99.
+
+**The value of a player**, `fcn_038df4c9(player, his 14 bytes, the club's tactic flags,
+position, flag, formation, team, list)` -> 1 to 99:
+
+- `fcn_038ddcd2`: the player has two bytes for each of the club's seven tactic settings,
+  one per option; the byte of the option the club uses counts. In the emulator seven
+  equal bytes `n` give `n`.
+- `fcn_038dddae`: plus 10 for each setting where player field `0x3a` (taken to be the
+  playing style) has a mark in table `0x02171450`.
+- `fcn_038ddee8`: times 1.0, 0.8 or 0.5 for a position he plays at A, B or C.
+- Master League (`mode_kind` 12) only: `fcn_038defb9` adds a list of numbers from the
+  match object (`+0x4ec4` count, `+0x4ec8`) and one more number, each times a factor of
+  1 to 5 that is larger for a low value; cap 97, or 98 / 99 when that last number is 5 or
+  10 (`fcn_038b6e0d(8)`, `(9)`: taken to be role effects 8 and 9 of appendix E). What
+  fills the list is not read. A flag byte per team (match object `+0x4dbc`, set by
+  `fcn_038df8fe`) cuts the value to a tenth first; what it stands for is not read.
+- Master League with a career loaded: **only a player of the user's club gets this
+  value** (`fcn_03854677`: he is in the squad of the user's club, and the club in his
+  match record, `+0xa8`, is that club); every other player gets 99. The jump of `MLTeamSpirit.lua` is at
+  the start of this branch (`0x038df528`, to the `return 99` at `0x038df7a1`).
+
+**The team value** on the game plan screen (`fcn_0431a07c`, strings `gmPlanTeamSpirit`,
+`gmPlanTeamSpiritValue`; arrows by `fcn_04319974`): `fcn_042f18d5` -> `fcn_042f1263`, the
+mean of the values of the eleven lineup places (of three formations when
+`fcn_042f8fd7(team)` says so). After a played match `fcn_0360fcbc` keeps it in the bytes
+`+0xe4c1da` / `+0xe4c1db` (and team strength in `+0xe4c1dc` / `+0xe4c1dd`); the menu
+(`fcn_0329dbd9`, `fcn_0329dd72`) reads them only to show a change. `fcn_0368ac2a`, a
+news text builder, tests the value against 66; not read further.
+
+**Played match.** The match set-up `fcn_04177a65` (callers `fcn_0417e90f`,
+`fcn_0417f2fa`, `fcn_04192ea0`) stores the value for 3 formations x 13 positions at
+team block `+0x56 + formation x 13 + position` (`fcn_02f7d861`; read by `fcn_02f7d891`).
+`fcn_02f903a7` runs per player during the match: with value `v`,
+
+```
+t = 0.65 x clamp((v - 10) / 40, 0, 1) + 0.35 x clamp((v - 50) / 49, 0, 1)
+factor = 0.70 + 0.30 x t          v <= 10: 0.70    50: 0.895    80: 0.96    99: 1.00
+```
+
+and 22 ability bytes of the match (indices 20 to 35, 37 to 42 of table `0x01f41a50`) are
+multiplied by it and by five other factors, then kept inside 40 to 99
+(`fcn_02f7e623`). By the tables `0x0256f6d8`, `0x021629f0`, `0x02164500` and the names of
+`tools/overall.py` these are attack, defence, goalkeeping, dribbling, ball control,
+finishing, low pass, lofted pass, header, ball winning, place kicking, swerve, reflexes,
+catching, clearing, coverage, speed, body control, physical contact, kicking power,
+explosive power and jump; stamina (index 43) is not among them. One player picked by
+`fcn_0308ccf4` is spared; who that is, is not read. `fcn_0308d992` gives the mean value
+of two players to six places of the match AI (limits 50 and 80); what they decide is not
+read.
+
+**Skipped match.** None of the simulation functions (`fcn_03708fd5`, `fcn_03708de9`,
+`fcn_03707a1f`, `fcn_03705feb` and what they call) reaches a team spirit function; they
+use `team_strength_of` (section 10).
 
 ## 13 The Master League save file
 
@@ -1748,7 +1811,8 @@ career only where the mode reads the database again; where that happens is not f
   where a slot gets "loan" and the state 9; how often the choosing step is repeated
   on its days; the rest of `user_deal_step`, `fcn_036e2557`, `fcn_036e067a`
   (section 9).
-- Growth, team spirit, youth, retirement, new players, contracts (section 12).
+- Growth, youth, retirement, new players, contracts (section 12); of team spirit the
+  Master League bonuses and the six places of the match AI (12.1).
 - What the screens call each amount of the account (sections 6.4, 6.7); the grade of
   28 June and the two sums taken off the yearly transfer money (6.7); `fcn_03649f1f`
   (event 24); where the screens multiply amounts by 100.

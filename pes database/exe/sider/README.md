@@ -11,6 +11,8 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 6 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
+| `MLTeamSpirit.lua` | **changes the game.** Team Spirit has no effect in a played Master League match: every player's value is 99, so no ability is lowered (a skipped match never read it). One place of five bytes; needs no other module. Has run in the emulator only |
+| `test_spirit.py <PES2017.exe>` | runs `MLTeamSpirit.lua` on the exe in the emulator, then the game's function that gives a player his Team Spirit value and the one of the match set-up that stores the values for the match (needs `pip install lupa unicorn capstone`) |
 | `MLSimToDate.lua` | **changes the game.** "Sim to Date": a Master League whose date is before the date set in the file runs on to that date when you advance, and your own matches on the way are simulated the Skip Match way. Off as it comes (`SIM_YEAR = 0`). From version 2 the date can also stand in a text file, `MLSimToDate.txt`, and be changed while the game runs. Needs no other module. Has run in the emulator only, on a small part of the game's code |
 | `test_simdate.py <PES2017.exe>` | runs `MLSimToDate.lua` on the exe in the emulator, then the game's stop test and day loop with the module's routine in, on made-up calendars, and the text file with the date through a stand-in for Sider's file reading (needs `pip install lupa unicorn keystone-engine capstone`) |
 | `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 7: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
@@ -167,6 +169,77 @@ the test failed on each of the sixteen.
 Not shown: the set-up of a career as a whole was not run, only its eight instructions,
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
+
+## `MLTeamSpirit.lua`, version 1: Team Spirit has no effect in a match
+
+Emulator only: it has not run in the game yet.
+
+### What the game does
+
+Read in the exe (`../MASTER_LEAGUE.md`, section 12.1), not seen in the game:
+
+- **Played match.** Every player of **your** club has a Team Spirit value of 1 to 99;
+  the number on the game plan screen is their average. In the match 22 of his abilities
+  are multiplied by a factor that goes from 0.70 (value 10 or less) over 0.90 (value 50)
+  to 1.00 (value 99). A player of a computer club always has 99.
+- **Skipped match.** The simulation does not read Team Spirit; it works from team
+  strength. `MLSimMatch.lua` does not read it either.
+
+So Team Spirit only ever makes your own team worse, and only when you play.
+
+### What the module changes
+
+One jump in the function that gives a player his value (`fcn_038df4c9`), in the running
+game only: its Master League branch now goes straight to the function's own "return 99",
+the answer a player of another club gets. With it:
+
+- the match set-up stores 99 for every player, formation and position, so the match
+  multiplies every ability by 1.00;
+- the game plan screen takes its number from the same function, so it should show
+  **Team Spirit 99** (read, not run);
+- the other modes with Team Spirit (mode kind 21, taken to be myClub) go another way
+  through the function and are untouched;
+- nothing is saved: without the module the old values are back at once.
+
+It has no settings.
+
+### Install
+
+1. Copy `MLTeamSpirit.lua` into the `modules` folder next to `sider.exe`.
+2. Add one line to `sider.ini`, above or below the other `lua.module` lines:
+   ```
+   lua.module = "MLTeamSpirit.lua"
+   ```
+3. Start the game and look at `sider.log`:
+   ```
+   MLTeamSpirit 1: Team Spirit has no effect in a Master League match
+   check: value of a Master League player at 038df528  as expected
+   RESULT: installed. In Master League the Team Spirit of every player is 99: no ability is lowered in a match.
+   ```
+4. Open the game plan of your Master League club: Team Spirit should read 99.
+
+`RESULT: nothing written. ...` with a `DIFFERENT` line: the game does not hold the
+expected code at that place; send the log. To undo, remove the line from `sider.ini`.
+
+### What the test shows
+
+`python3 test_spirit.py <PES2017.exe>` (five seconds):
+
+```
+ok 1: without the module the game gives the made-up player a value below 99 in every mode (48 cases: he knows the tactics at 3, 30, 60, 90, plays a position rated A, B or C), lower out of position, and the match set-up stores it for 3 formations x 13 positions
+ok 2: the module writes the five bytes of the one place and nothing else
+ok 3: with the module the same code gives 99 in Master League (mode numbers 19 and 40), whatever the player knows and wherever he plays, and the match reads 99 for all 3 formations x 13 positions; in League mode and mode kind 21 the values are as without the module
+ok 4: with one byte of the place changed (5 cases) or the change in already nothing is written and the place is named; a write that does not go in is reported
+ok 5: with MLMoney.lua and MLTransfers.lua in the same game, above or below them, all three are installed and the value is 99
+```
+
+Two wrong jumps were planted in the module and the test together: one byte too far is
+noticed by `ok 3`; two bytes short lands on a jump that is never taken there and is the
+same in effect. A wrong jump in the module alone fails `ok 2`.
+
+Not shown: the code that multiplies the abilities (`fcn_02f903a7`) and the screen were
+not run, and the career in the test has no mode data (the change jumps before the game
+asks for it). Nothing ran in the game.
 
 ## `window_transfers.py`: the transfers of the current window, the most expensive first
 
