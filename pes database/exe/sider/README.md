@@ -1087,7 +1087,7 @@ not touched.
 | `KEEP_BEST` (0 to 99, 0 to 100, 0 to 99) | `{ 4, 12, 2 }`, version 3: see "New in version 3" |
 | `KNOWN_FROM` (0 to 100) | 80, version 3 |
 | `AGE_SHIFT` (0 to 5) | 2, version 3 |
-| `KNOWN_FAME` (0 to 4096) | 600 (version 4: 700): see "New in version 4" |
+| `KNOWN_FAME` (0 to 4096) | 700 (version 5: 600): see "New in version 4" |
 | `STRICT_FREE` (0 to 100) | 35 (version 4: 50) |
 | `ARCHETYPES` | the thirteen personas above (at most 15) |
 | `PERSONA_GROUPS` | ten lists of 1 to 8 persona names, best clubs first |

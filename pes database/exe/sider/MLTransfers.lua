@@ -167,10 +167,10 @@ local KNOWN_FROM = 80
 -- A player of this popularity or more is known to every club as well: a famous name is
 -- not overlooked, whatever his rating. The game keeps a popularity for every player; in
 -- the career the module was set against the highest is 1,110, a player rated 80 to 84 has
--- about 660, and 600 or more have 942 players of 19,921 (509 of them rated under 80);
--- 700 or more, the number of version 4, have 395 (109).
+-- about 660, and 700 or more have 395 players of 19,921 (109 of them rated under 80);
+-- 600 or more, the number of version 5, have 942 (509).
 -- 0 to 4096; 4096: off, no player is known for his name (version 3). Needs SCOUTING.
-local KNOWN_FAME = 600
+local KNOWN_FAME = 700
 
 -- A player without a contract costs no fee, so a club is less strict about his age: for
 -- him `strict` of the persona (below) counts only this many percent. With 35 a club that
