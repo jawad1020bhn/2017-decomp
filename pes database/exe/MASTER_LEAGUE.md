@@ -1186,7 +1186,8 @@ it: write a different `n`, or repoint that one `push` to a byte of the module's 
 fill it. The second is the clean one — `68 66 0a 10 02` is five bytes, so it can be
 replaced on its own and the other seven readers of the byte stay untouched.
 
-**What is done about it.** `sider/MLTransfers.lua` (version 8, `INCOMING`) answers that
+**What is done about it.** `sider/MLTransfers.lua` (version 8, `INCOMING`; version 9
+gives it the rest of the rules) answers that
 look-up itself, in the place of its prologue, for that one key. Version 7 only refused a
 rival; version 8 keeps the club of the game's slot when it passes and otherwise answers the
 club whose slot is **nearest** to the game's own among those that pass all four rules: no
@@ -1204,6 +1205,15 @@ mode data, so the slot space does not have to be known: the answer is a club id,
 index. The fee is untouched (`MLMoney.lua` computes it at the transfer), and the module
 answers the game's own club when no club passes, so it neither adds nor removes an offer by
 its own choice.
+
+**Version 9** adds what version 8 left out, so that the rules are those of `ai_candidates`
+themselves (`money_cave.accepts`): scouting (`knows`, with `KNOWN_FROM` and `KNOWN_FAME`);
+the place the club buys from (`free`, `listed`, `clubs`, with `THEN_1` for a club in want of
+the position); the stretch of the ceiling above it (`CEILING_STRETCH`, `premium`, `fame`) in
+place of the hard cut; and the day of the career in every draw (the word at
+`mode data + 0xc2cbb0`, the year behind it), which is what keeps the same club from bidding
+again and again. A club the position need marked for his position is a club in want of him:
+it does not mind his age or the rating it makes of him, and it goes further for him.
 
 `sider/test_offer.py` runs the real look-up at that place on a made-up mode data (club
 table, plan records, club ranking, personas, rivals, the player's record) for 200 cases

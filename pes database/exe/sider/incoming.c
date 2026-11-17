@@ -17,14 +17,25 @@
  *   * PERSONA: the player is in the age band of its archetype (with `strict` weighing the
  *     draw), the rating it makes of him (with `fog` on it) is not below its eleven by more
  *     than `ambition`, and he is not above its eleven by more than `prestige`;
+ *   * SCOUTING: it knows him (`knows`); a listed player, one rated KNOWN_FROM or more and a
+ *     famous one (KNOWN_FAME) are known to every club;
+ *   * the place it buys from: for this position, this time, it looks among the players
+ *     without a contract, the listed players or the players of other clubs (`free`, `listed`,
+ *     `clubs`); unless the position need marked his position, it takes him only when it
+ *     looks where he is;
  *   * NEED: its plan record (mode data + 0xccb80c) has a free slot that asks for his
  *     position, or the position need of MLTransfers.lua marked that position (the byte at
  *     +0x109, with the rating its search starts above next to it). Without one of the two it
- *     does not buy for that position at all;
+ *     does not buy for that position at all; a marked position is a club in want of him: it
+ *     stretches its ceiling (`panic`) and it does not mind his age or his rating;
  *   * AFFORDABILITY: his value (the value routine of MLMoney.lua) after the discount for a
  *     player without a contract or one listed by his club does not exceed the ceiling of its
- *     level raised by its persona (wealth, and the panic of a needful club) and by the
+ *     level raised by its persona (wealth, and the panic of a club in want of him) and by the
  *     premium draw. The fee is not touched: MLMoney.lua works it out later.
+ *
+ * Every draw of these rules takes the day of the career into it (the day number at mode data
+ * + 0xc2cbb0, the year after it), so that the club that bids for a player is not the same
+ * club every day of the window. The day is the one the game itself puts into the offer.
  *
  * The club answered is the one whose slot ([club + 0x314] >> 7) is nearest to the game's
  * own among those that pass. The game's own room test (fcn_03652df0: more than 16 players)
@@ -58,10 +69,13 @@
 #define RIVAL_PAIRS 0x047d47ccu          /* 64 pairs of dwords */
 #define STRICT_FREE_AT 0x047d4fe8u
 #define AGE_SHIFT_AT 0x047d4ffcu
+#define FAME_KNOWN_AT 0x047d4fe4u        /* a player of this popularity or more is known to every club, times 1 << 20 */
+#define KNOWN_AT 0x047d4ff8u             /* a player of this rating or more is known to every club */
 /* the free memory MLMoney.lua writes (money_cave.py: CAVE) */
 #define FEE_CODE 0x047b0c90u             /* eax = rating, ebx = player record -> value in edi */
 /* the game */
 #define MODE_OBJECT_AT 0x026503e0u       /* dword: the mode object; its +0x30 is the mode data */
+#define MODE_DAY 0xc2cbb0u               /* word: the day of the year, 0 = 1 January; the year after it */
 #define CURRENT_CLUB_AT 0x0251f85cu      /* dword: the club of the player being handled */
 #define FIND_PLAYER 0x03822835u          /* (id low, id high), ecx = mode data -> the player record */
 #define RATING 0x03853b42u               /* (player record, -> position, kind) -> rating in al */
@@ -92,6 +106,7 @@
 /* the entries of a persona (money_cave.py: GENE_NAMES) */
 #define FREE 0
 #define LISTED 1
+#define CLUBS 2
 #define WINTER 3
 #define KNOWS 4
 #define FOG 5
@@ -104,6 +119,9 @@
 #define STRICT 13
 #define AGE_FROM 14
 #define AGE_TO 15
+/* the two bytes after them: where the second search looks (money_cave.py: THEN_1, THEN_2) */
+#define THEN_1 16
+#define NO_CHANNELS 0xff
 
 #define HASH_A 0x01000193u
 #define HASH_B 0x9e3779b1u
@@ -111,6 +129,8 @@
 #define HASH_AGE 0x1b873593u
 #define HASH_FOG 0xe6546b65u
 #define HASH_SHIFT 0x2545f491u
+#define HASH_KNOWS 0x165667b1u
+#define HASH_POSITION 0xc2b2ae35u
 
 /* ---- the game's own routines, entered as its code enters them ------------- */
 
@@ -247,7 +267,7 @@ static u32 plan_of(u32 mode, u32 club)
     return 0;
 }
 
-/* a free slot of its plan looks for his position, or the position need marked it */
+/* a free slot of its plan looks for his position (1), or the position need marked it (2) */
 static int in_need(u32 plan, u32 pos, u32 rating)
 {
     int i;
@@ -258,7 +278,7 @@ static int in_need(u32 plan, u32 pos, u32 rating)
         u32 kind = (w >> 14) & 0xff;                 /* 0: nothing; 1 buy, 2 loan */
         if (kind && ((w >> 7) & 0x7f) == pos && (state == 0 || state == 7)) return 1;
     }
-    return B(plan + PLAN_NEED_AT) == pos + 1 && rating > B(plan + PLAN_NEED_AT + 1);
+    return (B(plan + PLAN_NEED_AT) == pos + 1 && rating > B(plan + PLAN_NEED_AT + 1)) ? 2 : 0;
 }
 
 /* ---- the rules ---------------------------------------------------------- */
@@ -277,8 +297,8 @@ static int rival(u32 a, u32 b)
 /* would this club take him? (money_cave.offer_wants) rec: its record in the club table */
 static int wants(u32 mode, u32 rec, const struct player *p)
 {
-    u32 club = U(rec), persona, g[PERSONA_BYTES], points, level, own, both, age_shift;
-    u32 seen, price, limit, stretch, add, need;
+    u32 club = U(rec), persona, g[PERSONA_BYTES], points, level, own, both, turn, date;
+    u32 seen, price, limit, stretch, add, age_shift, need;
 
     if (rival(club, U(CURRENT_CLUB_AT))) return 0;
     rank_of(mode, club, &points, &level);
@@ -288,28 +308,51 @@ static int wants(u32 mode, u32 rec, const struct player *p)
         for (i = 0; i < PERSONA_BYTES; i++) g[i] = gene(persona, i, club);
     }
     own = eleven_of(points, level);
-    both = p->key ^ club_key(club);
+    /* the day of the career: every draw of the rules takes it, so that the club that bids
+       is not the same club on every day of the window */
+    date = (W_(mode + MODE_DAY + 2) | (W_(mode + MODE_DAY) << 16)) * HASH_A;
+    both = p->key ^ club_key(club) ^ date;
+    turn = (p->pos * HASH_POSITION) ^ club_key(club) ^ date;
+    /* need: it buys for that position at all; 2 when the position need marked it, that is,
+       when this club is in want of him: it stretches its ceiling and does not mind his age
+       or his rating, as a club with too small a squad does in the transfers of the computer
+       clubs (money_cave.accepts) */
+    need = in_need(plan_of(mode, club), p->pos, p->rating);
     /* prestige: he does not join a club far below him */
     if (p->rating > own + g[PRESTIGE]) return 0;
+    /* scouting: a club knows a part of the players; a listed player, a good one and a
+       famous one are known to all */
+    if (p->where_ != 1 && p->rating < U(KNOWN_AT) && p->pop < (U(FAME_KNOWN_AT) >> 20)
+        && (high_byte(both, HASH_KNOWS) * 100) >> 8 >= g[KNOWS]) {
+        return 0;
+    }
+    /* where it looks for a player of that position this time */
+    if (B(persona + THEN_1) != NO_CHANNELS) {
+        u32 draw = (high_byte(turn, HASH_C) * 100) >> 8;
+        if (draw < g[FREE]) { if (p->where_ != 0) return 0; }
+        else if (draw < g[FREE] + g[LISTED]) { if (p->where_ != 1) return 0; }
+        else if (draw < g[FREE] + g[LISTED] + g[CLUBS]) { if (p->where_ != 2) return 0; }
+        else if (need != 2 || B(persona + THEN_1) != p->where_) return 0;
+    }
+    if (!need) return 0;
+    /* the ages of its archetype, with `strict` weighing the draw */
+    if (need != 2) {
+        age_shift = ((high_byte(club_key(club), HASH_SHIFT) * (2 * U(AGE_SHIFT_AT) + 1)) >> 8) - U(AGE_SHIFT_AT);
+        if (!(p->age - age_shift >= B(persona + AGE_FROM) && p->age - age_shift <= B(persona + AGE_TO))) {
+            u32 strict = g[STRICT] * (p->where_ == 0 ? U(STRICT_FREE_AT) : 100);
+            u32 draw = (high_byte(both, HASH_AGE) * 100) >> 8;
+            if (draw * 100 < strict) return 0;
+        }
+    }
     /* ambition: as this club sees him */
     seen = p->rating + ((high_byte(both, HASH_FOG) * (2 * g[FOG] + 1)) >> 8) - g[FOG];
-    if (seen + g[AMBITION] < own) return 0;
-    /* the ages of its archetype, with `strict` weighing the draw */
-    age_shift = ((high_byte(club_key(club), HASH_SHIFT) * (2 * U(AGE_SHIFT_AT) + 1)) >> 8) - U(AGE_SHIFT_AT);
-    if (!(p->age - age_shift >= B(persona + AGE_FROM) && p->age - age_shift <= B(persona + AGE_TO))) {
-        u32 strict = g[STRICT] * (p->where_ == 0 ? U(STRICT_FREE_AT) : 100);
-        u32 draw = (high_byte(both, HASH_AGE) * 100) >> 8;
-        if (draw * 100 < strict) return 0;
-    }
-    /* need: it buys for that position at all */
-    need = in_need(plan_of(mode, club), p->pos, p->rating);
-    if (!need) return 0;
+    if (need != 2 && seen + g[AMBITION] < own) return 0;
     /* what it can afford */
     if (U(CEILING_TAB + 4 * level) == NO_CEILING) return 1;
     price = value_oracle(p->rec, seen);
     if (p->where_ != 2) price = muldiv(price, p->where_ == 0 ? U(FREE_AT) : U(LISTED_AT), 100);
     limit = muldiv(U(CEILING_TAB + 4 * level), g[WEALTH], 100);
-    limit = muldiv(limit, muldiv(U(NEED_AT), g[PANIC], 100) + 100, 100);
+    if (need == 2) limit = muldiv(limit, muldiv(U(NEED_AT), g[PANIC], 100) + 100, 100);
     stretch = muldiv(U(STRETCH_AT), g[PREMIUM], 100);
     add = muldiv(limit, high_byte(both, HASH_C) * stretch, 25600);
     limit = limit + add < limit ? NO_CLUB : limit + add;
