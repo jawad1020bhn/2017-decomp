@@ -11,19 +11,24 @@ import sys
 
 from keystone import Ks, KS_ARCH_X86, KS_MODE_32
 
-CAVE, SIZE = 0x047d6550, 0x900
-POLL, SELECT, TITLE, ARRIVED = CAVE, 0x047d6750, 0x047d6950, 0x047d6b50
-# .link is RX in the executable: keep mutable state in the writable .text stub,
-# rather than relying on Sider accidentally leaving a code page writable.
+# The calendar block: an unused run of 8,196 zero bytes in .trace (0x03fc7d9c-0x03fc9da0;
+# the bytes before it are the tail of a thunk, the ones after it the start of a function,
+# and no dword of the file points into it). It sat at 0x047d6550 in .link until version 4,
+# where MLTransfers.lua version 8 keeps its offers for your players (0x047d6550-0x047d6c4f):
+# the two modules refused each other, so the calendar moved here. .trace is read/write/
+# execute in the executable, so the block needs no protection change.
+CAVE, SIZE = 0x03fc8000, 0x900
+POLL, SELECT, TITLE, ARRIVED = CAVE, CAVE + 0x200, CAVE + 0x400, CAVE + 0x600
+# The state still goes in the writable .text stub, not into the code page.
 DATA, DATA_SIZE = 0x0298c0e0, 0x120
 DATE, OWNER, ERROR, LATCH, READY, KEYFUNC = DATA, DATA + 4, DATA + 5, DATA + 6, DATA + 7, DATA + 8
 LAST_DATE, LAST_ERROR = DATA + 0x0c, DATA + 0x10
 # F10 switches stop-for-news at runtime; the day-loop routine reads NEWS each day.
 NEWS, LAST_NEWS = DATA + 0x18, DATA + 0x19
 BUFFER = DATA + 0x20
-USER32, KEYNAME = 0x047d6be0, 0x047d6bf0
-FMT_OFF, FMT_ON, FMT_ERROR = 0x047d6c10, 0x047d6c60, 0x047d6cc0
-NEWS_ON, NEWS_OFF = 0x047d6d40, 0x047d6d50
+USER32, KEYNAME = CAVE + 0x690, CAVE + 0x6a0
+FMT_OFF, FMT_ON, FMT_ERROR = CAVE + 0x6c0, CAVE + 0x710, CAVE + 0x770
+NEWS_ON, NEWS_OFF = CAVE + 0x7f0, CAVE + 0x800
 POLL_SITE, TITLE_SITE = 0x03231ec5, 0x03230d54
 
 # Poll only after both Schedule controls say they are ready. The replaced call
