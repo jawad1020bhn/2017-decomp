@@ -1,0 +1,433 @@
+CPK header: Files=427 ContentOffset=0x800 TocOffset=0xd7000 Tvers='PES CPK TOOL by StpN_17, DLL3.11.05'
+TOC 'CpkTocInfoEx': 427 entries
+
+  #     ID     packed   unpacked     offset  Name
+  0      1          0          0          0  ?></@#b.txt
+  1      6        688       1081       5120  common/match/ai/audience/audienceEvent.xml
+  2      3       1248       4465       1024  common/match/ai/cpuLevel.json
+  3      7        568        826       6144  common/match/ai/cursor/cursor.json
+  4      4        476        911       3072  common/match/ai/foul.json
+  5      8        568        881       7168  common/match/ai/judge/injury.json
+  6     10       2936      18996       9216  common/match/ai/player/defence/defenceGkAI.xml
+  7     11       3968      37052      12288  common/match/ai/player/defence/defenceGkAuto.xml
+  8     12       1936      14309      16384  common/match/ai/player/defence/defenceGkAutoPk.xml
+  9     13        472        767      18432  common/match/ai/player/defence/press.json
+ 10     14        840       1395      19456  common/match/ai/player/offence/avoid.json
+ 11     15        540        939      20480  common/match/ai/player/offence/ballDodge.json
+ 12     16         41         41      21504  common/match/ai/player/offence/ballplayer.json
+ 13     17         39         39      22528  common/match/ai/player/offence/ballplayerAnalyze.json
+ 14     18       1060       1850      23552  common/match/ai/player/offence/ballplayerClear.json
+ 15     19       1256       4382      25600  common/match/ai/player/offence/ballplayerDribble.json
+ 16     20       2056      10805      27648  common/match/ai/player/offence/ballplayerFeint.json
+ 17     21       1560       4540      30720  common/match/ai/player/offence/ballplayerPass.json
+ 18     22       1292       3194      32768  common/match/ai/player/offence/ballplayerShoot.json
+ 19     23        309        309      34816  common/match/ai/player/offence/centering.json
+ 20     24        388        450      35840  common/match/ai/player/offence/foul.json
+ 21     25        124        124      36864  common/match/ai/player/offence/freekick.json
+ 22     26        229        229      37888  common/match/ai/player/offence/goalKick.json
+ 23     27        516        710      38912  common/match/ai/player/offence/longPass.json
+ 24     28       2484      12601      39936  common/match/ai/player/offence/offenceGk.xml
+ 25     29       2804      24585      43008  common/match/ai/player/offence/offenceSetPlayKeepBall.xml
+ 26     30         84         84      46080  common/match/ai/player/offence/penaltykick.json
+ 27     31        608       1148      47104  common/match/ai/player/offence/shoot.json
+ 28     32       1444       3307      48128  common/match/ai/player/offence/throughpass.json
+ 29      9        420        519       8192  common/match/ai/player/stamina.json
+ 30      5        784       1834       4096  common/match/ai/rating.json
+ 31     33       3212       7751      50176  common/match/ai/team/basePosition.json
+ 32     34       1420       6870      54272  common/match/ai/team/CoachAttackLevelChange.xml
+ 33     38       1780       3778      62464  common/match/ai/team/defence/defence.json
+ 34     39        500        560      64512  common/match/ai/team/defence/defenceCover.json
+ 35     40       2256       5668      65536  common/match/ai/team/defence/defenceMark.json
+ 36     41        720       1257      68608  common/match/ai/team/defence/defencePatternSelector.xml
+ 37     42        860       1610      69632  common/match/ai/team/offence/combination.json
+ 38     43        424        501      70656  common/match/ai/team/offence/lineBreak.json
+ 39     44        760       1390      71680  common/match/ai/team/offence/offencePatternSelector.xml
+ 40     45       1040       1473      72704  common/match/ai/team/offence/passSupport.json
+ 41     46        992       2891      74752  common/match/ai/team/offence/spaceRun.json
+ 42     35        588        726      56320  common/match/ai/team/pairAnime.json
+ 43     36        744       1245      57344  common/match/ai/team/patternSelector.xml
+ 44     47       2584      60623      75776  common/match/ai/team/positionCK/positionCK.fox
+ 45     48       1568      18472      78848  common/match/ai/team/positionCK/positionCK_4_1.fox
+ 46     49       1664      18096      80896  common/match/ai/team/positionCK/positionCK_4_2.fox
+ 47     50       1572      18469      82944  common/match/ai/team/positionCK/positionCK_4_3.fox
+ 48     51       1688      22704      84992  common/match/ai/team/positionCK/positionCK_5_1.fox
+ 49     52       1780      22250      87040  common/match/ai/team/positionCK/positionCK_5_2.fox
+ 50     53       1708      22724      89088  common/match/ai/team/positionCK/positionCK_5_3.fox
+ 51     54       1796      26979      91136  common/match/ai/team/positionCK/positionCK_6_1.fox
+ 52     55       1892      26447      93184  common/match/ai/team/positionCK/positionCK_6_2.fox
+ 53     56       1796      26978      95232  common/match/ai/team/positionCK/positionCK_6_3.fox
+ 54     57       2464      47333      97280  common/match/ai/team/positionKickOff/positionKickOff_2_0_3_5_defence.fox
+ 55     58       2464      47333     100352  common/match/ai/team/positionKickOff/positionKickOff_2_0_3_5_offence.fox
+ 56     59       2460      47333     103424  common/match/ai/team/positionKickOff/positionKickOff_2_0_4_4_defence.fox
+ 57     60       2460      47333     106496  common/match/ai/team/positionKickOff/positionKickOff_2_0_4_4_offence.fox
+ 58     61       2508      47331     109568  common/match/ai/team/positionKickOff/positionKickOff_2_0_5_3_defence.fox
+ 59     62       2508      47331     112640  common/match/ai/team/positionKickOff/positionKickOff_2_0_5_3_offence.fox
+ 60     63       2476      47334     115712  common/match/ai/team/positionKickOff/positionKickOff_2_0_6_2_defence.fox
+ 61     64       2476      47334     118784  common/match/ai/team/positionKickOff/positionKickOff_2_0_6_2_offence.fox
+ 62     65       2504      47331     121856  common/match/ai/team/positionKickOff/positionKickOff_2_1_2_5_defence.fox
+ 63     66       2500      47331     124928  common/match/ai/team/positionKickOff/positionKickOff_2_1_2_5_offence.fox
+ 64     67       2456      47331     128000  common/match/ai/team/positionKickOff/positionKickOff_2_1_3_4_defence.fox
+ 65     68       2456      47331     131072  common/match/ai/team/positionKickOff/positionKickOff_2_1_3_4_offence.fox
+ 66     69       2488      47334     134144  common/match/ai/team/positionKickOff/positionKickOff_2_1_4_3_defence.fox
+ 67     70       2484      47334     137216  common/match/ai/team/positionKickOff/positionKickOff_2_1_4_3_offence.fox
+ 68     71       2476      47334     140288  common/match/ai/team/positionKickOff/positionKickOff_2_1_5_2_defence.fox
+ 69     72       2476      47334     143360  common/match/ai/team/positionKickOff/positionKickOff_2_1_5_2_offence.fox
+ 70     73       2484      47375     146432  common/match/ai/team/positionKickOff/positionKickOff_2_2_1_5_defence.fox
+ 71     74       2484      47375     149504  common/match/ai/team/positionKickOff/positionKickOff_2_2_1_5_offence.fox
+ 72     75       2480      47378     152576  common/match/ai/team/positionKickOff/positionKickOff_2_2_2_4_defence.fox
+ 73     76       2480      47378     155648  common/match/ai/team/positionKickOff/positionKickOff_2_2_2_4_offence.fox
+ 74     77       2524      47380     158720  common/match/ai/team/positionKickOff/positionKickOff_2_2_3_3_defence.fox
+ 75     78       2520      47380     161792  common/match/ai/team/positionKickOff/positionKickOff_2_2_3_3_offence.fox
+ 76     79       2476      47378     164864  common/match/ai/team/positionKickOff/positionKickOff_2_2_4_2_defence.fox
+ 77     80       2480      47378     167936  common/match/ai/team/positionKickOff/positionKickOff_2_2_4_2_offence.fox
+ 78     81       2508      47379     171008  common/match/ai/team/positionKickOff/positionKickOff_2_3_0_5_defence.fox
+ 79     82       2504      47379     174080  common/match/ai/team/positionKickOff/positionKickOff_2_3_0_5_offence.fox
+ 80     83       2500      47377     177152  common/match/ai/team/positionKickOff/positionKickOff_2_3_1_4_defence.fox
+ 81     84       2496      47377     180224  common/match/ai/team/positionKickOff/positionKickOff_2_3_1_4_offence.fox
+ 82     85       2520      47377     183296  common/match/ai/team/positionKickOff/positionKickOff_2_3_2_3_defence.fox
+ 83     86       2520      47377     186368  common/match/ai/team/positionKickOff/positionKickOff_2_3_2_3_offence.fox
+ 84     87       2516      47379     189440  common/match/ai/team/positionKickOff/positionKickOff_2_3_3_2_defence.fox
+ 85     88       2512      47379     192512  common/match/ai/team/positionKickOff/positionKickOff_2_3_3_2_offence.fox
+ 86     89       2504      47378     195584  common/match/ai/team/positionKickOff/positionKickOff_2_4_0_4_defence.fox
+ 87     90       2500      47378     198656  common/match/ai/team/positionKickOff/positionKickOff_2_4_0_4_offence.fox
+ 88     91       2512      47376     201728  common/match/ai/team/positionKickOff/positionKickOff_2_4_1_3_defence.fox
+ 89     92       2508      47376     204800  common/match/ai/team/positionKickOff/positionKickOff_2_4_1_3_offence.fox
+ 90     93       2520      47380     207872  common/match/ai/team/positionKickOff/positionKickOff_2_4_2_2_defence.fox
+ 91     94       2516      47380     210944  common/match/ai/team/positionKickOff/positionKickOff_2_4_2_2_offence.fox
+ 92     95       2516      47377     214016  common/match/ai/team/positionKickOff/positionKickOff_2_5_0_3_defence.fox
+ 93     96       2512      47377     217088  common/match/ai/team/positionKickOff/positionKickOff_2_5_0_3_offence.fox
+ 94     97       2528      47379     220160  common/match/ai/team/positionKickOff/positionKickOff_2_5_1_2_defence.fox
+ 95     98       2528      47379     223232  common/match/ai/team/positionKickOff/positionKickOff_2_5_1_2_offence.fox
+ 96     99       2508      47380     226304  common/match/ai/team/positionKickOff/positionKickOff_2_6_0_2_defence.fox
+ 97    100       2508      47380     229376  common/match/ai/team/positionKickOff/positionKickOff_2_6_0_2_offence.fox
+ 98    101       2540      47379     232448  common/match/ai/team/positionKickOff/positionKickOff_3_1_1_5_defence.fox
+ 99    102       2544      47379     235520  common/match/ai/team/positionKickOff/positionKickOff_3_1_1_5_offence.fox
+100    103       2500      47382     238592  common/match/ai/team/positionKickOff/positionKickOff_3_1_2_4_defence.fox
+101    104       2496      47382     241664  common/match/ai/team/positionKickOff/positionKickOff_3_1_2_4_offence.fox
+102    105       2556      47383     244736  common/match/ai/team/positionKickOff/positionKickOff_3_1_3_3_defence.fox
+103    106       2556      47383     247808  common/match/ai/team/positionKickOff/positionKickOff_3_1_3_3_offence.fox
+104    107       2524      47386     250880  common/match/ai/team/positionKickOff/positionKickOff_3_1_4_2_defence.fox
+105    108       2520      47386     253952  common/match/ai/team/positionKickOff/positionKickOff_3_1_4_2_offence.fox
+106    109       2556      47386     257024  common/match/ai/team/positionKickOff/positionKickOff_3_1_5_1_defence.fox
+107    110       2552      47386     260096  common/match/ai/team/positionKickOff/positionKickOff_3_1_5_1_offence.fox
+108    111       2504      47380     263168  common/match/ai/team/positionKickOff/positionKickOff_3_2_0_5_defence.fox
+109    112       2504      47380     266240  common/match/ai/team/positionKickOff/positionKickOff_3_2_0_5_offence.fox
+110    113       2532      47381     269312  common/match/ai/team/positionKickOff/positionKickOff_3_2_1_4_defence.fox
+111    114       2528      47381     272384  common/match/ai/team/positionKickOff/positionKickOff_3_2_1_4_offence.fox
+112    115       2524      47381     275456  common/match/ai/team/positionKickOff/positionKickOff_3_2_2_3_defence.fox
+113    116       2524      47381     278528  common/match/ai/team/positionKickOff/positionKickOff_3_2_2_3_offence.fox
+114    117       2532      47382     281600  common/match/ai/team/positionKickOff/positionKickOff_3_2_3_2_defence.fox
+115    118       2532      47382     284672  common/match/ai/team/positionKickOff/positionKickOff_3_2_3_2_offence.fox
+116    119       2544      47385     287744  common/match/ai/team/positionKickOff/positionKickOff_3_2_4_1_defence.fox
+117    120       2544      47385     290816  common/match/ai/team/positionKickOff/positionKickOff_3_2_4_1_offence.fox
+118    121       2504      47381     293888  common/match/ai/team/positionKickOff/positionKickOff_3_3_0_4_defence.fox
+119    122       2500      47381     296960  common/match/ai/team/positionKickOff/positionKickOff_3_3_0_4_offence.fox
+120    123       2540      47384     300032  common/match/ai/team/positionKickOff/positionKickOff_3_3_1_3_defence.fox
+121    124       2536      47384     303104  common/match/ai/team/positionKickOff/positionKickOff_3_3_1_3_offence.fox
+122    125       2508      47383     306176  common/match/ai/team/positionKickOff/positionKickOff_3_3_2_2_defence.fox
+123    126       2508      47383     309248  common/match/ai/team/positionKickOff/positionKickOff_3_3_2_2_offence.fox
+124    127       2540      47385     312320  common/match/ai/team/positionKickOff/positionKickOff_3_3_3_1_defence.fox
+125    128       2540      47385     315392  common/match/ai/team/positionKickOff/positionKickOff_3_3_3_1_offence.fox
+126    129       2524      47382     318464  common/match/ai/team/positionKickOff/positionKickOff_3_4_0_3_defence.fox
+127    130       2520      47382     321536  common/match/ai/team/positionKickOff/positionKickOff_3_4_0_3_offence.fox
+128    131       2520      47381     324608  common/match/ai/team/positionKickOff/positionKickOff_3_4_1_2_defence.fox
+129    132       2520      47381     327680  common/match/ai/team/positionKickOff/positionKickOff_3_4_1_2_offence.fox
+130    133       2492      47379     330752  common/match/ai/team/positionKickOff/positionKickOff_3_4_1_3_defence.fox
+131    134       2492      47379     333824  common/match/ai/team/positionKickOff/positionKickOff_3_4_1_3_offence.fox
+132    135       2516      47381     336896  common/match/ai/team/positionKickOff/positionKickOff_3_4_2_1_defence.fox
+133    136       2516      47381     339968  common/match/ai/team/positionKickOff/positionKickOff_3_4_2_1_offence.fox
+134    137       2524      47382     343040  common/match/ai/team/positionKickOff/positionKickOff_3_5_0_2_defence.fox
+135    138       2520      47382     346112  common/match/ai/team/positionKickOff/positionKickOff_3_5_0_2_offence.fox
+136    139       2488      47379     349184  common/match/ai/team/positionKickOff/positionKickOff_3_5_0_3_defence.fox
+137    140       2484      47379     352256  common/match/ai/team/positionKickOff/positionKickOff_3_5_0_3_offence.fox
+138    141       2516      47383     355328  common/match/ai/team/positionKickOff/positionKickOff_3_5_1_1_defence.fox
+139    142       2516      47383     358400  common/match/ai/team/positionKickOff/positionKickOff_3_5_1_1_offence.fox
+140    143       2532      47385     361472  common/match/ai/team/positionKickOff/positionKickOff_3_6_0_1_defence.fox
+141    144       2528      47385     364544  common/match/ai/team/positionKickOff/positionKickOff_3_6_0_1_offence.fox
+142    145       2512      47380     367616  common/match/ai/team/positionKickOff/positionKickOff_4_0_2_4_defence.fox
+143    146       2512      47380     370688  common/match/ai/team/positionKickOff/positionKickOff_4_0_2_4_offence.fox
+144    147       2532      47382     373760  common/match/ai/team/positionKickOff/positionKickOff_4_0_3_3_defence.fox
+145    148       2528      47382     376832  common/match/ai/team/positionKickOff/positionKickOff_4_0_3_3_offence.fox
+146    149       2516      47382     379904  common/match/ai/team/positionKickOff/positionKickOff_4_0_4_2_defence.fox
+147    150       2516      47382     382976  common/match/ai/team/positionKickOff/positionKickOff_4_0_4_2_offence.fox
+148    151       2532      47383     386048  common/match/ai/team/positionKickOff/positionKickOff_4_0_5_1_defence.fox
+149    152       2532      47383     389120  common/match/ai/team/positionKickOff/positionKickOff_4_0_5_1_offence.fox
+150    153       2512      47381     392192  common/match/ai/team/positionKickOff/positionKickOff_4_1_1_4_defence.fox
+151    154       2512      47381     395264  common/match/ai/team/positionKickOff/positionKickOff_4_1_1_4_offence.fox
+152    155       2524      47382     398336  common/match/ai/team/positionKickOff/positionKickOff_4_1_2_3_defence.fox
+153    156       2524      47382     401408  common/match/ai/team/positionKickOff/positionKickOff_4_1_2_3_offence.fox
+154    157       2512      47383     404480  common/match/ai/team/positionKickOff/positionKickOff_4_1_3_2_defence.fox
+155    158       2508      47383     407552  common/match/ai/team/positionKickOff/positionKickOff_4_1_3_2_offence.fox
+156    159       2516      47384     410624  common/match/ai/team/positionKickOff/positionKickOff_4_1_4_1_defence.fox
+157    160       2512      47384     413696  common/match/ai/team/positionKickOff/positionKickOff_4_1_4_1_offence.fox
+158    161       2508      47380     416768  common/match/ai/team/positionKickOff/positionKickOff_4_2_0_4_defence.fox
+159    162       2508      47380     419840  common/match/ai/team/positionKickOff/positionKickOff_4_2_0_4_offence.fox
+160    163       2536      47382     422912  common/match/ai/team/positionKickOff/positionKickOff_4_2_1_3_defence.fox
+161    164       2536      47382     425984  common/match/ai/team/positionKickOff/positionKickOff_4_2_1_3_offence.fox
+162    165       2532      47297     429056  common/match/ai/team/positionKickOff/positionKickOff_4_2_2_2_defence.fox
+163    166       2524      47383     432128  common/match/ai/team/positionKickOff/positionKickOff_4_2_2_2_offence.fox
+164    167       2524      47383     435200  common/match/ai/team/positionKickOff/positionKickOff_4_2_3_1_defence.fox
+165    168       2524      47383     438272  common/match/ai/team/positionKickOff/positionKickOff_4_2_3_1_offence.fox
+166    169       2572      47339     441344  common/match/ai/team/positionKickOff/positionKickOff_4_3_0_3_defence.fox
+167    170       2540      47382     444416  common/match/ai/team/positionKickOff/positionKickOff_4_3_0_3_offence.fox
+168    171       2528      47381     447488  common/match/ai/team/positionKickOff/positionKickOff_4_3_1_2_defence.fox
+169    172       2528      47381     450560  common/match/ai/team/positionKickOff/positionKickOff_4_3_1_2_offence.fox
+170    173       2496      47341     453632  common/match/ai/team/positionKickOff/positionKickOff_4_3_2_1_defence.fox
+171    174       2520      47341     456704  common/match/ai/team/positionKickOff/positionKickOff_4_3_2_1_offence.fox
+172    175       2456      48239     459776  common/match/ai/team/positionKickOff/positionKickOff_4_3_3_defence.fox
+173    176       2456      48239     462848  common/match/ai/team/positionKickOff/positionKickOff_4_3_3_offence.fox
+174    177       2512      47380     465920  common/match/ai/team/positionKickOff/positionKickOff_4_4_0_2_defence.fox
+175    178       2512      47380     468992  common/match/ai/team/positionKickOff/positionKickOff_4_4_0_2_offence.fox
+176    179       2516      47380     472064  common/match/ai/team/positionKickOff/positionKickOff_4_4_1_1_defence.fox
+177    180       2516      47380     475136  common/match/ai/team/positionKickOff/positionKickOff_4_4_1_1_offence.fox
+178    181       2448      48238     478208  common/match/ai/team/positionKickOff/positionKickOff_4_4_2_defence.fox
+179    182       2448      48238     481280  common/match/ai/team/positionKickOff/positionKickOff_4_4_2_offence.fox
+180    183       2564      47382     484352  common/match/ai/team/positionKickOff/positionKickOff_4_5_0_1_defence.fox
+181    184       2564      47382     487424  common/match/ai/team/positionKickOff/positionKickOff_4_5_0_1_offence.fox
+182    185       2536      47381     490496  common/match/ai/team/positionKickOff/positionKickOff_5_0_2_3_defence.fox
+183    186       2536      47381     493568  common/match/ai/team/positionKickOff/positionKickOff_5_0_2_3_offence.fox
+184    187       2524      47383     496640  common/match/ai/team/positionKickOff/positionKickOff_5_0_3_2_defence.fox
+185    188       2524      47383     499712  common/match/ai/team/positionKickOff/positionKickOff_5_0_3_2_offence.fox
+186    189       2532      47384     502784  common/match/ai/team/positionKickOff/positionKickOff_5_0_4_1_defence.fox
+187    190       2532      47384     505856  common/match/ai/team/positionKickOff/positionKickOff_5_0_4_1_offence.fox
+188    191       2544      47380     508928  common/match/ai/team/positionKickOff/positionKickOff_5_1_1_3_defence.fox
+189    192       2544      47380     512000  common/match/ai/team/positionKickOff/positionKickOff_5_1_1_3_offence.fox
+190    193       2528      47383     515072  common/match/ai/team/positionKickOff/positionKickOff_5_1_2_2_defence.fox
+191    194       2528      47383     518144  common/match/ai/team/positionKickOff/positionKickOff_5_1_2_2_offence.fox
+192    195       2528      47383     521216  common/match/ai/team/positionKickOff/positionKickOff_5_1_3_1_defence.fox
+193    196       2528      47383     524288  common/match/ai/team/positionKickOff/positionKickOff_5_1_3_1_offence.fox
+194    197       2528      47380     527360  common/match/ai/team/positionKickOff/positionKickOff_5_2_0_3_defence.fox
+195    198       2528      47380     530432  common/match/ai/team/positionKickOff/positionKickOff_5_2_0_3_offence.fox
+196    199       2512      47379     533504  common/match/ai/team/positionKickOff/positionKickOff_5_2_1_2_defence.fox
+197    200       2512      47379     536576  common/match/ai/team/positionKickOff/positionKickOff_5_2_1_2_offence.fox
+198    201       2532      47382     539648  common/match/ai/team/positionKickOff/positionKickOff_5_2_2_1_defence.fox
+199    202       2532      47382     542720  common/match/ai/team/positionKickOff/positionKickOff_5_2_2_1_offence.fox
+200    203       2532      47385     545792  common/match/ai/team/positionKickOff/positionKickOff_5_3_0_2_defence.fox
+201    204       2532      47385     548864  common/match/ai/team/positionKickOff/positionKickOff_5_3_0_2_offence.fox
+202    205       2512      47382     551936  common/match/ai/team/positionKickOff/positionKickOff_5_3_1_1_defence.fox
+203    206       2512      47382     555008  common/match/ai/team/positionKickOff/positionKickOff_5_3_1_1_offence.fox
+204    207       2508      47336     558080  common/match/ai/team/positionKickOff/positionKickOff_5_4_0_1_defence.fox
+205    208       2504      47336     561152  common/match/ai/team/positionKickOff/positionKickOff_5_4_0_1_offence.fox
+206     37       3724      95038      58368  common/match/ai/team/positionPK.fox
+207    209       3852      93201     564224  common/match/ai/team/positionPK/positionPK_2.fox
+208    210       3848      93200     568320  common/match/ai/team/positionPK/positionPK_3.fox
+209    211       3848      93350     572416  common/match/ai/team/positionPK/positionPK_4.fox
+210    212       3852      93355     576512  common/match/ai/team/positionPK/positionPK_5.fox
+211    213       1808       5858     580608  common/match/ball/ball.json
+212    214       3976       3976     582656  common/match/constant/constant_match.bin
+213    215       1761       1761     586752  common/match/constant/constant_player.bin
+214    216        775        775     588800  common/match/constant/constant_positionCK.bin
+215    217       2081       2081     589824  common/match/constant/constant_positionKickOff1.bin
+216    218       2165       2165     592896  common/match/constant/constant_positionKickOff2.bin
+217    219       2119       2119     595968  common/match/constant/constant_positionKickOff3.bin
+218    220       2003       2003     599040  common/match/constant/constant_positionKickOff4.bin
+219    221       1026       1026     601088  common/match/constant/constant_positionKickOff5.bin
+220    222        645        645     603136  common/match/constant/constant_positionPK.bin
+221    223       2903       2903     604160  common/match/constant/constant_stadium.bin
+222    224       2813       2813     607232  common/match/constant/constant_stadiumReserve.bin
+223    225       1382       1382     610304  common/match/constant/constant_team.bin
+224    226      10406      10406     612352  common/match/constant/constant_tutorial.bin
+225    227         78         78     623616  common/match/GSR/GSR_match.bin
+226    228       1960      12941     624640  common/match/pad/burst.xml
+227    229       1320       5758     626688  common/match/pad/defence.xml
+228    230        832       1474     628736  common/match/pad/dribbleKind.xml
+229    231       4024      37355     629760  common/match/pad/feint.json
+230    232        832       1456     633856  common/match/pad/moveKind.xml
+231    233       1000       2541     634880  common/match/pad/moveSpeed.xml
+232    234       1568       6043     635904  common/match/pad/shoot.xml
+233    235        576        576     637952  common/match/selector/selector_match.bin
+234    236        785        785     638976  common/match/selector/selector_pad.bin
+235    237       1352       1352     640000  common/match/selector/selector_player.bin
+236    238       1627       1627     642048  common/match/selector/selector_sub.bin
+237    239        624      28632     644096  common/match/situation/positionCK.bin
+238    240        552      28632     645120  common/match/situation/positionCK_4_1.bin
+239    241        560      28632     646144  common/match/situation/positionCK_4_2.bin
+240    242        552      28632     647168  common/match/situation/positionCK_4_3.bin
+241    243        568      28632     648192  common/match/situation/positionCK_5_1.bin
+242    244        580      28632     649216  common/match/situation/positionCK_5_2.bin
+243    245        568      28632     650240  common/match/situation/positionCK_5_3.bin
+244    246        580      28632     651264  common/match/situation/positionCK_6_1.bin
+245    247        592      28632     652288  common/match/situation/positionCK_6_2.bin
+246    248        580      28632     653312  common/match/situation/positionCK_6_3.bin
+247    249        648      28632     654336  common/match/situation/positionKickOff_2_0_3_5_defence.bin
+248    250        628      28632     655360  common/match/situation/positionKickOff_2_0_3_5_offence.bin
+249    251        648      28632     656384  common/match/situation/positionKickOff_2_0_4_4_defence.bin
+250    252        632      28632     657408  common/match/situation/positionKickOff_2_0_4_4_offence.bin
+251    253        656      28632     658432  common/match/situation/positionKickOff_2_0_5_3_defence.bin
+252    254        636      28632     659456  common/match/situation/positionKickOff_2_0_5_3_offence.bin
+253    255        648      28632     660480  common/match/situation/positionKickOff_2_0_6_2_defence.bin
+254    256        628      28632     661504  common/match/situation/positionKickOff_2_0_6_2_offence.bin
+255    257        648      28632     662528  common/match/situation/positionKickOff_2_1_2_5_defence.bin
+256    258        628      28632     663552  common/match/situation/positionKickOff_2_1_2_5_offence.bin
+257    259        644      28632     664576  common/match/situation/positionKickOff_2_1_3_4_defence.bin
+258    260        628      28632     665600  common/match/situation/positionKickOff_2_1_3_4_offence.bin
+259    261        648      28632     666624  common/match/situation/positionKickOff_2_1_4_3_defence.bin
+260    262        632      28632     667648  common/match/situation/positionKickOff_2_1_4_3_offence.bin
+261    263        648      28632     668672  common/match/situation/positionKickOff_2_1_5_2_defence.bin
+262    264        628      28632     669696  common/match/situation/positionKickOff_2_1_5_2_offence.bin
+263    265        644      28632     670720  common/match/situation/positionKickOff_2_2_1_5_defence.bin
+264    266        628      28632     671744  common/match/situation/positionKickOff_2_2_1_5_offence.bin
+265    267        648      28632     672768  common/match/situation/positionKickOff_2_2_2_4_defence.bin
+266    268        628      28632     673792  common/match/situation/positionKickOff_2_2_2_4_offence.bin
+267    269        656      28632     674816  common/match/situation/positionKickOff_2_2_3_3_defence.bin
+268    270        636      28632     675840  common/match/situation/positionKickOff_2_2_3_3_offence.bin
+269    271        644      28632     676864  common/match/situation/positionKickOff_2_2_4_2_defence.bin
+270    272        628      28632     677888  common/match/situation/positionKickOff_2_2_4_2_offence.bin
+271    273        652      28632     678912  common/match/situation/positionKickOff_2_3_0_5_defence.bin
+272    274        632      28632     679936  common/match/situation/positionKickOff_2_3_0_5_offence.bin
+273    275        652      28632     680960  common/match/situation/positionKickOff_2_3_1_4_defence.bin
+274    276        632      28632     681984  common/match/situation/positionKickOff_2_3_1_4_offence.bin
+275    277        656      28632     683008  common/match/situation/positionKickOff_2_3_2_3_defence.bin
+276    278        640      28632     684032  common/match/situation/positionKickOff_2_3_2_3_offence.bin
+277    279        660      28632     685056  common/match/situation/positionKickOff_2_3_3_2_defence.bin
+278    280        640      28632     686080  common/match/situation/positionKickOff_2_3_3_2_offence.bin
+279    281        652      28632     687104  common/match/situation/positionKickOff_2_4_0_4_defence.bin
+280    282        636      28632     688128  common/match/situation/positionKickOff_2_4_0_4_offence.bin
+281    283        652      28632     689152  common/match/situation/positionKickOff_2_4_1_3_defence.bin
+282    284        636      28632     690176  common/match/situation/positionKickOff_2_4_1_3_offence.bin
+283    285        656      28632     691200  common/match/situation/positionKickOff_2_4_2_2_defence.bin
+284    286        636      28632     692224  common/match/situation/positionKickOff_2_4_2_2_offence.bin
+285    287        660      28632     693248  common/match/situation/positionKickOff_2_5_0_3_defence.bin
+286    288        640      28632     694272  common/match/situation/positionKickOff_2_5_0_3_offence.bin
+287    289        660      28632     695296  common/match/situation/positionKickOff_2_5_1_2_defence.bin
+288    290        640      28632     696320  common/match/situation/positionKickOff_2_5_1_2_offence.bin
+289    291        656      28632     697344  common/match/situation/positionKickOff_2_6_0_2_defence.bin
+290    292        636      28632     698368  common/match/situation/positionKickOff_2_6_0_2_offence.bin
+291    293        664      28632     699392  common/match/situation/positionKickOff_3_1_1_5_defence.bin
+292    294        644      28632     700416  common/match/situation/positionKickOff_3_1_1_5_offence.bin
+293    295        656      28632     701440  common/match/situation/positionKickOff_3_1_2_4_defence.bin
+294    296        636      28632     702464  common/match/situation/positionKickOff_3_1_2_4_offence.bin
+295    297        664      28632     703488  common/match/situation/positionKickOff_3_1_3_3_defence.bin
+296    298        644      28632     704512  common/match/situation/positionKickOff_3_1_3_3_offence.bin
+297    299        656      28632     705536  common/match/situation/positionKickOff_3_1_4_2_defence.bin
+298    300        640      28632     706560  common/match/situation/positionKickOff_3_1_4_2_offence.bin
+299    301        660      28632     707584  common/match/situation/positionKickOff_3_1_5_1_defence.bin
+300    302        640      28632     708608  common/match/situation/positionKickOff_3_1_5_1_offence.bin
+301    303        660      28632     709632  common/match/situation/positionKickOff_3_2_0_5_defence.bin
+302    304        640      28632     710656  common/match/situation/positionKickOff_3_2_0_5_offence.bin
+303    305        660      28632     711680  common/match/situation/positionKickOff_3_2_1_4_defence.bin
+304    306        644      28632     712704  common/match/situation/positionKickOff_3_2_1_4_offence.bin
+305    307        656      28632     713728  common/match/situation/positionKickOff_3_2_2_3_defence.bin
+306    308        640      28632     714752  common/match/situation/positionKickOff_3_2_2_3_offence.bin
+307    309        660      28632     715776  common/match/situation/positionKickOff_3_2_3_2_defence.bin
+308    310        644      28632     716800  common/match/situation/positionKickOff_3_2_3_2_offence.bin
+309    311        660      28632     717824  common/match/situation/positionKickOff_3_2_4_1_defence.bin
+310    312        644      28632     718848  common/match/situation/positionKickOff_3_2_4_1_offence.bin
+311    313        656      28632     719872  common/match/situation/positionKickOff_3_3_0_4_defence.bin
+312    314        640      28632     720896  common/match/situation/positionKickOff_3_3_0_4_offence.bin
+313    315        660      28632     721920  common/match/situation/positionKickOff_3_3_1_3_defence.bin
+314    316        644      28632     722944  common/match/situation/positionKickOff_3_3_1_3_offence.bin
+315    317        652      28632     723968  common/match/situation/positionKickOff_3_3_2_2_defence.bin
+316    318        636      28632     724992  common/match/situation/positionKickOff_3_3_2_2_offence.bin
+317    319        656      28632     726016  common/match/situation/positionKickOff_3_3_3_1_defence.bin
+318    320        636      28632     727040  common/match/situation/positionKickOff_3_3_3_1_offence.bin
+319    321        664      28632     728064  common/match/situation/positionKickOff_3_4_0_3_defence.bin
+320    322        644      28632     729088  common/match/situation/positionKickOff_3_4_0_3_offence.bin
+321    323        660      28632     730112  common/match/situation/positionKickOff_3_4_1_2_defence.bin
+322    324        644      28632     731136  common/match/situation/positionKickOff_3_4_1_2_offence.bin
+323    325        608      28632     732160  common/match/situation/positionKickOff_3_4_1_3_defence.bin
+324    326        596      28632     733184  common/match/situation/positionKickOff_3_4_1_3_offence.bin
+325    327        660      28632     734208  common/match/situation/positionKickOff_3_4_2_1_defence.bin
+326    328        644      28632     735232  common/match/situation/positionKickOff_3_4_2_1_offence.bin
+327    329        660      28632     736256  common/match/situation/positionKickOff_3_5_0_2_defence.bin
+328    330        640      28632     737280  common/match/situation/positionKickOff_3_5_0_2_offence.bin
+329    331        648      28632     738304  common/match/situation/positionKickOff_3_5_0_3_defence.bin
+330    332        628      28632     739328  common/match/situation/positionKickOff_3_5_0_3_offence.bin
+331    333        656      28632     740352  common/match/situation/positionKickOff_3_5_1_1_defence.bin
+332    334        640      28632     741376  common/match/situation/positionKickOff_3_5_1_1_offence.bin
+333    335        664      28632     742400  common/match/situation/positionKickOff_3_6_0_1_defence.bin
+334    336        644      28632     743424  common/match/situation/positionKickOff_3_6_0_1_offence.bin
+335    337        652      28632     744448  common/match/situation/positionKickOff_4_0_2_4_defence.bin
+336    338        636      28632     745472  common/match/situation/positionKickOff_4_0_2_4_offence.bin
+337    339        660      28632     746496  common/match/situation/positionKickOff_4_0_3_3_defence.bin
+338    340        640      28632     747520  common/match/situation/positionKickOff_4_0_3_3_offence.bin
+339    341        652      28632     748544  common/match/situation/positionKickOff_4_0_4_2_defence.bin
+340    342        636      28632     749568  common/match/situation/positionKickOff_4_0_4_2_offence.bin
+341    343        656      28632     750592  common/match/situation/positionKickOff_4_0_5_1_defence.bin
+342    344        636      28632     751616  common/match/situation/positionKickOff_4_0_5_1_offence.bin
+343    345        656      28632     752640  common/match/situation/positionKickOff_4_1_1_4_defence.bin
+344    346        636      28632     753664  common/match/situation/positionKickOff_4_1_1_4_offence.bin
+345    347        660      28632     754688  common/match/situation/positionKickOff_4_1_2_3_defence.bin
+346    348        640      28632     755712  common/match/situation/positionKickOff_4_1_2_3_offence.bin
+347    349        652      28632     756736  common/match/situation/positionKickOff_4_1_3_2_defence.bin
+348    350        636      28632     757760  common/match/situation/positionKickOff_4_1_3_2_offence.bin
+349    351        656      28632     758784  common/match/situation/positionKickOff_4_1_4_1_defence.bin
+350    352        636      28632     759808  common/match/situation/positionKickOff_4_1_4_1_offence.bin
+351    353        652      28632     760832  common/match/situation/positionKickOff_4_2_0_4_defence.bin
+352    354        636      28632     761856  common/match/situation/positionKickOff_4_2_0_4_offence.bin
+353    355        656      28632     762880  common/match/situation/positionKickOff_4_2_1_3_defence.bin
+354    356        636      28632     763904  common/match/situation/positionKickOff_4_2_1_3_offence.bin
+355    357        664      28632     764928  common/match/situation/positionKickOff_4_2_2_2_defence.bin
+356    358        636      28632     765952  common/match/situation/positionKickOff_4_2_2_2_offence.bin
+357    359        652      28632     766976  common/match/situation/positionKickOff_4_2_3_1_defence.bin
+358    360        636      28632     768000  common/match/situation/positionKickOff_4_2_3_1_offence.bin
+359    361        664      28632     769024  common/match/situation/positionKickOff_4_3_0_3_defence.bin
+360    362        644      28632     770048  common/match/situation/positionKickOff_4_3_0_3_offence.bin
+361    363        660      28632     771072  common/match/situation/positionKickOff_4_3_1_2_defence.bin
+362    364        640      28632     772096  common/match/situation/positionKickOff_4_3_1_2_offence.bin
+363    365        660      28632     773120  common/match/situation/positionKickOff_4_3_2_1_defence.bin
+364    366        644      28632     774144  common/match/situation/positionKickOff_4_3_2_1_offence.bin
+365    367        652      28632     775168  common/match/situation/positionKickOff_4_3_3_defence.bin
+366    368        632      28632     776192  common/match/situation/positionKickOff_4_3_3_offence.bin
+367    369        652      28632     777216  common/match/situation/positionKickOff_4_4_0_2_defence.bin
+368    370        632      28632     778240  common/match/situation/positionKickOff_4_4_0_2_offence.bin
+369    371        652      28632     779264  common/match/situation/positionKickOff_4_4_1_1_defence.bin
+370    372        636      28632     780288  common/match/situation/positionKickOff_4_4_1_1_offence.bin
+371    373        648      28632     781312  common/match/situation/positionKickOff_4_4_2_defence.bin
+372    374        628      28632     782336  common/match/situation/positionKickOff_4_4_2_offence.bin
+373    375        660      28632     783360  common/match/situation/positionKickOff_4_5_0_1_defence.bin
+374    376        640      28632     784384  common/match/situation/positionKickOff_4_5_0_1_offence.bin
+375    377        656      28632     785408  common/match/situation/positionKickOff_5_0_2_3_defence.bin
+376    378        636      28632     786432  common/match/situation/positionKickOff_5_0_2_3_offence.bin
+377    379        652      28632     787456  common/match/situation/positionKickOff_5_0_3_2_defence.bin
+378    380        632      28632     788480  common/match/situation/positionKickOff_5_0_3_2_offence.bin
+379    381        656      28632     789504  common/match/situation/positionKickOff_5_0_4_1_defence.bin
+380    382        636      28632     790528  common/match/situation/positionKickOff_5_0_4_1_offence.bin
+381    383        656      28632     791552  common/match/situation/positionKickOff_5_1_1_3_defence.bin
+382    384        636      28632     792576  common/match/situation/positionKickOff_5_1_1_3_offence.bin
+383    385        656      28632     793600  common/match/situation/positionKickOff_5_1_2_2_defence.bin
+384    386        640      28632     794624  common/match/situation/positionKickOff_5_1_2_2_offence.bin
+385    387        660      28632     795648  common/match/situation/positionKickOff_5_1_3_1_defence.bin
+386    388        640      28632     796672  common/match/situation/positionKickOff_5_1_3_1_offence.bin
+387    389        656      28632     797696  common/match/situation/positionKickOff_5_2_0_3_defence.bin
+388    390        636      28632     798720  common/match/situation/positionKickOff_5_2_0_3_offence.bin
+389    391        656      28632     799744  common/match/situation/positionKickOff_5_2_1_2_defence.bin
+390    392        636      28632     800768  common/match/situation/positionKickOff_5_2_1_2_offence.bin
+391    393        656      28632     801792  common/match/situation/positionKickOff_5_2_2_1_defence.bin
+392    394        636      28632     802816  common/match/situation/positionKickOff_5_2_2_1_offence.bin
+393    395        652      28632     803840  common/match/situation/positionKickOff_5_3_0_2_defence.bin
+394    396        636      28632     804864  common/match/situation/positionKickOff_5_3_0_2_offence.bin
+395    397        648      28632     805888  common/match/situation/positionKickOff_5_3_1_1_defence.bin
+396    398        628      28632     806912  common/match/situation/positionKickOff_5_3_1_1_offence.bin
+397    399        652      28632     807936  common/match/situation/positionKickOff_5_4_0_1_defence.bin
+398    400        632      28632     808960  common/match/situation/positionKickOff_5_4_0_1_offence.bin
+399    401        780      28632     809984  common/match/situation/positionPK_2.bin
+400    402        780      28632     811008  common/match/situation/positionPK_3.bin
+401    403        760      28632     812032  common/match/situation/positionPK_4.bin
+402    404        764      28632     813056  common/match/situation/positionPK_5.bin
+403    405       1268       1268     814080  common/match/team_action/team_id_00070.bin
+404    406       1348       1348     816128  common/match/team_action/team_id_01000.bin
+405    407       2380       2380     818176  common/match/team_action/team_id_01010.bin
+406    408       3392       3392     821248  common/match/team_action/team_id_01011.bin
+407    409       3020       3020     825344  common/match/team_action/team_id_01080.bin
+408    410       1328       1328     828416  common/match/team_action/team_id_01090.bin
+409    411       1548       1548     830464  common/match/team_action/team_id_01140.bin
+410    412       2472       2472     832512  common/match/team_action/team_id_01200.bin
+411    413       1348       1348     835584  common/match/team_action/team_id_01210.bin
+412    414       1932       1932     837632  common/match/team_action/team_id_01211.bin
+413    415       2948       2948     839680  common/match/team_action/team_id_01270.bin
+414    416       3548       3548     842752  common/match/team_action/team_id_01720.bin
+415    417       1424       1424     846848  common/match/team_action/team_id_01730.bin
+416    418       3244       3244     848896  common/match/team_action/team_id_01770.bin
+417    419       2896       2896     852992  common/match/team_action/team_id_02580.bin
+418    420       2636       2636     856064  common/match/team_action/team_id_02600.bin
+419    421       1804       1804     859136  common/match/team_action/team_id_12470.bin
+420    422       1660       1660     861184  common/match/team_action/team_id_12471.bin
+421    423       4032       4032     863232  common/match/team_action/team_id_12490.bin
+422    424       3012       3012     867328  common/match/team_action/team_id_12491.bin
+423    425       2064       2064     870400  common/match/team_action/team_id_12540.bin
+424    426       2704       2704     873472  common/match/team_action/team_id_12541.bin
+425    427       1676       5955     876544  mob/control/mob_anime_control.txt
+426      2         55         55          0  Youtube..URL
+
+extracted to pes database/Realistic Gameplay Update_extracted

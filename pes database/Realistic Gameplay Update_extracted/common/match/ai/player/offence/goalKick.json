@@ -1,0 +1,13 @@
+/// @class auto
+{
+	"distMinBase" : 18.0,
+	"distMinDelta" : 35.0,
+	"distMaxBase" : 30.0,
+	"distMaxDelta" : 35.0,
+	
+	"angleBase" : 180.0,
+	"angleDelta" : 250.0,
+
+	"distManualBase" : 125.0,
+	"distManualDelta" : 200.0
+}

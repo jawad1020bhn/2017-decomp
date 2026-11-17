@@ -1,0 +1,26 @@
+/// @class auto
+{
+	// �e�X�g�I�ɔz��f�[�^�Ƃ��Ĉ����Ă݂�B���т�ChangeKind����NONE�𖳎���������
+	"dist" : [
+		{ "value" : 2.0 }, // �G���{�[����ێ����Ă��鎞
+		{ "value" : 6.0 }, // �������{�[����ێ����Ă��鎞
+		{ "value" : 6.0 }, // �Z�b�g�v���C
+		{ "value" : 8.0 }  // �X�e�B�b�N���͎�
+	],
+	
+	"disp" : [
+		{ "value" : false  }, // HOME��
+		{ "value" : false  }  // AWAY��
+	],	
+
+	// usr05091���l�I�ɒǉ�����������L���ɂ��邩�ǂ���
+	"customEnable" : true,
+	
+	"stickGage" : 0.0,
+	
+	"keepEnemyAdjustSide" : 8.0,
+	
+	"keepFriendAdjustSide" : 18.0,
+	
+	"keepEnemyAuto" : 5.0
+}

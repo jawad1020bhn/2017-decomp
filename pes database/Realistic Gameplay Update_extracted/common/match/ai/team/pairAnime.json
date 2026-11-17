@@ -1,0 +1,35 @@
+/// @class auto
+// Configuration options
+{
+	// ���������邩�ǂ����̏���
+	"stopEnable" : true,
+	"moveEnable" : true,
+	"highballEnable" : true,
+
+
+	// ��~���̌����܂ł̎���
+	"stopDecideFrame" : 63,
+
+	// �ړ����̌����܂ł̎���
+	"moveDecideFrame" : 83,
+
+
+
+	// �j���[�g������Ԏ��͔���p�������邩�ǂ���
+	"neutralContinue" : true,
+	
+	// �p�����[�^�̍ő卷
+	"paramDiffMax" : 20.0,
+	
+	// �p�����[�^�ɂ�鋣�荇�����s�����̒�����
+	"adjustRateHighFromParam" : 0.125,
+	
+	// �p�����[�^�ɂ�鋣�荇�����s�����̒�����
+	"adjustRateFromParam" : 0.25,
+	
+	// �ʒu�֌W�ɂ�鋣�荇�����s�����̒�����
+	"adjustRateFromPosition" : 0.2,
+	
+	// 1�x�ڂ̓�����ŏ��s�����肷��ׂɕK�v�ȍ�
+	"firstContactMargin" : 30
+}

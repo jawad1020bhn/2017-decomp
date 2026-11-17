@@ -1,0 +1,7 @@
+*.bin
+*.cpk
+*.png
+*.txt
+*.py[cod]
+*.log
+output/*
