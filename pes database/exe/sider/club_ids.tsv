@@ -13,8 +13,8 @@ id	place	points	level	persona	named	eleven	club
 0x0019c00b	7	1422	9	Moneyball	yes	85	Liverpool FC
 0x002b002a	8	1406	9	Old-money	yes	84	Club Atlético de Madrid
 0x001dc01c	9	1405	9	Old-money	yes	84	Internazionale Milano
-0x0019000d	10	1387	9	Galactico	yes	83	Manchester United
-0x00198006	11	1378	8	Youth elite	yes	83	Chelsea FC
+0x0019000d	10	1387	9	Crisis	yes	83	Manchester United
+0x00198006	11	1378	8	New-money	yes	83	Chelsea FC
 0x002cc011	12	1374	8	Moneyball	yes	83	Tottenham Hotspur FC
 0x0051c021	13	1372	8	Old-money	yes	83	SSC Napoli
 0x001f8075	14	1372	8	Elite trader	yes	83	Borussia Dortmund
@@ -23,7 +23,7 @@ id	place	points	level	persona	named	eleven	club
 0x001e4020	17	1354	8	Moneyball	yes	82	AC Milan
 0x001ac001	18	1346	8	New-money	yes	81	Aston Villa FC
 0x00408029	19	1345	8	Academy purist	yes	81	Athletic Club de Bilbao
-0x0020817f	20	1343	8	Old-money	yes	81	Galatasaray SK
+0x0020817f	20	1343	8	Retirement team	yes	81	Galatasaray SK
 0x001a800e	21	1343	7	New-money	yes	81	Newcastle United FC
 0x0031417e	22	1341	7	Old-money	yes	81	Fenerbahçe SK
 0x0061400f	23	1338	7	New-money	yes	81	Nottingham Forest FC
@@ -44,7 +44,7 @@ id	place	points	level	persona	named	eleven	club
 0x041ec017	38	1316	7	New-money	yes	80	Como 1907
 0x00310038	39	1314	7	Academy purist	yes	79	Real Sociedad de Fútbol
 0x001a000a	40	1312	7	Mid-table	yes	79	Leeds United FC
-0x017441c3	41	1308	7	New-money	yes	79	Al Hilal SFC
+0x017441c3	41	1308	7	Retirement team	yes	79	Al Hilal SFC
 0x001d004e	42	1308	7	Selling farm	yes	79	Ajax
 0x001c0046	43	1307	7	Elite trader	yes	79	AS Monaco
 0x001d805a	44	1307	7	Elite trader	yes	79	PSV
@@ -84,7 +84,7 @@ id	place	points	level	persona	named	eleven	club
 0x003400f3	78	1255	6	Elite trader	yes	76	Wolverhampton Wanderers FC
 0x00364048	79	1255	6	Mid-table	yes	76	OGC Nice
 0x041cc049	80	1254	6	New-money	yes	76	Paris FC
-0x0138408d	81	1253	5	Old-money	yes	76	Fluminense FC
+0x0138408d	81	1253	5	Retirement team	yes	76	Fluminense FC
 0x0139c095	82	1253	5	Crisis	yes	76	São Paulo F.C.
 0x01398094	83	1252	5	Selling farm	yes	76	Santos FC
 0x0044808b	84	1251	5	New-money	yes	76	Cruzeiro EC
@@ -115,7 +115,7 @@ id	place	points	level	persona	named	eleven	club
 0x0511418f	109	1234	5	Elite trader	yes	75	SK Slavia Praha
 0x003a0083	110	1233	5	Elite trader	yes	75	VfL Wolfsburg
 0x00434148	111	1233	5	Elite trader	yes	75	Club Brugge KV
-0x00220096	112	1232	5	Mid-table		75	CR Vasco da Gama
+0x00220096	112	1232	5	Retirement team	yes	75	CR Vasco da Gama
 0x0137c089	113	1230	5	Crisis	yes	75	SC Corinthians Paulista
 0x015181cf	114	1229	5	Retirement team	yes	75	Al Ittihad Club
 0x0033c0fe	115	1226	5	Elite trader	yes	75	Southampton FC
@@ -155,7 +155,7 @@ id	place	points	level	persona	named	eleven	club
 0x05190151	149	1194	4	Moneyball	yes	73	R. Union Saint-Gilloise
 0x012ac14a	150	1194	4	Selling farm	yes	73	KRC Genk
 0x0521418a	151	1194	4	Moneyball	yes	73	FK Bodø/Glimt
-0x059b40ce	152	1193	4	New-money	yes	73	Los Angeles FC
+0x059b40ce	152	1193	4	Retirement team	yes	73	Los Angeles FC
 0x01f2c183	153	1192	4	Academy purist		73	RAMS Başakşehir FK
 0x013700b5	154	1192	4	Selling farm	yes	73	CA Vélez Sarsfield
 0x041880fc	155	1192	4	Crisis		73	Sheffield United FC
@@ -182,14 +182,14 @@ id	place	points	level	persona	named	eleven	club
 0x01e2c08a	176	1182	3	Mid-table		72	Coritiba FBC
 0x0410c0d8	177	1181	3	Academy purist		72	Seattle Sounders FC
 0x059a40c9	178	1181	3	Moneyball		72	FC Cincinnati
-0x040ec0cd	179	1181	3	New-money	yes	72	Los Angeles Galaxy
+0x040ec0cd	179	1181	3	Retirement team	yes	72	Los Angeles Galaxy
 0x008ac18d	180	1180	3	Mid-table		72	Pafos FC
 0x05a1c090	181	1180	3	Mid-table		72	Mirassol FC
 0x041180d9	182	1180	3	Survival churner		72	Vancouver Whitecaps FC
 0x00360123	183	1180	3	Crisis	yes	72	FC Nantes
 0x013a81a7	184	1180	3	Academy purist		72	Millonarios FC
 0x041f0018	185	1179	3	Survival churner	yes	72	US Cremonese
-0x040d00c8	186	1179	3	Mid-table		72	Chicago Fire FC
+0x040d00c8	186	1179	3	Retirement team	yes	72	Chicago Fire FC
 0x015a81f2	187	1179	3	Survival churner		72	Pleasure Horn
 0x05150187	188	1179	3	Mid-table		72	Konyaspor
 0x0422801b	189	1178	3	Selling farm		72	Frosinone Calcio
@@ -212,7 +212,7 @@ id	place	points	level	persona	named	eleven	club
 0x01e080a6	206	1168	3	Mid-table		72	CA Huracán
 0x0204c154	207	1168	3	Mid-table		72	Aarhus GF
 0x018c8193	208	1168	3	Selling farm	yes	72	FC Salzburg
-0x041141b3	209	1167	3	Mid-table		72	Toronto FC
+0x041141b3	209	1167	3	Retirement team	yes	72	Toronto FC
 0x003ec05e	210	1166	3	Survival churner		72	FC Utrecht
 0x040e81ad	211	1166	3	Selling farm		72	Houston Dynamo FC
 0x055380ac	212	1165	3	Survival churner		72	CA Platense
