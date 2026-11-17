@@ -11,8 +11,10 @@
                                       replay six seasons of the model on every
                                       player of the save and print the OVR bands
 
-MLGrowth.lua (version 1) gives Master League players an age curve (PES 2017,
-sha256 44b0caaa...).  The vanilla game:
+MLGrowth.lua (version 3) gives Master League players an age curve (PES 2017,
+sha256 44b0caaa...).  Version 3 keeps the curve adaptive but moderates its baseline
+pace, so a talented, regularly used teenager still develops faster than an established
+player without making every young player advance at the previous rate.  The vanilla game:
 
   1. keeps growth records (exp/carry int16[98] at +0x16/+0xda, match counters
      at +0x1a0/+0x1a4, pending events at +0x19e) for about fifty players only
@@ -66,7 +68,10 @@ The module adds four patches and changes no game byte anywhere else:
 
 The arithmetic (Python below, machine code above):
 
-  mult(age)     15-17: 3.0   18-21: 2.5   22-24: 1.5   25-27: 1.0
+  base mult     15-17: 3.0   18-21: 2.5   22-24: 1.5   25-27: 1.0
+                28-29: 0.5   30+:   0.25
+  pace          0.80, rounded to the quarter steps the cave stores:
+                15-17: 2.5   18-21: 2.0   22-24: 1.25  25-27: 0.75
                 28-29: 0.5   30+:   0.25
   scale         min(1, (99 - rating [+4 if rating >= 75 and age <= 21]) /
                 margin(age)),   margin: 15: 25  18: 19  21: 12  24: 5  27+: 1
@@ -131,11 +136,15 @@ POSTBL = [SEL[POSITION_FIELD[p]] for p in
            'CB', 'LB', 'RB', 'GK')] + [SEL['drib']] * 3
 
 # ---------------- settings (MLGrowth.lua holds the same) ----------------
+# The shape of the curve stays deliberately youth-first.  RATE_SCALE is applied before
+# it is packed into quarter steps: it trims the fast 15-27 bands but leaves the already
+# small 28+ bands intact after rounding.  The rating headroom and playtime rules below
+# still decide *who* gets that rate, so this is not a flat level cap.
 AGE_MULT = ((15, 3.0), (18, 2.5), (22, 1.5), (25, 1.0), (28, 0.5), (30, 0.25))
+RATE_SCALE = 0.80
 MARGIN = ((15, 25), (18, 19), (21, 12), (24, 5), (27, 1))     # age 53+: 0
 DECLINE_START, DECLINE_TECH = 31, 0.25
 PLAYTIME_WEIGHT, PLAYTIME_FULL = 0.5, 20
-RATE_SCALE = 1.0
 
 # ---------------- the same arithmetic in Python ----------------
 def _banded(bands, age):
@@ -146,8 +155,8 @@ def _banded(bands, age):
 
 
 def mult(age):
-    """The age curve multiplier (a float)."""
-    return _banded(AGE_MULT, age)
+    """The effective age-curve multiplier stored by the cave, in quarter steps."""
+    return round(_banded(AGE_MULT, age) * RATE_SCALE * 4) / 4
 
 
 def margin(age):
@@ -191,7 +200,7 @@ def season_levels(age, value):
     m = margin(age)
     if m == 0:
         return 0
-    q = round(mult(age) * RATE_SCALE * 4)          # the quarter multiplier of the table
+    q = round(mult(age) * 4)                       # the quarter multiplier of the table
     head = 99 - value
     if head >= m:
         return q >> 2
@@ -206,7 +215,7 @@ def tables():
     range check: below the margin is 0, above it is 0 as well."""
     multq = []
     for age in range(15, 54):
-        multq.append(round(mult(age) * RATE_SCALE * 4))
+        multq.append(round(mult(age) * 4))
     marg = [margin(age) for age in range(15, 54)]
     phys_sel = {SEL[p] for p in PHYSICAL}
     phys = [1 if f in phys_sel else 0 for f in range(0x27)]
@@ -584,14 +593,12 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
     ),
     "data": (
         0x298c200,
-        "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a0a060606040404020201",
-        "0101010101010101010101010101010101010101010101010101010101010101",
-        "0101010101010101000000000000000000000000000000001919191313130c0c",
-        "0c05050501010101010101010101010101010101010101010101010101010000",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "0000000000000000000000000000000101010001010100000000000000000000",
-        "000000000000000013131111110f1111110f0f0f101111110000803e0000a041",
-        "0000003f0000003f0000803e",
+        "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a080808080505050303030202010101010101010101",
+        "01010101010101010101010101010101010101010101010101010101010101010000000000000000",
+        "00000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101",
+        "01010101010100000000000000000000000000000000000000000000000000000000000000000000",
+        "00000000000000000000000000000001010100010101000000000000000000000000000000000000",
+        "13131111110f1111110f0f0f101111110000803e0000a0410000003f0000003f0000803e",
     ),
     "B2": (
         0x47d6e8a,
