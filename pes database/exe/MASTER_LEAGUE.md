@@ -140,6 +140,7 @@ Fields seen in use (offsets inside the record; "?" = meaning not established):
 | team | `+0x4a` | name |
 | team | `+0xf8` | squad: 8 bytes (id pair) per player |
 | team | `+0x328` bits 9-15 | number of players in the squad |
+| team | `+0x514`, `+0x518`, `+0x51c` | **the three rivals** of the club (`fcn_035f5c69(record, n, &out)`: `n` 0 to 2, `n` 3 and more give `+0x514`; `fcn_03857dfb` asks it for two clubs and compares the ids shifted right 14). `0xffffffff` is "none": in the two saves of `ML saves/` every club record holds three of them |
 | competition | `+0x21c` bits 30-31 | number of legs; more fields in section 5.1 |
 
 Player fields used by the money and negotiation code (`player_value`): field `0x2b` =
@@ -502,7 +503,55 @@ or **located** as marked. `tools/fixtures.py` holds the rule.
 |---|---|---|---|
 | competition | `+0x552e80`, count at `+0x5fece8` | `0x224` bytes, up to 300 | `+0x00` id; `+0x5c` kind (1 league, 3 and 4 other creators, 2 and 5 nothing to create); `+0x60` list of its match days (up to 58 numbers); `+0x148` team list, 4 bytes per team; `+0x214` bits 19-24 number of match days; `+0x218` bit 8 "fixtures are to be made"; `+0x21c` bits 16-22 number of teams, bits 30-31 number of legs |
 | match day | `+0x632e6c` | `0x208` bytes, up to 1,500 | `+0x204` bits 26-31: number of the round inside its competition |
-| match | `+0x6f154c` | `0x24c` bytes, up to 9,000 | `+0x00` own number (`0xffff` = free); `+0x04` competition id; `+0x06` bits 0-11 round, bit 13 set; `+0x0c` first team; `+0x10` second team |
+| match | `+0x6f154c` | `0x24c` bytes, up to 9,000 | `+0x00` own number (`0xffff` = free); `+0x04` competition id; `+0x06` bits 0-11 round, bit 13 set, **bit 14 "has been played"**; `+0x08` the date (a date, section 2.2); `+0x0c` first team; `+0x10` second team; **`+0x14` goals of the first team, `+0x17` goals of the second** (`+0x15`, `+0x16`, `+0x18`, `+0x19` are 0 but for a few matches: extra time or penalties ?) |
+
+The four fields in bold were read from two saves of `ML saves/` (the same career before
+and after 76 days of it): of the 1,931 records with bit 14 set every one has goals of 0
+to 5 (1-0 404 times, 0-1 341, 0-0 251) and a goal or an event list after `+0x1c`, and of
+the records without it not one has a goal. **Every round of a cup is in the records from
+the day the cup is made**, both teams in it: in the earlier save a cup of 77 matches has
+all six of its rounds (16, 32, 16, 8, 4 and 1 match) and none of them played.
+
+#### A number is not a place
+
+The number in `+0x00` of a match record is the one the game asks a record by
+(`match_record`, `fcn_03822b3f(number)`, 183 callers): it goes to
+`mode + 0x6f154c + number * 0x24c` and takes that record when the number in its own
+`+0x00` is the one it was given, and only when it is not does it go looking in a second
+table at `+0xbfd52c` (`fcn_038225a7`, the same function without the fall-back of
+answering record 0). In the later of the two saves all 7,211 records that are in use hold
+their own place in `+0x00`, so in a career the number of a record is its place.
+
+A competition is answered the other way about: `fcn_03822ab9(id)` walks the competition
+table and compares the id in `+0x00` of every record (and answers `+0x5fe840`, a dummy,
+when it finds none), because **the place of a competition record is not its id**. The ids
+are the numbers of the game's own list of competitions — 2, 3, 5, 8, 9, 11, 12, 15, 16,
+23, 52, 59, 400 to 404, 600 to 607, 1000 to 1011, 1600 to 1605, 1800 to 1807, 3000 to
+3007, 6800 to 6807, 7200 to 7207, 20000 to 20215 and so on — and a match record names the
+competition it belongs to with one of those ids in `+0x04`, not with a place.
+
+#### The match that is being played (mode data `+0x537b8`)
+
+| field | what the game keeps there |
+|---|---|
+| `+0x00` word | the number of the match record (`match_record` is called with it) |
+| `+0x02` word | the id of its competition (`fcn_03822ab9` is called with it) |
+| `+0x04` byte | the leg less one (Sider's `ctx.match_leg` is this plus one) |
+| `+0x08` byte | a match info; `0x37` for none (Sider's `ctx.match_info`) |
+
+The getters and setters of `+0x00` and `+0x02` stand next to each other in the game
+(`fcn_0382b2a8` and `fcn_0382b2b8`, `fcn_0382b2c8` and `fcn_0382b2d8`), and Sider reads
+the same four fields for its `ctx`: `sider.dll` at `0x8770` takes the word at `+0x00` as
+`ctx.match_id`, the byte at `+0x04` plus one as `ctx.match_leg` and the byte at `+0x08`
+as `ctx.match_info` (**proven** for `match_id`: the same word the game gives to
+`match_record`). What it names `ctx.tournament_id` is another number again: it is
+`fcn_04062701(id of the competition)`, a function that holds a table of 282 competition
+numbers and answers one number of its own for a whole group of them — 11 for 2 and for
+400 to 404, 12 for 3 and for 600 to 607, 19 for 5 and for 1000 to 1011, 23 for 8 and for
+1600 to 1605, 24 for 9 and for 1800 to 1807, 27 for 11 and for 2200 to 2215, 28 for 12
+and for 2400 to 2415, 84 for 23, 77 for 52, 95 for 59, 122 for 7200 to 7207 — and 159
+for a competition that is not in its table (run in the emulator). So `ctx.tournament_id`
+is a number of its own, 11 to 159, and not one the match records carry.
 
 ### 5.2 Who makes the fixtures
 
@@ -1924,8 +1973,16 @@ position, flag, formation, team, list)` -> 1 to 99:
   `fcn_038df8fe`) cuts the value to a tenth first; what it stands for is not read.
 - Master League with a career loaded: **only a player of the user's club gets this
   value** (`fcn_03854677`: he is in the squad of the user's club, and the club in his
-  match record, `+0xa8`, is that club); every other player gets 99. The jump of `MLTeamSpirit.lua` is at
-  the start of this branch (`0x038df528`, to the `return 99` at `0x038df7a1`).
+  match record, `+0xa8`, is that club); every other player gets 99. That branch starts at
+  `0x038df6c1` (`mov eax, [ebp + 0x24]`, the first of the seven arguments of
+  `fcn_038df383`), and it is reached from three places: from the test of the two flags at
+  `0x038df6ab` and twice from the way of a mode without a career (`0x038df789`,
+  `0x038df7b1`), which looks for the player among the two teams of the match. Version 2
+  of `sider/MLTeamSpirit.lua` writes twelve bytes there: `mov al, <value>`, the three pops
+  the branch owes (`pop ebx`, `pop edi`, and the `pop esi` at `0x038df7a5`, followed by
+  `mov esp, ebp`, `pop ebp`, `ret`), and a jump to that `pop esi`. Version 1 jumped five
+  bytes at `0x038df528`, before the flags are worked out, to the `return 99` at
+  `0x038df7a1`.
 
 **The team value** on the game plan screen (`fcn_0431a07c`, strings `gmPlanTeamSpirit`,
 `gmPlanTeamSpiritValue`; arrows by `fcn_04319974`): `fcn_042f18d5` -> `fcn_042f1263`, the
@@ -1959,6 +2016,18 @@ read.
 **Skipped match.** None of the simulation functions (`fcn_03708fd5`, `fcn_03708de9`,
 `fcn_03707a1f`, `fcn_03705feb` and what they call) reaches a team spirit function; they
 use `team_strength_of` (section 10).
+
+**`sider/MLTeamSpirit.lua` version 2** answers a value of the club's own, 90 to 99, in the
+place of the value of the branch: it walks the match records (section 5.1) for the last
+five matches of the user's club, the highest round of its cup and the places in its
+league, and sets the byte at `0x038df6c2` before every match from the rules at the top of
+the module. Over 90 to 99 the factor is 0.981 to 1.00, so the effect is there and does not
+bite. Which match it is, it is told by Sider: `ctx.match_id` is the number of the match
+record (the same word the game gives `match_record`), so the record answers the
+competition and the round of the match; the kind of that competition — a league or a cup —
+is then read from the competition record that carries its number, as `fcn_03822ab9` does.
+Sider's `ctx.tournament_id` is not used for it: that number is one of the game's own
+(`fcn_04062701`, section 5.1) and the records do not carry it.
 
 ### 12.2 The growth system
 
