@@ -3,6 +3,7 @@
 
     python3 planted_faults.py <PES2017.exe> routine [first byte, byte after the last [, 2: every second bit; 8: one bit of each byte]]
     python3 planted_faults.py <PES2017.exe> routine again <output of an earlier run> <part> <parts>
+    python3 planted_faults.py <PES2017.exe> pressure [first byte, byte after the last]
     python3 planted_faults.py <PES2017.exe> files [numbers of faults]
 
 routine: every bit of the routine of MLTransfers.lua is flipped in turn in the emulator's
@@ -10,10 +11,30 @@ memory, after the two modules are in, and 2,000 cases of Harness.choose_cases ar
 with the settings of the files and 1,500 with six other sets of settings, whose tables are
 put into the memory for it. Printed: the flips after which all cases still passed.
 "again" runs those of an earlier run once more, with twice the cases.
+pressure: the same for the routine of SQUAD_PRESSURE (version 9), which is not a part of
+that routine: every bit flipped in turn, then 1,500 cases of Harness.pressure_cases with
+each of three sets of limits and drop.
 files: one line of MLTransfers.lua or money_cave.py is changed in a copy of this folder and
 test_need.py and then the whole of test_money.py are run there. One of them must fail every time.
 
-Last runs. Version 6 of MLTransfers.lua (the position need), files: the list has 153; the
+Last runs. Version 9 of MLTransfers.lua (squad pressure), files: the list has 165; the
+12 new ones (153 to 164) were run, all noticed; the other 153 were not run, and 14 of
+them (27 35 36 55 56 57 65 78 88 128 129 130 140 142) no longer find their line since
+versions 7 and 8 and were not repaired. pressure (`pressure 0 89`, `pressure 89 178`;
+run with the routine at 0x047d6e68 and again at 0x047d6c68, where it is now, with the
+same flips left over): 1,374 of 1,424 noticed. Of the 50 others, 43 are
+the same in effect for the numbers the routine can meet (a byte for a dword compare of
+numbers below 256, a shift count the processor masks, `sub` for `cmp` where the register
+is dead, a jump into the same end by another way); six change the address of the game's
+"no player" id to a place whose second half is zero too, which the cases cannot tell
+apart (the address is the one the game's own goalkeeper count uses, and test_money.py
+compares the written routine with the bytes kept in money_cave.py); one (the first `ret`
+as `jecxz`) differs only if ecx is 0 when the count ends, which no case has. The first
+run of all bits found two things the test did not cover (a `keeps` above 255 and a
+squad of more than 31 entries); test_money.py was changed for them. routine: not run
+for version 9; of its 1,559 bytes three instructions changed (`push; pop` for a `mov`
+twice, and the call of the new routine for the compare).
+Version 6 of MLTransfers.lua (the position need), files: the list has 153; the
 16 new ones (137 to 152) and the six whose text changed (2 11 35 36 53 60) were run, all
 noticed; the other 131 were not run. routine: not run; the routine is version 4's byte
 for byte, and the two new routines of the position need are not in it (test_need.py runs
@@ -269,6 +290,23 @@ FAULTS = (
     ('money_cave.py', 'position, min(rating + t.need_more, 99)', 'position, min(rating + t.need_more + 1, 99)'),
     ('money_cave.py', 'return max(lowest, mark[1]) if mark[0] == position + 1 else lowest', 'return max(lowest, mark[1]) if mark[0] else lowest'),
     ('money_cave.py', 'return max(lowest, mark[1]) if mark[0] == position + 1 else lowest', 'return mark[1] if mark[0] == position + 1 else lowest'),
+    # version 9, SQUAD_PRESSURE. MLTransfers.lua: two limits in the other order, a position
+    # in another group, drop and limits cut off instead of rounded, the drop written without
+    # PERSONA, its memory not written, not looked at before, faulty numbers let through.
+    # money_cave.py, the model: "at the limit" for "above", the drop a point off, the second
+    # striker a midfielder (model and memory together; then the Lua file no longer agrees)
+    ('MLTransfers.lua', 'local PRESSURE_GROUPS = { "GK", "DF", "MF", "FW" }', 'local PRESSURE_GROUPS = { "GK", "MF", "DF", "FW" }'),
+    ('MLTransfers.lua', 'local GROUP_OF = "00010101020202020203030303"', 'local GROUP_OF = "00010101020202020202030303"'),
+    ('MLTransfers.lua', 'local out = u32(on and round(on.keeps_drop) or 0)', 'local out = u32(on and math.floor(on.keeps_drop) or 0)'),
+    ('MLTransfers.lua', 'string.char(on and round(on.positions[name]) or 0)', 'string.char(on and math.floor(on.positions[name]) or 0)'),
+    ('MLTransfers.lua', 'local on = PERSONA and SQUAD_PRESSURE', 'local on = SQUAD_PRESSURE'),
+    ('MLTransfers.lua', '    if written then\n        memory.write(PRESSURE_CAVE, pressure_memory)', '    if false then\n        memory.write(PRESSURE_CAVE, pressure_memory)'),
+    ('MLTransfers.lua', '    empty = empty and spare\n', ''),
+    ('MLTransfers.lua', 'if not is_number(p.positions[name], 0, 99) then return fault end', 'if not is_number(p.positions[name], 0, 100) then return fault end'),
+    ('MLTransfers.lua', 'or not is_number(p.keeps_drop, 0, 100) then', 'or not is_number(p.keeps_drop, 0, 101) then'),
+    ('money_cave.py', 'if groups[group] > t.pressure_limits[group]:', 'if groups[group] >= t.pressure_limits[group]:'),
+    ('money_cave.py', 'return max(0, keeps - t.pressure_drop)', 'return max(0, keeps - t.pressure_drop - 1)'),
+    ('money_cave.py', 'GROUP_OF = (0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3)', 'GROUP_OF = (0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 2, 3)'),
 )
 
 
@@ -326,6 +364,7 @@ def routine(exe):
                      ('ARCHETYPES', tm.archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', named), ('RIVALS', wide), ('AGE_SHIFT', '5')), 200))
     tables = [mc.image_2(u)[:mc.CEILING_CODE - mc.CAVE_2] for u, _ in sets]
     ends = [mc.image_2(u)[mc.FAME_KNOWN_AT - mc.CAVE_2:] for u, _ in sets]    # the seven numbers behind the routine
+    fifth = [mc.image_5(u) for u, _ in sets]                                # the memory of SQUAD_PRESSURE
     random.seed(1)
     print('without a fault: %d of 400 lists changed by the module, %d players refused' % h.choose_cases(400, t))
     good = h.g.read(mc.CEILING_CODE, len(mc.CEILING_BYTES))
@@ -339,9 +378,10 @@ def routine(exe):
         tm.poke(h.g, mc.CEILING_CODE + k, bytes([good[k] ^ (1 << bit if bit is not None else 0)]))
         random.seed(7)
         try:
-            for (u, n), table, numbers in zip(sets, tables, ends):
+            for (u, n), table, numbers, five in zip(sets, tables, ends, fifth):
                 tm.poke(h.g, mc.CAVE_2, table)
                 tm.poke(h.g, mc.FAME_KNOWN_AT, numbers)
+                tm.poke(h.g, mc.CAVE_5, five)
                 h.choose_cases(n, u)
             return True
         except BaseException:                                # a failed case or a fault of the emulated processor
@@ -350,6 +390,7 @@ def routine(exe):
             tm.poke(h.g, mc.CEILING_CODE + k, bytes([good[k]]))
             tm.poke(h.g, mc.CAVE_2, tables[0])
             tm.poke(h.g, mc.FAME_KNOWN_AT, ends[0])
+            tm.poke(h.g, mc.CAVE_5, fifth[0])
 
     def sound():
         """the harness after a fault: the routine as it should be passes again"""
@@ -398,6 +439,56 @@ def routine(exe):
     print('bytes %d to %d: %d faults, %d noticed, %d not noticed' % (first, min(last, len(good)) - 1, count, count - len(missed), len(missed)))
 
 
+def pressure(exe):
+    """Every bit of the routine of SQUAD_PRESSURE flipped in turn; 1,500 cases of
+    Harness.pressure_cases with each of three sets of limits and drop."""
+    sys.path.insert(0, HERE)
+    import capstone
+    import money_cave as mc
+    import test_money as tm
+    source = tm.two_modules()
+    sets = [tm.settings(tm.setting(source, 'SQUAD_PRESSURE', '{ positions = { GK = %d, DF = %d, MF = %d, FW = %d }, keeps_drop = %d }' % x))
+            for x in ((0, 0, 0, 0, 100), (1, 2, 4, 3, 10), (0, 2, 3, 3, 25))]
+    good, h = mc.PRESSURE_BYTES, None
+
+    def fresh():
+        nonlocal h
+        h = None
+        gc.collect()
+        h = tm.Harness(exe)
+        tm.run(h.g, source)
+    fresh()
+    text = {}
+    for i in capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32).disasm(good, mc.PRESSURE_CODE):
+        for k in range(i.size):
+            text[i.address + k - mc.PRESSURE_CODE] = '%s %s' % (i.mnemonic, i.op_str)
+
+    def flip(k, bit):
+        h.squads.seed(12)
+        try:
+            for u in sets:
+                tm.poke(h.g, mc.CAVE_5, mc.image_5(u))
+                if bit is not None:
+                    tm.poke(h.g, mc.PRESSURE_CODE + k, bytes([good[k] ^ 1 << bit]))
+                h.pressure_cases(1500, u)
+            return True
+        except BaseException:
+            return False
+    assert flip(0, None), 'the cases fail without a fault'
+    first, last = (int(a) for a in sys.argv[3:5]) if sys.argv[3:] else (0, len(good))
+    count = missed = 0
+    for k in range(first, min(last, len(good))):
+        for bit in range(8):
+            count += 1
+            if flip(k, bit):
+                missed += 1
+                print('  not noticed: byte %d (+0x%x), bit %d: %s' % (k, k, bit, text[k]), flush=True)
+            elif not flip(0, None):                          # the fault wrote somewhere else
+                fresh()
+                assert flip(0, None)
+    print('bytes %d to %d: %d faults, %d noticed, %d not noticed' % (first, min(last, len(good)) - 1, count, count - missed, missed))
+
+
 def files(exe, which):
     root = tempfile.mkdtemp()
 
@@ -427,9 +518,9 @@ def files(exe, which):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3 or sys.argv[2] not in ('routine', 'files'):
+    if len(sys.argv) < 3 or sys.argv[2] not in ('routine', 'pressure', 'files'):
         sys.exit(__doc__)
-    if sys.argv[2] == 'routine':
-        routine(os.path.abspath(sys.argv[1]))
+    if sys.argv[2] in ('routine', 'pressure'):
+        (routine if sys.argv[2] == 'routine' else pressure)(os.path.abspath(sys.argv[1]))
     else:
         files(os.path.abspath(sys.argv[1]), [int(a) for a in sys.argv[3:]])

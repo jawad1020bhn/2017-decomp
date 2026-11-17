@@ -1,4 +1,4 @@
--- MLTransfers.lua, version 8: the transfers between the computer clubs in the PES 2017
+-- MLTransfers.lua, version 9: the transfers between the computer clubs in the PES 2017
 -- Master League (Sider Lua module). Made for PES2017.exe sha256 44b0caaa... and for
 -- MLMoney.lua version 7, whose player values it uses.
 --
@@ -17,7 +17,9 @@
 --     many of its own players it keeps. The big clubs are named one by one (CLUBS); the
 --     others draw a character that fits their place in the ranking. Two clubs of one
 --     character still differ a little (PERSONA_SPREAD, AGE_SHIFT). A club holds on to
---     its first team, except against a clearly bigger club (KEEP_BEST).
+--     its first team, except against a clearly bigger club (KEEP_BEST). A club with
+--     too many players for a part of the pitch lets them go more easily
+--     (SQUAD_PRESSURE, new in version 9).
 --   * scouting (SCOUTING): a club knows only a part of the players (how many is a number
 --     of its persona). Players a club has put on its list are known to all, and so are
 --     the good ones (KNOWN_FROM) and the famous ones (KNOWN_FAME).
@@ -196,6 +198,21 @@ local STRICT_FREE = 35
 --      against a clearly bigger one. 0 to 99; 99: it holds against every buyer.
 -- Players a club has listed are not kept. Needs PERSONA.
 local KEEP_BEST = { 4, 12, 2 }
+
+-- A club with too many players for a part of the pitch keeps them less often. If it has
+-- more players of a group than `positions` says, `keeps` of its persona (with what
+-- KEEP_BEST adds) counts `keeps_drop` lower for every player of that group, not below 0.
+-- The groups, by the position a player is registered for: GK; DF = CB, LB, RB;
+-- MF = DMF, CMF, LMF, RMF, AMF; FW = LWF, RWF, SS, CF. A player who is in a deal already
+-- is not counted.
+-- With the numbers below a club with 7 forwards lets a spare forward go as if its
+-- `keeps` were 0 or nearly 0 (the personas have a `keeps` of 5 to 40). A forward of its
+-- first team is still held by KEEP_BEST, only less firmly. When a forward has left and
+-- it has 6 again, it keeps them as before.
+-- positions: 0 to 99 each. keeps_drop: 0 to 100. false, or keeps_drop = 0: off (as up
+-- to version 8). Needs PERSONA. The other rules stay: with SELL_SIDE a club that counts 23 players
+-- or fewer still sells nobody.
+local SQUAD_PRESSURE = { positions = { GK = 3, DF = 8, MF = 9, FW = 6 }, keeps_drop = 40 }
 
 -- Two clubs of one persona are not the same: each number of a persona (but not the
 -- order of the places; for the ages see AGE_SHIFT) is, for each club, up to this many
@@ -709,6 +726,15 @@ local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d
 -- The place that is changed: the club look-up itself, in the place of its six prologue
 -- bytes, so that the club the routine that creates an offer asks for is our answer.
 local INCOMING_SITE = { "incoming", 0x0381e2eb, "5589e583ec14", "e96082fb0090" }
+-- a fifth piece, right after the fourth (MLGrowth.lua starts at 0x047d6e50), for
+-- SQUAD_PRESSURE: its numbers and its routine, which the routine of the first piece calls
+-- (so it is always written with it)
+local PRESSURE_CAVE = 0x047d6c50
+local PRESSURE_CAVE_SIZE = 0x110
+-- the groups of SQUAD_PRESSURE in the order of the memory, and the group (0 to 3) of each
+-- of the 13 positions, GK to CF
+local PRESSURE_GROUPS = { "GK", "DF", "MF", "FW" }
+local GROUP_OF = "00010101020202020203030303"
 local MONEY_MARK = 0x047b065c   -- where MLMoney.lua leaves its mark, "MLM" and the number of its version
 -- the rating range a computer club searches first, smallest clubs first (the game's numbers)
 local RANGE_LOW = { 47, 51, 55, 59, 63, 67, 70, 73, 76, 83 }
@@ -733,41 +759,41 @@ local PLACE = { free = 0, listed = 1, clubs = 2 }
 local NEUTRAL = "64000064ff0064646400ffff0000003fffff0100"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
 local ROUTINE = { 0x7cc, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
-      .. "0c81f9b90d66030f85d8040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
-      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87960400008945e031c98b93b400"
+      .. "0c81f9b90d66030f85d7040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
+      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87950400008945e031c98b93b400"
       .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
-      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8da040000"
-      .. "8945ec8955b031c9518b45ec8b55e8e8920400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
-      .. "45f85053e873f007ff83c40c0fb6c08945dc8b55b0e8230400008945cc837dd0000f84470100008365f8008d"
-      .. "45f8508d45c45089d9e8876505ff8b45c43b0534eb4f020f84250100008b55e88b0dc8477d0449782e3904cd"
-      .. "cc477d04750d3914cdd0477d040f84ae0300003914cdcc477d0475de3904cdd0477d040f8498030000ebcf83"
-      .. "7dd0020f85e1000000e81c0400005052e8a40300008945a85a833d5c427d040074698b4dc88b49f48b45c425"
-      .. "ff3f00003d8d0200000f83a900000083bc81ac070000170f869b000000817dc0b90d660375395253e86bf407"
+      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8d9040000"
+      .. "8945ec8955b031c9518b45ec8b55e8e8910400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
+      .. "45f85053e873f007ff83c40c0fb6c08945dc8b55b0e8220400008945cc837dd0000f84480100008365f8008d"
+      .. "45f8508d45c45089d9e8876505ff8b45c43b0534eb4f020f84260100008b55e88b0dc8477d0449782e3904cd"
+      .. "cc477d04750d3914cdd0477d040f84ad0300003914cdcc477d0475de3904cdd0477d040f8497030000ebcf83"
+      .. "7dd0020f85e2000000e81b0400005052e8a30300008945a85a833d5c427d040074698b4dc88b49f48b45c425"
+      .. "ff3f00003d8d0200000f83aa00000083bc81ac070000170f869c000000817dc0b90d660375395253e86bf407"
       .. "ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f80773"
-      .. "5f807a0e08735958b90c0000008b55c4e85d0300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d04"
-      .. "2b55a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c1"
-      .. "0f82b3020000eb0658e9ab020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f"
-      .. "7d047319694dd4b1675616c1e9186bc964c1e9083b4d800f83700200008b45cc03459c3945dc0f8761020000"
-      .. "8b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955"
-      .. "e4837db8000f850c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b95"
-      .. "70ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837de4000f84e10100008b55ec0f"
-      .. "b64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cff"
-      .. "ffff0f83a9010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f8589010000837de400"
-      .. "75656945e8b179379e69c091f44525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e1"
-      .. "3f29c18b55ec3a4a0e7c053a4a0f7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05"
-      .. "e84f7d046bc96439c10f821e0100008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c101"
-      .. "4ddc837de400750f8b45cc2b45983945dc0f8cea0000008b55f08b4dec2251128b4de074128b45dc0fb69128"
-      .. "427d0439d00f8fca0000008b048d00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b"
-      .. "45e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887"
-      .. "000000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81"
-      .. "e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce8dfbdfdff8b4dd083f902741189"
-      .. "f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9e14495ff89ec5d5f5b83c4"
-      .. "04e93cace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000f"
-      .. "b742080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289"
-      .. "d0c30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d"
-      .. "04f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c49780939027408"
-      .. "83c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9"
-      .. "097605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
+      .. "60807a0e08735a586a0c598b55c4e85e0300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d042b55"
+      .. "a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e908e8412000"
+      .. "000f82b1020000eb0658e9a9020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e4"
+      .. "4f7d047319694dd4b1675616c1e9186bc964c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200"
+      .. "008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca0189"
+      .. "55e4837db8000f850c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b"
+      .. "9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837de4000f84df0100008b55ec"
+      .. "0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7c"
+      .. "ffffff0f83a7010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f8587010000837de4"
+      .. "0075656945e8b179379e69c091f44525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783"
+      .. "e13f29c18b55ec3a4a0e7c053a4a0f7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf"
+      .. "05e84f7d046bc96439c10f821c0100008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1"
+      .. "014ddc837de400750f8b45cc2b45983945dc0f8ce80000008b55f08b4dec2251128b4de074128b45dc0fb691"
+      .. "28427d0439d00f8fc80000008b048d00427d0483f8ff0f84a80000006a645f8b4d88e8ba0000008945fc8b45"
+      .. "e40b45f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce88700"
+      .. "0000694dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1"
+      .. "ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce8e0bdfdff8b4dd083f902741189f8"
+      .. "f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9e24495ff89ec5d5f5b83c404"
+      .. "e93dace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb7"
+      .. "42080faf054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0"
+      .. "c30fb6040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04"
+      .. "f7e1f73558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883"
+      .. "c210ebf48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f909"
+      .. "7605b90900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
 local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8ba4e170190909090" }
@@ -789,6 +815,13 @@ local NEED_SITES = {
     { "need plan", 0x03660b93, "8b85b8ffffff", "e87858170190" },
     { "need pick", 0x03660c83, "8b45188b10", "e898581701" },
 }
+
+-- SQUAD_PRESSURE: its routine (offset in the fifth piece of memory, machine code)
+local PRESSURE_ROUTINE = { 0x18, "39c10f83a90000002b05506c7d0439c10f8c9a0000008b4304"
+      .. "c1e81c83f80c0f878b00000056570fb680586c7d04506a008b4dc88b49f8ff75c4e8c2bc04ff8bb828030000"
+      .. "c1ef0983e77f8db0f80000008d3cfe39fe73496804eb4f0289f1e8f26d40fe84c075348b4dc88b49f8ff7604"
+      .. "ff36e855bb04fff680b400000030751b8b4004c1e81c83f80c77100fb680586c7d043b4424047503ff042483"
+      .. "c608ebb3585a0fb692546c7d045f5e39c2f5c3f9c3" }
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {
@@ -998,6 +1031,20 @@ local CONTEXT = {
       "8b07890c308b8d44f8ffff894c30048b078b570429c2c1fa0439da0f8647fbffff8b4430086a028d8d2cf8ff"
       .. "ffc1e807518d9540f8ffff83e07f5289852cf8ffffe83deffbff0fb6c88b078b54300831ca83e27f31543008"
       .. "8b47042b0743c1f80483c40c83c61039c30f8227ffffff" },
+    { "team", 0x03822969,
+      "5589e55689ce8b4d0889c8c1e80e85c0744f8b155cf85102c1ea0e39d074423df0ff030072073dfeff030076"
+      .. "3489c825ff3f00003dfd3f000074313dfe3f0000742a83be0814ec00025189f1750ae86cbaffff5e5dc20400"
+      .. "e86dfaffff85c075068d8620e35f005e5dc20400e80b97ffff8b40348d4d08518d88b8370500e8b38d00005e"
+      .. "5dc20400" },
+    { "player", 0x03822835,
+      "5589e55689ce8b4d0c3b0d30f8510274378b4508bafdff00006639d07435bafeff00006639d0742b83be0814"
+      .. "ec0002515089f1750ae889bbffff5e5dc20800e8e5faffff85c075228d862036ed005e5dc20800e85898ffff"
+      .. "8b40348d4d08518d88b8370500e8429100005e5dc20800" },
+    { "no player", 0x02bddabe,
+      "5589e58b55088b420485c0750a3941040f94d05dc2040056668b31663b325e750e3941047509b8010000005d"
+      .. "c2040031c05dc20400" },
+    { "no player id", 0x024feb04,
+      "ffff000000000000" },
 }
 local function hex(s)
     local t = {}
@@ -1097,6 +1144,16 @@ local function persona_fault()
     if type(KEEP_BEST) ~= "table" or #KEEP_BEST ~= 3 or not is_number(KEEP_BEST[1], 0, 99)
         or not is_number(KEEP_BEST[2], 0, 100) or not is_number(KEEP_BEST[3], 0, 99) then
         return "KEEP_BEST is not { 0 to 99, 0 to 100, 0 to 99 }"
+    end
+    if SQUAD_PRESSURE ~= false then
+        local p = SQUAD_PRESSURE
+        local fault = "SQUAD_PRESSURE is not false or { positions = { GK, DF, MF, FW: 0 to 99 }, keeps_drop = 0 to 100 }"
+        if type(p) ~= "table" or type(p.positions) ~= "table" or not is_number(p.keeps_drop, 0, 100) then
+            return fault
+        end
+        for _, name in ipairs(PRESSURE_GROUPS) do
+            if not is_number(p.positions[name], 0, 99) then return fault end
+        end
     end
     if type(ARCHETYPES) ~= "table" or #ARCHETYPES < 1 or #ARCHETYPES > MOST_PERSONAS then
         return "ARCHETYPES is not a list of 1 to " .. MOST_PERSONAS .. " personas"
@@ -1275,6 +1332,21 @@ local function need_image()
     return out .. string.rep("\0", NEED_CAVE_SIZE - #out)
 end
 
+-- what goes into the memory of SQUAD_PRESSURE: the drop (0: off, and without PERSONA),
+-- the four limits, the group of each position, the routine. nil: the module file is damaged
+local function pressure_image()
+    local on = PERSONA and SQUAD_PRESSURE
+    local out = u32(on and round(on.keeps_drop) or 0)
+    for _, name in ipairs(PRESSURE_GROUPS) do
+        out = out .. string.char(on and round(on.positions[name]) or 0)
+    end
+    out = out .. unhex(GROUP_OF)
+    if #out > PRESSURE_ROUTINE[1] then return nil end
+    out = out .. string.rep("\0", PRESSURE_ROUTINE[1] - #out) .. unhex(PRESSURE_ROUTINE[2])
+    if #out > PRESSURE_CAVE_SIZE then return nil end
+    return out .. string.rep("\0", PRESSURE_CAVE_SIZE - #out)
+end
+
 -- what goes into the memory of INCOMING. nil: the module file is damaged
 local function incoming_image()
     local code = unhex(INCOMING_ROUTINE)
@@ -1346,6 +1418,14 @@ local function report_persona()
     else
         log("  a club keeps its first team no more often than its other players (KEEP_BEST is off)")
     end
+    if SQUAD_PRESSURE and round(SQUAD_PRESSURE.keeps_drop) > 0 then
+        local p = SQUAD_PRESSURE.positions
+        log(string.format("  squad pressure: a club with more than %d goalkeepers, %d defenders, %d midfielders or %d "
+            .. "forwards counts `keeps` %d lower for a player of that group", round(p.GK), round(p.DF), round(p.MF),
+            round(p.FW), round(SQUAD_PRESSURE.keeps_drop)))
+    else
+        log("  squad pressure: off; a club keeps a player the same however many it has for his position")
+    end
     log(string.format("  players rated %d or more are known to every club; the ages of a persona are moved by up "
         .. "to %d years from club to club", round(KNOWN_FROM), round(AGE_SHIFT)))
     log(string.format("  players of a popularity of %d or more are known to every club; for a player without a "
@@ -1361,7 +1441,7 @@ local function report_persona()
 end
 
 function m.init(ctx)
-    log("MLTransfers 7: the transfers of the computer clubs from the settings in MLTransfers.lua")
+    log("MLTransfers 9: the transfers of the computer clubs from the settings in MLTransfers.lua")
 
     local fault = settings_fault()
     if fault then
@@ -1376,12 +1456,13 @@ function m.init(ctx)
     local memory_image = image()
     local need_memory = need_image()
     local incoming_memory = incoming_image()
+    local pressure_memory = pressure_image()
     local sites = { SITE }
     if NEED then
         for _, site in ipairs(NEED_SITES) do sites[#sites + 1] = site end
     end
     if INCOMING then sites[#sites + 1] = INCOMING_SITE end
-    if memory_image == nil or need_memory == nil or (INCOMING and incoming_memory == nil) then
+    if memory_image == nil or need_memory == nil or pressure_memory == nil or (INCOMING and incoming_memory == nil) then
         log("RESULT: nothing written. The module file is damaged (routine).")
         return
     end
@@ -1418,6 +1499,10 @@ function m.init(ctx)
         log(string.format("check: %-13s at %08x  %s", "free memory", INCOMING_CAVE, free and "empty" or "NOT EMPTY"))
         empty = empty and free
     end
+    room = memory.read(PRESSURE_CAVE, PRESSURE_CAVE_SIZE)
+    local spare = (room ~= nil and room == string.rep("\0", PRESSURE_CAVE_SIZE))
+    log(string.format("check: %-13s at %08x  %s", "free memory", PRESSURE_CAVE, spare and "empty" or "NOT EMPTY"))
+    empty = empty and spare
     if not found then
         log("RESULT: nothing written. MLMoney.lua is not installed, and this module needs its player values. "
             .. "In sider.ini the line for MLMoney.lua must stand above the line for MLTransfers.lua, and "
@@ -1458,6 +1543,10 @@ function m.init(ctx)
     if written and INCOMING then
         memory.write(INCOMING_CAVE, incoming_memory)
         written = (memory.read(INCOMING_CAVE, INCOMING_CAVE_SIZE) == incoming_memory)
+    end
+    if written then
+        memory.write(PRESSURE_CAVE, pressure_memory)
+        written = (memory.read(PRESSURE_CAVE, PRESSURE_CAVE_SIZE) == pressure_memory)
     end
     if not written then
         log("RESULT: the table could not be written; the game's code is unchanged. "

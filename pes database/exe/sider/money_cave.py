@@ -146,6 +146,15 @@ A player is "free" if his status (+0xb4, bits 0-3) is 1 or 2, else "listed" if h
     is below it. Unless the buyer's eleven (step 3) is KEEP_BIGGER points or more above
     the eleven of his club, `keeps` is KEEP_STEP higher for each point of
     rating + KEEP_FROM - eleven of his club above 0.
+    SQUAD_PRESSURE (version 9, PRESSURE_CODE in a fifth piece of memory, CAVE_5; the
+    routine above calls it for the comparison): if his club has more players of his
+    group (GROUP_OF his registered position, bits 28-31 of +4: goalkeeper, defender,
+    midfielder, forward) than PRESSURE_LIMITS of that group, `keeps` is the drop at
+    PRESSURE_DROP_AT lower, not below 0. Counted: the entries of the club record's
+    squad (the game's function at TEAM_RECORD; id pairs at +0xf8, count in bits 9-15
+    of +0x328) that are not the game's "no player" and not in a deal (+0xb4, bits 4
+    and 5), as the game's own count of goalkeepers in ai_candidates (0x0365f920) does.
+    The squad is walked only for a draw from `keeps` minus the drop to `keeps` minus 1.
  2. Scouting (not for "listed", not for a rating of KNOWN or more, not for a popularity
     of FAME_KNOWN or more: the 12 bits from bit 11 of +0xb4): refused if a draw from
     player and buyer is not below `knows`.
@@ -312,6 +321,15 @@ MODE_OBJECT_AT = 0x026503e0   # dword: the mode object; its +0x30 is the mode da
 CURRENT_CLUB_AT = 0x0251f85c  # dword: the club of the player being handled
 INCOMING_KEY = 0x02100a66     # byte: the slot the look-up resolves
 CLUB_TABLE, CLUB_TABLE_COUNT, CLUB_STRIDE = 0x481be0, 0x5fece0, 0x520
+# a fifth piece, in the same page right after the 0x700 bytes kept for the fourth (which
+# end at 0x047d6c4f; MLGrowth.lua starts at 0x047d6e50): SQUAD_PRESSURE of MLTransfers.lua
+# 9. The second piece is full, and its routine calls this one, so it is written with it.
+CAVE_5 = 0x047d6c50
+CAVE_5_SIZE = 0x110
+PRESSURE_DROP_AT = CAVE_5       # dword: `keeps` of a club is this much lower for a player of a group it has too many of (0: off)
+PRESSURE_LIMITS = CAVE_5 + 4    # 4 bytes, by group (GROUPS): the most players of the group a club has without that
+PRESSURE_GROUPS = CAVE_5 + 8    # 13 bytes, by registered position: its group (GROUP_OF)
+PRESSURE_CODE = CAVE_5 + 0x18
 NO_CEILING = 0xffffffff         # in CEILING_TAB: this level takes any value
 NO_TOP = 0xff                   # in CEILING_TOP: this level takes any rating
 LEVELS = 10
@@ -403,6 +421,11 @@ NO_POSITION = 13                                # in a slot: it looks for nobody
 # every record of every save looked at): the position of the need slot + 1 (0: the club has none)
 # and the rating its search starts above
 PLAN_NEED_AT = 0x109
+# what ai_candidates itself walks a squad with (0x0365f95a, its count of the goalkeepers of the selling club):
+# the record of a club (thiscall on the mode data, club id), the record of a player (the same, id pair),
+# "are two id pairs the same" (thiscall on one pair, -> the other)
+TEAM_RECORD, PLAYER_RECORD, SAME_ID = 0x03822969, 0x03822835, 0x02bddabe
+TEAM_SQUAD, TEAM_COUNT = 0xf8, 0x328            # a club record: the id pairs of its players; their number in bits 9-15
 NO_PLAYER_AT = 0x024feb04                       # two dwords: the id pair that stands for "no player"
 ELEVEN = 11                                     # the first entries of the lineup list
 # cup_prize: the amounts for a cup that has no row in the table, by stage (immediates of six mov edi)
@@ -446,6 +469,9 @@ GAME_LEAGUE = {
 }
 
 POSITIONS = ('GK', 'CB', 'LB', 'RB', 'DMF', 'CMF', 'LMF', 'RMF', 'AMF', 'LWF', 'RWF', 'SS', 'CF')
+# SQUAD_PRESSURE: the four groups of positions and the group of each position
+GROUPS = ('GK', 'DF', 'MF', 'FW')
+GROUP_OF = (0, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3)
 HASH_A, HASH_B = 0x01000193, 0x9e3779b1
 HASH_C = 0x85ebca6b             # the last step of the hash of the ceiling (player and buying club)
 # the last steps of the other draws of MLTransfers.lua, and the factor of the position asked for
@@ -835,7 +861,8 @@ s3: cmp eax, 7
     cmp byte ptr [edx + 0xe], 8
     jae s8
 s5: pop eax
-    mov ecx, {GENE_NAMES.index('keeps')}
+    push {GENE_NAMES.index('keeps')}
+    pop ecx
     mov edx, dword ptr [ebp - 0x3c]
     call gene
     mov edx, dword ptr [ebp - 0x34]
@@ -853,7 +880,7 @@ s6: imul ecx, dword ptr [ebp - 0x3c], {HASH_B}
     xor ecx, dword ptr [ebp - 0x54]
     imul ecx, ecx, {HASH_KEEPS}
     {PERCENT('ecx')}
-    cmp ecx, eax
+    call {PRESSURE_CODE}
     jb refuse
     jmp s9
 s8: pop eax
@@ -984,7 +1011,8 @@ p0: mov edx, dword ptr [ebp - 0x10]
 p1: mov eax, dword ptr [ecx*4 + {CEILING_TAB}]
     cmp eax, -1
     je take
-    mov edi, 100
+    push 100
+    pop edi
     mov ecx, {G('wealth')}
     call muldiv
     mov dword ptr [ebp - 4], eax
@@ -1275,6 +1303,76 @@ done:
     pop ecx
     ret
 '''
+# SQUAD_PRESSURE of MLTransfers.lua, one routine.
+#
+# PRESSURE_SOURCE. Called by CEILING_SOURCE in step 1 in the place of `cmp ecx, eax`, with
+# its frame: ecx is the draw (0 to 99), eax `keeps` of the selling club with what KEEP_BEST
+# adds, ebx the player. It returns with the carry flag set if the club keeps him. A draw of
+# `keeps` or more: he goes, as before. A draw below `keeps` minus the drop (the drop is 0
+# with the setting off): he is kept. Only for a draw between the two the squad is counted,
+# the way ai_candidates counts the goalkeepers of a selling club (0x0365f95a-0x0365fa3e:
+# the club record, its id pairs, "no player" skipped, a player in a deal, bits 4-5 of
+# +0xb4, not counted): the players whose registered position is of the group of his. More
+# than the limit of the group: he goes.
+PRESSURE_SOURCE = f'''
+    cmp ecx, eax
+    jae p9
+    sub eax, dword ptr [{PRESSURE_DROP_AT}]
+    cmp ecx, eax
+    jl p8
+    mov eax, dword ptr [ebx + 4]
+    shr eax, 28
+    cmp eax, {len(POSITIONS) - 1}
+    ja p8
+    push esi
+    push edi
+    movzx eax, byte ptr [eax + {PRESSURE_GROUPS}]
+    push eax
+    push 0
+    mov ecx, dword ptr [ebp - 0x38]
+    mov ecx, dword ptr [ecx - 8]
+    push dword ptr [ebp - 0x3c]
+    call {TEAM_RECORD}
+    mov edi, dword ptr [eax + {TEAM_COUNT}]
+    shr edi, 9
+    and edi, 0x7f
+    lea esi, [eax + {TEAM_SQUAD}]
+    lea edi, [esi + edi*8]
+p1: cmp esi, edi
+    jae p4
+    push {NO_PLAYER_AT}
+    mov ecx, esi
+    call {SAME_ID}
+    test al, al
+    jne p3
+    mov ecx, dword ptr [ebp - 0x38]
+    mov ecx, dword ptr [ecx - 8]
+    push dword ptr [esi + 4]
+    push dword ptr [esi]
+    call {PLAYER_RECORD}
+    test byte ptr [eax + 0xb4], 0x30
+    jne p3
+    mov eax, dword ptr [eax + 4]
+    shr eax, 28
+    cmp eax, {len(POSITIONS) - 1}
+    ja p3
+    movzx eax, byte ptr [eax + {PRESSURE_GROUPS}]
+    cmp eax, dword ptr [esp + 4]
+    jne p3
+    inc dword ptr [esp]
+p3: add esi, 8
+    jmp p1
+p4: pop eax
+    pop edx
+    movzx edx, byte ptr [edx + {PRESSURE_LIMITS}]
+    pop edi
+    pop esi
+    cmp edx, eax
+    cmc
+    ret
+p8: stc
+p9: ret
+'''
 INCOME_N_BYTES = bytes.fromhex('8d863e56cbffe86d00000089c18b45fcf725ac0d7b04f73554067b0401c8c3')
 WAGES_KEEP_BYTES = bytes.fromhex('8945fc58ff750850e916810cff')
 INCOME_M_BYTES = bytes.fromhex('69c088130000eb04')
@@ -1282,42 +1380,42 @@ INCOME_SCALE_BYTES = bytes.fromhex('85c07e0e52f7258c0d7b04f73554067b045ac3')
 INCOME_S_BYTES = bytes.fromhex('81c6983a00005089f0e8deffffff89c658c3')
 LEAGUE_BYTES = bytes.fromhex('31c9eb0d0fb7144d900d7b0439fa7411413b0da80d7b0472eb8b0485c0077b04c36bc91801c10fb7044db00d7b046bc064c3')
 CEILING_BYTES = bytes.fromhex(
-    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f85d804000089'
+    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f85d704000089'
     '4dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b88b5014691235aeb2c28955b48b00'
-    '0fb6481b894df08b401c8b0083f8090f87960400008945e031c98b93b400000083e20f4a83fa01760e41f783'
+    '0fb6481b894df08b401c8b0083f8090f87950400008945e031c98b93b400000083e20f4a83fa01760e41f783'
     'b800000000000060750141894dd00fb74b2c6953309301000131d1894dd86955e8b179379e31d1894dd43155'
-    'b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8da0400008945ec8955b031c9518b45ec8b55'
-    'e8e8920400005989848d70ffffff4183f90e72e6c745f80d0000006a028d45f85053e873f007ff83c40c0fb6'
-    'c08945dc8b55b0e8230400008945cc837dd0000f84470100008365f8008d45f8508d45c45089d9e8876505ff'
-    '8b45c43b0534eb4f020f84250100008b55e88b0dc8477d0449782e3904cdcc477d04750d3914cdd0477d040f'
-    '84ae0300003914cdcc477d0475de3904cdd0477d040f8498030000ebcf837dd0020f85e1000000e81c040000'
-    '5052e8a40300008945a85a833d5c427d040074698b4dc88b49f48b45c425ff3f00003d8d0200000f83a90000'
-    '0083bc81ac070000170f869b000000817dc0b90d660375395253e86bf407ff83c4045a8b4de083f909720683'
-    '7db8007720837dbc01750583f9087315837dbc04750439c1770b83f807735f807a0e08735958b90c0000008b'
-    '55c4e85d0300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d042b55a87e090faf15f04f7d0401d0'
-    '694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e90839c10f82b3020000eb0658e9ab020000'
-    '837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d047319694dd4b1675616c1e918'
-    '6bc964c1e9083b4d800f83700200008b45cc03459c3945dc0f87610200008b55b88b4dc88b49f48b45e825ff'
-    '3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f850c0100008b55ec'
-    '807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffff'
-    'ff39d1721c40039578ffffff39d17211837de4000f84e10100008b55ec0fb64210837de400752b8b4dc80fb6'
-    '49de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f83a9010000837df0007411'
-    '8b55ec0fb64a1039c175040fb64a1189c83b45d00f8589010000837de40075656945e8b179379e69c091f445'
-    '25c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a0f'
-    '7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05e84f7d046bc96439c10f821e0100'
-    '008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b4598'
-    '3945dc0f8cea0000008b55f08b4dec2251128b4de074128b45dc0fb69128427d0439d00f8fca0000008b048d'
-    '00427d0483f8ff0f84aa000000bf640000008b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d'
-    '90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180f'
-    'afc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0'
-    '860100e848000000e8500000008b45dce8dfbdfdff8b4dd083f902741189f8f7248d3c427d04f73554067b04'
-    '89c73b7dfc771089ec5d5f5b588b4d245650e9e14495ff89ec5d5f5b83c404e93cace8fef7e139fa7303f7f7'
-    'c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf054c427d0403055042'
-    '7d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb6040869c99301000169d2'
-    'b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b'
-    '52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483c4048b0d60'
-    '427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379e'
-    'c1e81d0fb684c878427d046bc01405c8427d04c3')
+    'b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8d90400008945ec8955b031c9518b45ec8b55'
+    'e8e8910400005989848d70ffffff4183f90e72e6c745f80d0000006a028d45f85053e873f007ff83c40c0fb6'
+    'c08945dc8b55b0e8220400008945cc837dd0000f84480100008365f8008d45f8508d45c45089d9e8876505ff'
+    '8b45c43b0534eb4f020f84260100008b55e88b0dc8477d0449782e3904cdcc477d04750d3914cdd0477d040f'
+    '84ad0300003914cdcc477d0475de3904cdd0477d040f8497030000ebcf837dd0020f85e2000000e81b040000'
+    '5052e8a30300008945a85a833d5c427d040074698b4dc88b49f48b45c425ff3f00003d8d0200000f83aa0000'
+    '0083bc81ac070000170f869c000000817dc0b90d660375395253e86bf407ff83c4045a8b4de083f909720683'
+    '7db8007720837dbc01750583f9087315837dbc04750439c1770b83f8077360807a0e08735a586a0c598b55c4'
+    'e85e0300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d042b55a87e090faf15f04f7d0401d0694d'
+    'c4b179379e334dd8334dac69c92febd427c1e9186bc964c1e908e8412000000f82b1020000eb0658e9a90200'
+    '00837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d047319694dd4b1675616c1e9'
+    '186bc964c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200008b55b88b4dc88b49f48b45e825'
+    'ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f850c0100008b55'
+    'ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ff'
+    'ffff39d1721c40039578ffffff39d17211837de4000f84df0100008b55ec0fb64210837de400752b8b4dc80f'
+    'b649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f83a7010000837df00074'
+    '118b55ec0fb64a1039c175040fb64a1189c83b45d00f8587010000837de40075656945e8b179379e69c091f4'
+    '4525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a'
+    '0f7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05e84f7d046bc96439c10f821c01'
+    '00008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45'
+    '983945dc0f8ce80000008b55f08b4dec2251128b4de074128b45dc0fb69128427d0439d00f8fc80000008b04'
+    '8d00427d0483f8ff0f84a80000006a645f8b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d90'
+    'e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180faf'
+    'c88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa086'
+    '0100e848000000e8500000008b45dce8e0bdfdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489'
+    'c73b7dfc771089ec5d5f5b588b4d245650e9e24495ff89ec5d5f5b83c404e93dace8fef7e139fa7303f7f7c3'
+    '83c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d'
+    '04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb6040869c99301000169d2b1'
+    '79379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52'
+    'f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483c4048b0d6042'
+    '7d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379ec1'
+    'e81d0fb684c878427d046bc01405c8427d04c3')
 assert CEILING_CODE + len(CEILING_BYTES) <= FAME_KNOWN_AT and CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
 NEED_PLAN_BYTES = bytes.fromhex(
     '608b75b469f6180100000375b081c60cb8cc0066c786090100000000837e04010f87d80000008b7da08b45a429f83db00000000f82c500'
@@ -1326,6 +1424,13 @@ NEED_PLAN_BYTES = bytes.fromhex(
     '8b470825803f00005231ff8d4e108d9e100100008b1181e2803f000039c2743881fa80060000750685ff750289cf83c11039d972df5a85'
     'ff741f8b0f81e17fc0ffff09c1890fc1e8074088860901000088960a010000eb015a618b45b8c3')
 NEED_PICK_BYTES = bytes.fromhex('8b45188b1051538b4d100fb68109010000488b5d0c3b03750d0fb6810a01000039c2730289c25b59c3')
+PRESSURE_BYTES = bytes.fromhex(
+    '39c10f83a90000002b05506c7d0439c10f8c9a0000008b4304c1e81c83f80c0f878b00000056570fb680586c'
+    '7d04506a008b4dc88b49f8ff75c4e8c2bc04ff8bb828030000c1ef0983e77f8db0f80000008d3cfe39fe7349'
+    '6804eb4f0289f1e8f26d40fe84c075348b4dc88b49f8ff7604ff36e855bb04fff680b400000030751b8b4004'
+    'c1e81c83f80c77100fb680586c7d043b4424047503ff042483c608ebb3585a0fb692546c7d045f5e39c2f5c3'
+    'f9c3')
+assert PRESSURE_CODE + len(PRESSURE_BYTES) <= CAVE_5 + CAVE_5_SIZE
 
 
 ROUTINES = ((FEE_CODE, FEE_SOURCE, 'FEE_BYTES'), (SALARY_CODE, SALARY_SOURCE, 'SALARY_BYTES'),
@@ -1364,6 +1469,7 @@ MAX_KNOWN, MAX_AGE_SHIFT = 100, 5       # KNOWN_FROM, AGE_SHIFT
 MAX_KNOWN_FAME = 4096                   # KNOWN_FAME: the popularity of a player is 0 to 4095, so 4096 is "no player"
 MAX_STRICT_FREE = 100                   # STRICT_FREE, percent
 MAX_NEED_GAP, MAX_NEED_BETTER = 30, 20  # NEED_GAP, NEED_BETTER: rating points, from 1
+MAX_PRESSURE_LIMIT, MAX_PRESSURE_DROP = 99, 100     # SQUAD_PRESSURE: players of a group, percent
 # a persona: the lowest and the highest number each entry takes (GENE_NAMES, then the two ages)
 GENE_LIMITS = {'free': (0, 100), 'listed': (0, 100), 'clubs': (0, 100), 'winter': (0, 100), 'knows': (1, 100),
                'fog': (0, 10), 'wealth': (10, 250), 'premium': (0, 250), 'panic': (0, 250), 'fame': (0, 250),
@@ -1413,6 +1519,10 @@ CONTEXT_CEILING = (
     ('plan', SQUAD_PLAN, 2401),             # club_squad_plan, the whole function: the frame the need routine reads
     ('fill', AI_FILL_SLOTS, 1098),          # ai_fill_slots, the whole function: what it hands to ai_pick_candidate
     ('lineup', LINEUP_RATINGS, 111),        # squad_needs: player, position and rating of an entry of the lineup list
+    ('team', TEAM_RECORD, 136),             # the record of a club, the whole function (SQUAD_PRESSURE walks its squad)
+    ('player', PLAYER_RECORD, 111),         # the record of a player, the whole function
+    ('no player', SAME_ID, 53),             # "are two id pairs the same", the whole function
+    ('no player id', NO_PLAYER_AT, 8),      # the id pair of an empty squad entry it is asked with
 )
 
 
@@ -1528,8 +1638,9 @@ class Tables:
                  young_years=None, talent=None, talent_step=0, talent_max=0, talent_cap=0, income=None,
                  league_by_id=None, cup_national=None, cup_tv=None, income_wages=None, ceiling=None,
                  ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100,
-                 sell=False, scouting=False, persona=None, rivals=None, need=None):
+                 sell=False, scouting=False, persona=None, rivals=None, need=None, pressure=None):
         # need: None, or (gap, better): NEED_GAP and NEED_BETTER of MLTransfers.lua with NEED on
+        # pressure: None, or ((GK, DF, MF, FW), drop): SQUAD_PRESSURE of MLTransfers.lua; counts with PERSONA only
         # persona may also hold: keep (from, step, bigger), known, shift (KEEP_BEST, KNOWN_FROM, AGE_SHIFT) and
         # fame, strict_free (KNOWN_FAME, STRICT_FREE)
         self.value = [clamp(amount(m), 1, CAP) for m in curve(value, 0, 99, True)]
@@ -1644,6 +1755,10 @@ class Tables:
             self.age_shift = clamp(int(persona.get('shift', 0) + 0.5), 0, MAX_AGE_SHIFT)
             self.known_fame = clamp(int(persona.get('fame', MAX_KNOWN_FAME) + 0.5), 0, MAX_KNOWN_FAME)
             self.strict_free = clamp(int(persona.get('strict_free', MAX_STRICT_FREE) + 0.5), 0, MAX_STRICT_FREE)
+        self.pressure_limits, self.pressure_drop = [0] * len(GROUPS), 0
+        if persona is not None and pressure is not None:
+            self.pressure_limits = [clamp(int(x + 0.5), 0, MAX_PRESSURE_LIMIT) for x in pressure[0]]
+            self.pressure_drop = clamp(int(pressure[1] + 0.5), 0, MAX_PRESSURE_DROP)
 
     def sites(self):
         """The places the module changes with these settings: (name, address, old, new)."""
@@ -1856,6 +1971,27 @@ def age_shift(t, club):
     return (high_byte(club_key(club), HASH_SHIFT) * (2 * t.age_shift + 1) >> 8) - t.age_shift
 
 
+def image_5(t):
+    """The fifth piece of memory: the numbers and the routine of SQUAD_PRESSURE."""
+    d = struct.pack('<I', t.pressure_drop) + bytes(t.pressure_limits) + bytes(GROUP_OF)
+    assert CAVE_5 + len(d) <= PRESSURE_CODE and len(t.pressure_limits) == len(GROUPS) and len(GROUP_OF) == len(POSITIONS)
+    d = d.ljust(PRESSURE_CODE - CAVE_5, b'\0') + PRESSURE_BYTES
+    assert len(d) <= CAVE_5_SIZE
+    return d.ljust(CAVE_5_SIZE, b'\0')
+
+
+def pressed_keeps(t, keeps, position, groups):
+    """SQUAD_PRESSURE: `keeps` of a club for one of its players, lower by the drop (not
+    below 0) if the club has more players of his group than the limit of that group.
+    position: the one he is registered for; groups: how many players of its squad are of
+    each group of GROUPS (None: not known, nothing changes)."""
+    if t.pressure_drop and groups and position < len(POSITIONS):
+        group = GROUP_OF[position]
+        if groups[group] > t.pressure_limits[group]:
+            return max(0, keeps - t.pressure_drop)
+    return keeps
+
+
 def accepts(t, level, player, buyer=None, search=None, from_pick=True):
     """Does a computer club take the player as a candidate (after all the game's own
     tests)? The routine of MLTransfers.lua, step by step.
@@ -1864,7 +2000,8 @@ def accepts(t, level, player, buyer=None, search=None, from_pick=True):
     player: dict with rating, age, popularity, position, id (two parts) and, if not 0 or
     False, status (+0xb4 bits 0-3), listed (mark 29 or 30), band (his status band), club
     (None: the game's "no club"; else a dict with id, level and points of its ranking
-    record and count, the players the pool counts for it).
+    record and count, the players the pool counts for it; for SQUAD_PRESSURE also groups,
+    how many players of its squad are of each group of GROUPS, those in a deal left out).
     buyer: dict with id, level and points (its ranking record), count (as above).
     search: dict with wide (the second search, among all players), first (the first of the
     two calls of ai_candidates: the set of players without a contract and of those who
@@ -1909,6 +2046,7 @@ def accepts(t, level, player, buyer=None, search=None, from_pick=True):
         his = eleven(t, seller['points'], seller['level'])
         if own - his < t.keep_bigger and player['rating'] + t.keep_from > his:
             keeps += (player['rating'] + t.keep_from - his) * t.keep_step
+        keeps = pressed_keeps(t, keeps, player['position'], seller.get('groups'))
         if draw(club_key(seller['id']) ^ key ^ date, HASH_KEEPS) < keeps:
             return False
     # 2. scouting: a club knows a part of the players; a listed player, a good one and a famous one are
@@ -2856,6 +2994,7 @@ def build():
     out['NEED_PLAN_BYTES'] = bytes(ks.asm(NEED_PLAN_SOURCE, NEED_PLAN_CODE)[0])
     out['NEED_PICK_BYTES'] = bytes(ks.asm(NEED_PICK_SOURCE, NEED_PICK_CODE)[0])
     out['INCOMING_BYTES'] = bytes(ks.asm(INCOMING_SOURCE, INCOMING_CODE)[0])
+    out['PRESSURE_BYTES'] = bytes(ks.asm(PRESSURE_SOURCE, PRESSURE_CODE)[0])
     return out
 
 
@@ -2906,7 +3045,8 @@ def lua_block_transfers(exe):
     for site in SITES:
         if site[0].startswith('need '):
             need += '    { "%s", 0x%08x, "%s", "%s" },\n' % (site[0], site[1], site[2].hex(), site[3].hex())
-    need += '}\n\n'
+    need += ('}\n\n-- SQUAD_PRESSURE: its routine (offset in the fifth piece of memory, machine code)\n'
+             'local PRESSURE_ROUTINE = { 0x%02x, %s }\n\n' % (PRESSURE_CODE - CAVE_5, quoted(PRESSURE_BYTES.hex(), 50)))
     out = ('local ROUTINE = { 0x%02x, %s }\n\n-- The place that is changed: name, address, bytes there now, bytes to write.\n'
            'local SITE = { "%s", 0x%08x, "%s", "%s" }\n\n'
            '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n' % (
@@ -2930,6 +3070,7 @@ if __name__ == '__main__':
     print('memory 2 %08x - %08x (MLTransfers.lua)' % (CAVE_2, CAVE_2 + CAVE_2_SIZE - 1))
     print('memory 3 %08x - %08x (MLTransfers.lua, NEED)' % (CAVE_3, CAVE_3 + CAVE_3_SIZE - 1))
     print('memory 4 %08x - %08x (MLTransfers.lua, INCOMING)' % (INCOMING_CODE, INCOMING_CODE + len(INCOMING_BYTES) - 1))
+    print('memory 5 %08x - %08x (MLTransfers.lua, SQUAD_PRESSURE)' % (CAVE_5, CAVE_5 + CAVE_5_SIZE - 1))
     for name, at, old, new in SITES:
         print('%-9s %08x: %s -> %s' % (name, at, old.hex(), new.hex()))
     for at, _, name in ROUTINES:
@@ -2937,3 +3078,4 @@ if __name__ == '__main__':
     print('%-15s %08x: %s' % ('CEILING_BYTES', CEILING_CODE, CEILING_BYTES.hex()))
     print('%-15s %08x: %s' % ('NEED_PLAN_BYTES', NEED_PLAN_CODE, NEED_PLAN_BYTES.hex()))
     print('%-15s %08x: %s' % ('NEED_PICK_BYTES', NEED_PICK_CODE, NEED_PICK_BYTES.hex()))
+    print('%-15s %08x: %s' % ('PRESSURE_BYTES', PRESSURE_CODE, PRESSURE_BYTES.hex()))
