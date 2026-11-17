@@ -21,8 +21,8 @@ Last runs. Version 9 of MLTransfers.lua (squad pressure), files: the list has 16
 12 new ones (153 to 164) were run, all noticed; the other 153 were not run, and 14 of
 them (27 35 36 55 56 57 65 78 88 128 129 130 140 142) no longer find their line since
 versions 7 and 8 and were not repaired. pressure (`pressure 0 89`, `pressure 89 178`;
-run with the routine at 0x047d6e68, before it moved to 0x047d6c68 with the same
-source): 1,374 of 1,424 noticed. Of the 50 others, 43 are
+run with the routine at 0x047d6e68 and again at 0x047d6c68, where it is now, with the
+same flips left over): 1,374 of 1,424 noticed. Of the 50 others, 43 are
 the same in effect for the numbers the routine can meet (a byte for a dword compare of
 numbers below 256, a shift count the processor masks, `sub` for `cmp` where the register
 is dead, a jump into the same end by another way); six change the address of the game's
