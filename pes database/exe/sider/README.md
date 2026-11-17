@@ -13,8 +13,8 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included; version 7 adds the offers for your own players: a rival of yours no longer makes one; version 8 makes the chooser of that club the whole rules the game never had (no rival, a persona that wants him, a place in its plan, a price it can afford) and leaves the room test to the game; version 9 adds squad pressure: a club that has more goalkeepers, defenders, midfielders or forwards than a limit lets a player of that group go more easily, and makes the offers for your own players choose their club by the whole rules of the computer clubs: scouting, the place it buys from, the day of the career and the stretch above the ceiling. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 9 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
-| `MLTeamSpirit.lua` | **changes the game.** Team Spirit has no effect in a played Master League match: every player's value is 99, so no ability is lowered (a skipped match never read it). One place of five bytes; needs no other module. Has run in the emulator only |
-| `test_spirit.py <PES2017.exe>` | runs `MLTeamSpirit.lua` on the exe in the emulator, then the game's function that gives a player his Team Spirit value and the one of the match set-up that stores the values for the match (needs `pip install lupa unicorn capstone`) |
+| `MLTeamSpirit.lua` | **changes the game.** Version 2: in a played Master League match your club has a Team Spirit of its own, 90 to 99, worked out before every match from the career's own match records — the last five results, two losses in a row, a run of wins, the last round of a cup, a rival and a league match at the top or the bottom — so 22 abilities of your players are lowered by 2 percent at the worst instead of 30. Version 1 answered 99 for every player, which switched the effect off. One place of twelve bytes, and one byte of it written again before a match; no new memory, no cave. Needs no other module. Has run in the emulator only |
+| `test_spirit.py <PES2017.exe>` | runs `MLTeamSpirit.lua` on the exe in the emulator, then the game's function that gives a player his Team Spirit value and the one of the match set-up that stores the values for the match; the rules are run on careers written out in the emulator's memory (needs `pip install lupa unicorn capstone`) |
 | `MLSimToDate.lua` | **changes the game.** "Sim to Date": choose a future day in the Master League Schedule with F8, cancel with F9, switch stopping for news with F10; matches before it are simulated via Skip Match. Off as it comes. Optional existing Lua/text-file date controls remain. Needs no other module. **Emulator only; not tested in-game** |
 | `simdate_calendar.py` | source and generator for the x86 Schedule hooks embedded in `MLSimToDate.lua` (needs `keystone-engine` only when regenerating) |
 | `test_simdate.py <PES2017.exe>` | runs the sim routine, day loop, installation checks and file-control logic in the emulator (needs `pip install lupa unicorn keystone-engine capstone`) |
@@ -175,9 +175,10 @@ Not shown: the set-up of a career as a whole was not run, only its eight instruc
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
 
-## `MLTeamSpirit.lua`, version 1: Team Spirit has no effect in a match
+## `MLTeamSpirit.lua`, version 2: Team Spirit follows the form of your club
 
-Emulator only: it has not run in the game yet.
+Emulator only: it has not run in the game yet. (Version 1 answered 99 for every player,
+which switched the effect off; it is described at the end of this section.)
 
 ### What the game does
 
@@ -194,19 +195,28 @@ So Team Spirit only ever makes your own team worse, and only when you play.
 
 ### What the module changes
 
-One jump in the function that gives a player his value (`fcn_038df4c9`), in the running
-game only: its Master League branch now goes straight to the function's own "return 99",
-the answer a player of another club gets. With it:
+Twelve bytes in the function that gives a player his value (`fcn_038df4c9`), in the running
+game only: the head of the branch that only a player of your club goes into now answers
+"the value is this number" and takes the function's own way out (the same three pops the
+branch owed). One byte of that, the value itself, is written again before every match,
+worked out from the match records of the career (section 5 of `../MASTER_LEAGUE.md`):
 
-- the match set-up stores 99 for every player, formation and position, so the match
-  multiplies every ability by 1.00;
-- the game plan screen takes its number from the same function, so it should show
-  **Team Spirit 99** (read, not run);
-- the other modes with Team Spirit (mode kind 21, taken to be myClub) go another way
-  through the function and are untouched;
-- nothing is saved: without the module the old values are back at once.
+| rule | effect |
+|---|---|
+| the last five matches, most recent first with the weights 3, 2, 2, 1, 1 | a win raises the value, a loss lowers it, a draw does neither; nine form points are four value points |
+| two losses one after the other | at most 92 |
+| three wins one after the other or more | at least 98 |
+| the last round of a cup | 99 |
+| the round below it | +2 |
+| a club your club record names as a rival | +2 |
+| a league match of two of the best four, or two of the worst three | +2 |
+| the base value, when nothing is known | 95 |
+| never below 90, never above 99 | 90 to 99 is a factor of 0.981 to 1.00 |
 
-It has no settings.
+Every rule is a setting at the top of the file, and every one that fires is named in
+`sider.log` with the value it led to. Nothing is stored in the game: no cave, no new
+memory, no code of our own. Nothing is saved: without the module the game's own values
+are back at once.
 
 ### Install
 
@@ -217,34 +227,76 @@ It has no settings.
    ```
 3. Start the game and look at `sider.log`:
    ```
-   MLTeamSpirit 1: Team Spirit has no effect in a Master League match
-   check: value of a Master League player at 038df528  as expected
-   RESULT: installed. In Master League the Team Spirit of every player is 99: no ability is lowered in a match.
+   MLTeamSpirit 2: Team Spirit follows the form of your club
+        base 95, kept inside 90 to 99; two losses -> 92, 3 wins -> 98, a cup final -> 99
+   check: the value of a player of your club at 038df6c1  as expected
+   RESULT: installed. In a Master League match the Team Spirit of every player of your club is worked out from the club's form before the match and kept inside 90 to 99; it is 95 until the first match.
    ```
-4. Open the game plan of your Master League club: Team Spirit should read 99.
+4. Play a match. One line is written for it, and the game plan screen of your club reads
+   the same number:
+   ```
+   MLTeamSpirit 2: your club is 114838. Every line below names the other club of the match the same way; such a number in RIVALS makes that club a derby.
+   MLTeamSpirit 2: at home against club 131222, competition 29 round 4, form D D D D D -> 97  [big match (+2)]
+   MLTeamSpirit 2: at home against club 131222, competition 30 round 53, form none -> 99  [final (99)]
+   ```
 
 `RESULT: nothing written. ...` with a `DIFFERENT` line: the game does not hold the
 expected code at that place; send the log. To undo, remove the line from `sider.ini`.
 
+### How to see it working in a career
+
+Nothing of this has been in the game, so the first thing to look at is the log:
+
+1. **The value moves.** Play three or four matches of a career and read the lines: the
+   form string (`W W D L W`, newest first) is the last matches of your club, and the
+   number after `->` is the value. Lose two in a row: 92. Win three in a row: 98 or 99.
+2. **The screen agrees.** Open the game plan of your club before a match: Team Spirit
+   reads the number of the last line of the log (the screen asks the same function).
+3. **The rules of a career are read, not guessed.** The line names the competition and
+   the round of the match. If it says `round nil`, Sider's `match_id` is not the number
+   of the match in the records, the cup rules cannot fire, and the log says so once; the
+   other rules are not affected.
+4. **A derby.** The three rivals of your club record (`+0x514`) are read. In the two
+   saves of `../ML saves/` every club record names no rival at all, so a derby may never
+   fire; the line for a match names the other club, and that number in the setting
+   `RIVALS` makes the club a derby whatever the game says.
+5. **A big match.** The places in the league are counted from the matches of the season
+   in the records, so they are the league table of the game's own results.
+
 ### What the test shows
 
-`python3 test_spirit.py <PES2017.exe>` (five seconds):
+`python3 test_spirit.py <PES2017.exe>` (four seconds):
 
 ```
 ok 1: without the module the game gives the made-up player a value below 99 in every mode (48 cases: he knows the tactics at 3, 30, 60, 90, plays a position rated A, B or C), lower out of position, and the match set-up stores it for 3 formations x 13 positions
-ok 2: the module writes the five bytes of the one place and nothing else
-ok 3: with the module the same code gives 99 in Master League (mode numbers 19 and 40), whatever the player knows and wherever he plays, and the match reads 99 for all 3 formations x 13 positions; in League mode and mode kind 21 the values are as without the module
-ok 4: with one byte of the place changed (5 cases) or the change in already nothing is written and the place is named; a write that does not go in is reported
-ok 5: with MLMoney.lua and MLTransfers.lua in the same game, above or below them, all three are installed and the value is 99
+ok 2: the module writes the 12 bytes of the one place and nothing else, and the byte in them is the base value 95
+ok 3: with the module the same code gives 95 in Master League (mode numbers 19 and 40), whatever the player knows and wherever he plays, and the match reads it for all 3 formations x 13 positions; in League mode and mode kind 21 the values are as without the module. It gives back ebx, esi and edi as it was given them and leaves the stack where the game leaves it
+ok 4: the form of the club is the last five matches (7 careers written out: nothing played, one loss, two losses, three wins, five wins, five losses, a draw and a win), and every rule that fires is named in the log
+ok 5: the last round of a cup, the round before it, a rival the club record names and a league match of two clubs at the top raise the value; an early round, a club that is no rival and a match against a club in the middle do not
+ok 6: a match of two other clubs and a mode that is not a career leave the value where it is
+ok 7: every value the byte holds, 93 here, is what the game gives a player of your club in Master League and what the match reads for 3 formations x 13 positions; the other modes keep the value the game works out
+ok 8: with one byte of the place changed (12 cases) or the change in already nothing is written and the place is named; a write that does not go in is reported
+ok 9: with MLMoney.lua and MLTransfers.lua in the same game, above or below them, all three are installed and the value is 95
 ```
 
-Two wrong jumps were planted in the module and the test together: one byte too far is
-noticed by `ok 3`; two bytes short lands on a jump that is never taken there and is the
-same in effect. A wrong jump in the module alone fails `ok 2`.
+`ok 4` to `ok 7` fill a mode data block of the emulator with match records, competition
+records, club records with rivals and a day of the year, and then call the function the
+module registers for the conditions of a match with a Sider `ctx` — the same call Sider
+makes. `ok 2` also checks the five bytes of version 1's place are still the game's own:
+with version 1's jump in them no player reaches the branch, and the log says so.
 
 Not shown: the code that multiplies the abilities (`fcn_02f903a7`) and the screen were
-not run, and the career in the test has no mode data (the change jumps before the game
-asks for it). Nothing ran in the game.
+not run, and no match was played. Nothing ran in the game.
+
+### Version 1: Team Spirit has no effect in a match
+
+Version 1 put one jump, five bytes at `0x038df528`, at the start of the same branch, to
+the function's own "return 99" — the answer a player of another club gets. With it the
+match set-up stored 99 for every player, formation and position, the game plan screen
+showed 99, the other modes with Team Spirit (mode kind 21, taken to be myClub) went
+another way through the function and were untouched, and nothing was saved. It had no
+settings. Version 2 does the same thing with a number of the club's own; the two must not
+be installed together, and version 2 says so in the log if version 1's bytes are there.
 
 ## `window_transfers.py`: the transfers of the current window, the most expensive first
 
