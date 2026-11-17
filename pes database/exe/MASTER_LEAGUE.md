@@ -2036,19 +2036,23 @@ fitness; `rec+0x2c` the id (low, high). The overall rating of a record:
 
 ### 12.3 A Sider module that gives every player an age curve
 
-`sider/MLGrowth.lua` (version 2) changes four places in the running game; what it
+`sider/MLGrowth.lua` (version 3) changes four places in the running game; what it
 writes and why is in `sider/growth_cave.py` (its Python is the reference the test
 compares the machine code with), `sider/test_growth.py` runs the game's own award,
 training and season-walk code with the changes in the emulator.
 
 - **Hook A, the exp award** (`fcn_038b2fc4` entry, `0x038b2fc4`): before the function
-  runs, the exp argument is multiplied by the age curve (x3.0 at 15-17, x2.5 at 18-21,
-  x1.5 at 22-24, x1.0 at 25-27, x0.5 at 28-29, x0.25 from 30), by the potential scale
-  `min(1, (99 - rating [+4 when rating >= 75 and age <= 21]) / margin(age))` with
+  runs, the exp argument is multiplied by the moderated age curve (x2.5 at 15-17,
+  x2.0 at 18-21, x1.25 at 22-24, x0.75 at 25-27, x0.5 at 28-29, x0.25 from 30), by
+  the potential scale `min(1, (99 - rating [+4 when rating >= 75 and age <= 21]) /
+  margin(age))` with
   margins 25/19/12/5/1 from 15/18/21/24/27 on (0 below 15 and from 53 on: no growth),
   and, for a player with a growth record, by his playtime of the cycle
   (`0.5 + 0.5 x min(1, appearances / 20)`, 20 for a player without one). The rating
-  is the game's own (`fcn_03838c18`). Negative exp (decline) is multiplied by 0.25,
+  is the game's own (`fcn_03838c18`). Version 3 applies a 0.80 pace setting before
+  the quarter-step table is made. It therefore reduces the 15-27 rates but keeps the
+  x0.5/x0.25 late-career tail; potential headroom and playtime still determine whether
+  a player receives the reduced rate. Negative exp (decline) is multiplied by 0.25,
   except the physical fields — speed, body balance, physical contact, explosive
   power, jumping, stamina — from 31 on, which decline in full. Guards, carry, levels,
   news and reports run as before.
@@ -2071,12 +2075,12 @@ training and season-walk code with the changes in the emulator.
   the player (edi) and the growth record (ecx) of the call sites and passes them
   on; the scaled exp lands in `fcn_036216e9`'s own exp array of the growth record.
 
-A six-season replay of hook E on all 19,921 players of the test save
-(`python3 sider/growth_cave.py calibrate <exe> <save>`): the mean rating moves from
-67.82 to 68.02; the 15-20-year-olds gain 0.60 on average (the biggest risers, young
-low-rated players, up to +18), the 21-24-year-olds 0.34, and from 29 on nothing moves.
-The ~50 players with growth records follow hook A instead, which hangs on matches
-played and cannot be replayed from a save.
+A six-season replay of **version 3** hook E on all 19,921 players of the test save
+(`python3 sider/growth_cave.py calibrate <exe> <save>`) moves the mean rating from
+67.81 to 67.92. The 15-20-year-olds gain 0.49 on average (the biggest riser is +17),
+the 21-24-year-olds 0.12, and from 25 on nothing moves. The ~50 players with growth
+records follow hook A instead, which hangs on matches played and cannot be replayed
+from a save.
 
 The module uses the free gaps `0x047d3f07`-`0x047d3f9a` (season award),
 `0x047d5b8c`-`0x047d5bde` (the curve routine), `0x047d6377`-`0x047d63fa` (the exp

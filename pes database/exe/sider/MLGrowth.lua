@@ -1,5 +1,5 @@
--- MLGrowth.lua, version 2: an age curve for every Master League player (Sider Lua
--- module). Made for PES2017.exe sha256 44b0caaa...
+-- MLGrowth.lua, version 3: a moderated, adaptive age curve for every Master League
+-- player (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): Master League keeps growth
 -- records (experience, carry, match counters, pending events) for about fifty players
@@ -13,12 +13,15 @@
 -- raises only their age.
 --
 -- What the module changes, in the running game only (no file is touched):
---   A. The exp award fcn_038b2fc4 now multiplies the exp by an age curve (x3.0 at 15
---      down to x0.25 from 30) and by a potential scale (how close the player is to
---      the ceiling his age allows) and, for a player with a growth record, by his
---      playtime of the cycle.  Kind-2 training awards (which the game already scales
---      by minutes played) get the curve and the scale but no playtime factor, so the
---      minutes are not counted twice.  Decline exp is dampened to a quarter, except
+--   Version 3 moderates the fast part of the curve without flattening its decisions:
+--   the effective rates are x2.5 at 15-17, x2.0 at 18-21, x1.25 at 22-24, x0.75 at
+--   25-27, x0.5 at 28-29 and x0.25 from 30. The potential and playtime checks still
+--   decide which player earns that rate; the already-low 28+ rates are unchanged.
+--   A. The exp award fcn_038b2fc4 now multiplies the exp by this age curve, a
+--      potential scale (how close the player is to the ceiling his age allows) and,
+--      for a player with a growth record, by his playtime of the cycle. Kind-2 awards
+--      already scale by minutes played, so they get the curve and scale but not the
+--      playtime factor. Decline exp is dampened to a quarter, except
 --      the physical fields (speed, body balance, physical contact, explosive power,
 --      jumping, stamina) from 31 on, which decline in full.  Guards, carry, level-ups,
 --      news and the growth report run as before.
@@ -69,7 +72,7 @@ local BLOCKS = {
     { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f850ed1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
     { "season walk code 2", CAVE_E1 + 58, "d902e8fbecffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b5589e581ec3c020000e9cfc00dff" },
     { "training scale code", CAVE_FOCUS, "5356575589e583ec10894df88b5f1cc1eb0783e33f8d45fc6a00508d472c50e8f61c06ff83c40c0fb6f0e85fecffffdb4518dec983ec04db1c24ff75148b4df8e8a6a7e4fe89ec5d5f5e5bc20800" },
-    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a0a06060604040402020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101010001010100000000000000000000000000000000000013131111110f1111110f0f0f101111110000803e0000a0410000003f0000003f0000803e" },
+    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a0808080805050503030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101010001010100000000000000000000000000000000000013131111110f1111110f0f0f101111110000803e0000a0410000003f0000003f0000803e" },
 }
 
 local SITES = {
@@ -112,9 +115,9 @@ local function check_bytes(name, addr, expected_hex)
 end
 
 function m.init(ctx)
-    log("MLGrowth 2: an age curve for every Master League player "
-        .. "(young players grow fast, old ones stall, physical decline from 31, "
-        .. "training follows the curve too)")
+    log("MLGrowth 3: a moderated age curve for every Master League player "
+        .. "(potential and playtime decide growth, young players still lead, "
+        .. "physical decline from 31, training follows the curve too)")
 
     -- 1. the code the cave jumps to and calls must be where it is
     local good = true
@@ -174,10 +177,9 @@ function m.init(ctx)
         end
     end
 
-    log("RESULT: installed. Players with a growth record grow and decline by an age "
-        .. "curve scaled by potential and playtime, the training focus follows the "
-        .. "same curve, and every other player gains a few points a season on the "
-        .. "ability of his position until the curve flattens.")
+    log("RESULT: installed. The moderated age curve is scaled by potential and "
+        .. "playtime, the training focus follows it, and every other player gains a "
+        .. "few position-specific points a season until the curve flattens.")
 end
 
 return m

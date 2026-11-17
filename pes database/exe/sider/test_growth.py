@@ -11,10 +11,11 @@ amounts the cave leaves in the exp argument are compared with growth_cave.py's P
 arithmetic, and the points hook E adds to a position ability with its season_levels().
 
 What this shows: the module's logic and byte discipline, and that with it a tracked
-18-year-old with ten appearances gets 1000 x 2.5 x playtime(10) exp while the vanilla
-game gives everyone the flat 1000, that decline exp is dampened but not for the physical
-fields from 31 on, and that the frozen majority gains curve points a season.  What it
-does not show: Sider, Windows, the running game, a season.
+18-year-old with ten appearances gets 1000 x 2.0 x playtime(10) exp while the vanilla
+game gives everyone the flat 1000. It also verifies that the moderated curve retains
+its potential and playtime rules, decline is dampened but not for the physical fields
+from 31 on, and the frozen majority gains curve points a season. What it does not show:
+Sider, Windows, the running game, a season.
 """
 import struct
 import sys
@@ -30,10 +31,9 @@ AWARD, SEASON, SEASON_COUNT = gc.AWARD, gc.SEASON, 0x05fecdc
 PLAYER_OVR, GETTER, SETTER = gc.PLAYER_OVR, 0x038278b0, 0x038281b0
 NEWS = 0x03623150                          # the news push of the award
 
-INSTALLED = ('RESULT: installed. Players with a growth record grow and decline by an age '
-             'curve scaled by potential and playtime, the training focus follows the '
-             'same curve, and every other player gains a few points a season on the '
-             'ability of his position until the curve flattens.')
+INSTALLED = ('RESULT: installed. The moderated age curve is scaled by potential and '
+             'playtime, the training focus follows it, and every other player gains a '
+             'few position-specific points a season until the curve flattens.')
 NOTHING = 'RESULT: nothing written. This game does not hold'
 ALREADY = 'RESULT: nothing written. A growth hook is already modified'
 
@@ -108,9 +108,19 @@ def ovr(g, player):
 
 
 def main(exe):
+    # Version 3 moderation: the cave has quarter-step rates, so this guards both the
+    # intended 15-27 slowdown and the deliberately unchanged 28+ tail. The existing
+    # hook tests below prove that this one profile reaches awards, focus and season walk.
+    expected_curve = {15: 2.5, 18: 2.0, 22: 1.25, 25: 0.75, 28: 0.5, 30: 0.25}
+    assert {age: gc.mult(age) for age in expected_curve} == expected_curve
+    assert gc.award_exp(1000, 18, 60) == 2000
+    assert gc.season_levels(18, 90) == 0    # close to the ceiling: no forced extra point
+    print('ok 0: version 3 uses the moderated 2.5/2.0/1.25/0.75 youth curve, keeps '
+          'the 0.5/0.25 late tail, and still slows players near their potential ceiling')
+
     source = open(MODULE, encoding='utf-8').read()
     assert gc.lua_block() in source, 'MLGrowth.lua does not hold the block of growth_cave.py'
-    print('ok 0: MLGrowth.lua holds exactly the code and tables growth_cave.py builds '
+    print('ok 0a: MLGrowth.lua holds exactly the code and tables growth_cave.py builds '
           '(the generated block matches)')
 
     image = Game(exe)
