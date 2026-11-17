@@ -109,6 +109,7 @@ local M_GOAL2 = 0x17                -- u8, goals of the club at +0x10
 
 local COMPETITIONS_AT = 0x552e80    -- 300 competition records of 0x224 bytes
 local COMP_STRIDE = 0x224
+local COMP_COUNT_AT = 0x5fece8      -- how many of them are in use
 local C_KIND = 0x5c                 -- 1 a league, 3 and 4 the cups
 
 local CLUBS_AT = 0x481be0           -- the club records, 0x520 bytes each; count at +0x5fece0
@@ -313,17 +314,30 @@ local function rivals_of(base, club)
     return set
 end
 
--- The kind of a competition: 1 a league, 3 and 4 the cups (section 5.1). A kind the
--- table does not hold (or a competition outside it) is answered as nil, and the cup
--- rules then do not fire.
+-- The kind of a competition: 1 a league, 3 and 4 the cups (section 5.1). `comp` is the
+-- number the match records carry in their +0x04, and it is the number in +0x00 of the
+-- competition record, not the place of that record in the table: the game answers a
+-- competition by walking the table and comparing that number (fcn_03822ab9), so this
+-- walks it the same way. A competition the table does not hold, or a kind it does not
+-- hold, is answered as nil, and the cup rules then do not fire.
 local function kind_of(base, comp)
     if comp == nil then return nil end
-    if comp < 0 or comp >= 300 then return nil end
-    local s = memory.read(base + COMPETITIONS_AT + comp * COMP_STRIDE + C_KIND, 1)
-    if type(s) ~= "string" or #s < 1 then return nil end
-    local kind = byte(s, 1)
-    if kind < 1 or kind > 5 then return nil end
-    return kind
+    local count = dword_at(base + COMP_COUNT_AT)
+    if count == nil or count < 1 or count > 300 then return nil end
+    local addr, stride, per = base + COMPETITIONS_AT, COMP_STRIDE, 16
+    for first = 0, count - 1, per do
+        local blob = memory.read(addr + first * stride, per * stride)
+        if type(blob) ~= "string" or #blob < per * stride then break end
+        for i = 0, per - 1 do
+            if first + i >= count then break end
+            if u16(blob, i * stride + 1) == comp then            -- +0x00: its own number
+                local kind = byte(blob, i * stride + 1 + C_KIND)
+                if kind >= 1 and kind <= 5 then return kind end
+                return nil
+            end
+        end
+    end
+    return nil
 end
 
 -- The places in a league: how many points every club of `theirs` has this season. A
@@ -484,9 +498,16 @@ function m.set_conditions(ctx)
         return
     end
 
-    -- the competition and the round: from the record of the match, when Sider's match_id
-    -- is the number of one (fcn_03822b3f answers a record by that number).
-    local comp, round, record = tonumber(ctx and ctx.tournament_id), nil, tonumber(ctx and ctx.match_id)
+    -- The competition and the round: from the record of the match, when Sider's match_id
+    -- is the number of one (match_record, fcn_03822b3f: the mode data + 0x6f154c + the
+    -- number times 0x24c, and the record answers with that number in its own +0x00).
+    -- Sider's tournament_id is another thing: the game makes it from the competition of
+    -- the match with a table of 282 competition numbers (fcn_04062701), so it is a number
+    -- of its own (11 to 159, 159 when the competition is not in the table) and not one
+    -- the match records carry. So the number of the competition is taken from the record,
+    -- or left unknown, and when it is unknown no cup rule fires.
+    local comp, round = nil, nil
+    local record = tonumber(ctx and ctx.match_id)
     if record ~= nil and record >= 0 and record < MATCH_COUNT then
         local s = memory.read(base + MATCHES_AT + record * MATCH_STRIDE, 0x18)
         if type(s) == "string" and #s >= 0x18 and u16(s, 1 + M_FREE) ~= 0xffff then

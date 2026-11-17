@@ -51,6 +51,7 @@ WEIGHTS = [3, 2, 2, 1, 1]
 # the mode data of a career of the test
 MATCHES_AT, MATCH_STRIDE, MATCH_COUNT = 0x6f154c, 0x24c, 9000
 COMPETITIONS_AT, COMP_STRIDE, C_KIND = 0x552e80, 0x224, 0x5c
+COMP_COUNT_AT = 0x5fece8             # how many of the competition records are in use
 CLUBS_AT, CLUB_STRIDE, CLUB_COUNT_AT, CLUB_RIVALS = 0x481be0, 0x520, 0x5fece0, 0x514
 TODAY_AT, YEAR_AT = 0xc2cbb0, 0xc2cbb2
 MODE_SIZE = 0xd00000                        # room for the match records and for the day
@@ -227,8 +228,18 @@ def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS):
     for at, rec in matches:
         table[at * MATCH_STRIDE:(at + 1) * MATCH_STRIDE] = rec
     g.write(mode + MATCHES_AT, bytes(table))
-    for comp, kind in (kinds or {LEAGUE: 1, CUP: 3}).items():
-        g.write(mode + COMPETITIONS_AT + comp * COMP_STRIDE + C_KIND, struct.pack('<B', kind))
+    table = bytearray(300 * COMP_STRIDE)
+    kinds = kinds or {LEAGUE: 1, CUP: 3}
+    for place, (comp, kind) in enumerate(sorted(kinds.items())):
+        struct.pack_into('<H', table, place * COMP_STRIDE, comp)      # +0x00 its own number
+        table[place * COMP_STRIDE + C_KIND] = kind
+        # a decoy in the place whose number is the competition's: the game does not answer
+        # a competition by the place it is in (fcn_03822ab9 walks the table and compares
+        # the number in +0x00), so a module that read by place would find this, not it
+        if comp < 300:
+            table[comp * COMP_STRIDE + C_KIND] = 1 if kind != 1 else 3
+    g.write(mode + COMPETITIONS_AT, bytes(table))
+    g.write(mode + COMP_COUNT_AT, struct.pack('<I', len(kinds)))
     for n, (one, rivals) in enumerate(clubs):
         at = mode + CLUBS_AT + n * CLUB_STRIDE
         g.write(at, struct.pack('<I', club(one)))
@@ -438,6 +449,33 @@ def main(exe):
         assert value(image, 0x13, 30, 1) == RULES['BASE']
     print('ok 9: with MLMoney.lua and MLTransfers.lua in the same game, above or below them, all '
           'three are installed and the value is %d' % RULES['BASE'])
+
+    # the kind of a competition is answered by the game's own look-up: the table is walked
+    # and the number in +0x00 compared (fcn_03822ab9), not read at the number's own place
+    mode = career(g, now, {LEAGUE: 1, CUP: 3})
+    decoy = g.read(mode + COMPETITIONS_AT + CUP * COMP_STRIDE + C_KIND, 1)[0]
+    assert decoy == 1, decoy       # a league sits in the place the cup's number would be
+    this = [record(600, CUP, FINAL_ROUND, club(OURS), club(OTHER), month=11, day=1, played=False)] + top
+    career(g, this)
+    said = fire('after_set_conditions', home_team=club(OURS), away_team=club(OTHER),
+                tournament_id=CUP, match_id=600)
+    got = g.read(VALUE_AT, 1)[0]
+    assert got == RULES['FINAL_VALUE'], 'the cup rules did not fire: %d (%s)' % (got, ' | '.join(said))
+
+    unseen = 77                                     # a competition the table does not hold
+    theirs = [record(601, unseen, FINAL_ROUND, club(OTHER), club(THIRD), month=11, day=1, played=False),
+              record(602, unseen, NEAR_ROUND, club(THIRD), club(FOURTH), month=11, day=1, played=False)]
+    career(g, [record(600, unseen, FINAL_ROUND, club(OURS), club(OTHER),
+                      month=11, day=1, played=False)] + theirs)
+    said = fire('after_set_conditions', home_team=club(OURS), away_team=club(OTHER),
+                tournament_id=unseen, match_id=600)
+    got = g.read(VALUE_AT, 1)[0]
+    assert got == RULES['BASE'], (got, ' | '.join(said))
+    assert 'final' not in ' | '.join(said), said
+    print('ok 10: the kind of a competition is the one of the record that carries its number, not '
+          'the one of the record that sits at that number\'s place in the table (a league was put '
+          'in the cup\'s place and the cup rules still fired); a competition the table does not '
+          'hold is no cup')
 
 
 if __name__ == '__main__':

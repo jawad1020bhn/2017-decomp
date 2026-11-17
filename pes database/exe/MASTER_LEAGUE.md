@@ -512,6 +512,47 @@ the records without it not one has a goal. **Every round of a cup is in the reco
 the day the cup is made**, both teams in it: in the earlier save a cup of 77 matches has
 all six of its rounds (16, 32, 16, 8, 4 and 1 match) and none of them played.
 
+#### A number is not a place
+
+The number in `+0x00` of a match record is the one the game asks a record by
+(`match_record`, `fcn_03822b3f(number)`, 183 callers): it goes to
+`mode + 0x6f154c + number * 0x24c` and takes that record when the number in its own
+`+0x00` is the one it was given, and only when it is not does it go looking in a second
+table at `+0xbfd52c` (`fcn_038225a7`, the same function without the fall-back of
+answering record 0). In the later of the two saves all 7,211 records that are in use hold
+their own place in `+0x00`, so in a career the number of a record is its place.
+
+A competition is answered the other way about: `fcn_03822ab9(id)` walks the competition
+table and compares the id in `+0x00` of every record (and answers `+0x5fe840`, a dummy,
+when it finds none), because **the place of a competition record is not its id**. The ids
+are the numbers of the game's own list of competitions — 2, 3, 5, 8, 9, 11, 12, 15, 16,
+23, 52, 59, 400 to 404, 600 to 607, 1000 to 1011, 1600 to 1605, 1800 to 1807, 3000 to
+3007, 6800 to 6807, 7200 to 7207, 20000 to 20215 and so on — and a match record names the
+competition it belongs to with one of those ids in `+0x04`, not with a place.
+
+#### The match that is being played (mode data `+0x537b8`)
+
+| field | what the game keeps there |
+|---|---|
+| `+0x00` word | the number of the match record (`match_record` is called with it) |
+| `+0x02` word | the id of its competition (`fcn_03822ab9` is called with it) |
+| `+0x04` byte | the leg less one (Sider's `ctx.match_leg` is this plus one) |
+| `+0x08` byte | a match info; `0x37` for none (Sider's `ctx.match_info`) |
+
+The getters and setters of `+0x00` and `+0x02` stand next to each other in the game
+(`fcn_0382b2a8` and `fcn_0382b2b8`, `fcn_0382b2c8` and `fcn_0382b2d8`), and Sider reads
+the same four fields for its `ctx`: `sider.dll` at `0x8770` takes the word at `+0x00` as
+`ctx.match_id`, the byte at `+0x04` plus one as `ctx.match_leg` and the byte at `+0x08`
+as `ctx.match_info` (**proven** for `match_id`: the same word the game gives to
+`match_record`). What it names `ctx.tournament_id` is another number again: it is
+`fcn_04062701(id of the competition)`, a function that holds a table of 282 competition
+numbers and answers one number of its own for a whole group of them — 11 for 2 and for
+400 to 404, 12 for 3 and for 600 to 607, 19 for 5 and for 1000 to 1011, 23 for 8 and for
+1600 to 1605, 24 for 9 and for 1800 to 1807, 27 for 11 and for 2200 to 2215, 28 for 12
+and for 2400 to 2415, 84 for 23, 77 for 52, 95 for 59, 122 for 7200 to 7207 — and 159
+for a competition that is not in its table (run in the emulator). So `ctx.tournament_id`
+is a number of its own, 11 to 159, and not one the match records carry.
+
 ### 5.2 Who makes the fixtures
 
 `make_fixtures` (`fcn_0377111e(competition id)`) is reached from the day end
@@ -1981,7 +2022,12 @@ place of the value of the branch: it walks the match records (section 5.1) for t
 five matches of the user's club, the highest round of its cup and the places in its
 league, and sets the byte at `0x038df6c2` before every match from the rules at the top of
 the module. Over 90 to 99 the factor is 0.981 to 1.00, so the effect is there and does not
-bite.
+bite. Which match it is, it is told by Sider: `ctx.match_id` is the number of the match
+record (the same word the game gives `match_record`), so the record answers the
+competition and the round of the match; the kind of that competition — a league or a cup —
+is then read from the competition record that carries its number, as `fcn_03822ab9` does.
+Sider's `ctx.tournament_id` is not used for it: that number is one of the game's own
+(`fcn_04062701`, section 5.1) and the records do not carry it.
 
 ### 12.2 The growth system
 

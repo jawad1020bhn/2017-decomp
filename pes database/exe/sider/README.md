@@ -253,9 +253,14 @@ Nothing of this has been in the game, so the first thing to look at is the log:
 2. **The screen agrees.** Open the game plan of your club before a match: Team Spirit
    reads the number of the last line of the log (the screen asks the same function).
 3. **The rules of a career are read, not guessed.** The line names the competition and
-   the round of the match. If it says `round nil`, Sider's `match_id` is not the number
-   of the match in the records, the cup rules cannot fire, and the log says so once; the
-   other rules are not affected.
+   the round of the match: both come from the record of the match in the career's own
+   match records, the one Sider's `match_id` is the number of (the same number the game
+   asks a record by, `match_record` of section 5.1). The kind of that competition — a
+   league or a cup — is read from the competition record that carries its number, the way
+   the game's own look-up does; Sider's `tournament_id` is not it, that is a number of the
+   game's own. If the record does not hold the two clubs of the match, the round is not
+   known, the cup rules cannot fire, and the log says so once; the other rules are not
+   affected.
 4. **A derby.** The three rivals of your club record (`+0x514`) are read. In the two
    saves of `../ML saves/` every club record names no rival at all, so a derby may never
    fire; the line for a match names the other club, and that number in the setting
@@ -277,6 +282,7 @@ ok 6: a match of two other clubs and a mode that is not a career leave the value
 ok 7: every value the byte holds, 93 here, is what the game gives a player of your club in Master League and what the match reads for 3 formations x 13 positions; the other modes keep the value the game works out
 ok 8: with one byte of the place changed (12 cases) or the change in already nothing is written and the place is named; a write that does not go in is reported
 ok 9: with MLMoney.lua and MLTransfers.lua in the same game, above or below them, all three are installed and the value is 95
+ok 10: the kind of a competition is the one of the record that carries its number, not the one of the record that sits at that number's place in the table (a league was put in the cup's place and the cup rules still fired); a competition the table does not hold is no cup
 ```
 
 `ok 4` to `ok 7` fill a mode data block of the emulator with match records, competition
