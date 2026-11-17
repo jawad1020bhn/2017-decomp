@@ -1210,7 +1210,9 @@ table, plan records, club ranking, personas, rivals, the player's record) for 20
 against `money_cave.offer_pick`, the same rules in Python: 142 keep the game's club, 19
 answer another club, 39 have no club at the game's slot. The source is `sider/incoming.c`,
 assembled by `offer_source.py` into the 1,661 bytes at `0x047d6550` that the module ships.
-`MLSimToDate.lua` uses the same page, so the two cannot be installed together.
+`MLSimToDate.lua` version 3 used the same page, so the two could not be installed together;
+version 4 moved its calendar block to `0x03fc8000`-`0x03fc88ff` in the unused `.trace` run
+at `0x03fc7d9c`-`0x03fc9da0`, and the two install together now.
 
 **Not read still.** `fcn_036527f2` (the object `fcn_03652df0` writes into, destroyed right
 after), what `fcn_0388ba8a` counts, which of the three callers of `fcn_03655628` runs in
@@ -1232,8 +1234,9 @@ Master League with which level, what `+0x314` holds below bit 7, and the other s
    `0xde4` and holds seven numbers) and `NEED_CAVE` has 0x13 bytes left. Version 8 took the
    0x700 bytes after the need block, `0x047d6550`-`0x047d6c4f` (1,661 used), which hold
    zeros in the file; the module's own emptiness check is what keeps a wrong guess
-   harmless. `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f`, so the two modules refuse
-   each other.
+   harmless. `MLSimToDate.lua` version 3 used `0x047d6550`-`0x047d6e4f` and the two modules
+   refused each other; version 4 moved that block to `0x03fc8000` (an unused run of zeros
+   in `.trace`, `0x03fc7d9c`-`0x03fc9da0`), so they no longer do.
 
 ## 8 Scouts
 

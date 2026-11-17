@@ -316,7 +316,7 @@ Not shown: a January window, a second season (whether a renewed contract gets a 
 start day and so looks like a signing is not known), a loan, a save from a career
 without `MLMoney.lua`, and Windows (it ran on Linux only).
 
-## `MLSimToDate.lua`, version 3: "Sim to Date"
+## `MLSimToDate.lua`, version 4: "Sim to Date"
 
 **Experimental: tested in a CPU emulator only, not in Windows, Sider or the running
 game.** The Schedule controls, status text, real matches and save effects still need
@@ -417,8 +417,10 @@ switches (`../MASTER_LEAGUE.md`, section 3.1). Two additional checked call sites
 Schedule poll `GetAsyncKeyState` only after the game reports the screen ready and only
 while a Master League window belonging to the game has focus. The game's selected day,
 season bounds and date conversion provide the target and heading. Mutable state is kept
-in a checked, empty writable `.text` stub; the added code uses checked, empty space in
-`.link`. All three hooks remain inert until installation and event registration complete;
+in a checked, empty writable `.text` stub; the calendar block (the Schedule hooks and the
+strings they print) uses a checked, empty run of zeros in `.trace` at
+`0x03fc8000`-`0x03fc88ff`, and the day-loop routine uses checked, empty space in `.link`
+at `0x047d6f60`-`0x047d6fe9`. All three hooks remain inert until installation and event registration complete;
 a failed hook write attempts to restore earlier hooks. The module does not patch the exe
 on disk. Reserved code padding and the initial text buffer are marked occupied to help
 other mods detect them; this still assumes no other mod later overwrites those regions.
@@ -436,8 +438,10 @@ They cover 288 synthetic multi-day runs, 15,330 calendar choices across year/sea
 boundaries, both Master League mode numbers, cancel/invalid/focus cases, the F10
 stop-for-news switch through the real input handler and the byte the day loop reads,
 startup and write failures, file overrides, and coexistence with the other four
-modules. The `.link` page is marked read/execute in the calendar test, so runtime state
-writes must work without writable code. These tests do **not** establish that the interface is
+modules. In the calendar test the `.link` page (`0x047d6000`, the day-loop routine) is
+marked read/execute and the `.text` stub read/write, so runtime state writes must work
+without a writable code page; the calendar block itself sits in `.trace`, which the
+executable already marks read/write/execute. These tests do **not** establish that the interface is
 visible or responsive in the real game, that a simulated match is booked correctly in a
 real save, or that Sider's file callbacks arrive at a particular time.
 
@@ -491,11 +495,13 @@ transfer (§ "the fee"), and neither salary nor premium is written on this path.
 **Where it lives.** The look-up `fcn_0381e2eb` is entered at its prologue: the module's
 code sits at `0x047d6550`-`0x047d6c4f` (the 0x700 bytes after the position need;
 `0x047d6bc4` is its last used byte, 0x43c free) and `0x0381e2eb` starts with `e9 rel32`
-and one `nop`. That place holds zeros in the file, but **`MLSimToDate.lua` uses
-`0x047d6550`-`0x047d6e4f` for its Schedule hooks**: the two cannot be installed at the
-same time (the module that comes second finds the memory not empty and writes nothing;
-with `INCOMING = false` this piece is not touched at all), and `MLGrowth.lua`'s
-`0x047d6e50`-`0x047d6efd` is clear of it. The entry keeps every register and flag, answers the game's own
+and one `nop`. That place holds zeros in the file, and it is clear of `MLGrowth.lua`'s
+`0x047d6e50`-`0x047d6efd` and of `MLSimToDate.lua`'s day-loop hook at
+`0x047d6f60`-`0x047d6fe9`. **`MLSimToDate.lua` version 3 had its Schedule hooks here**
+(`0x047d6550`-`0x047d6e4f`), and the two modules then refused each other — the one that
+came second found the memory not empty and wrote nothing; version 4 moved that calendar
+block to the `.trace` run at `0x03fc8000`-`0x03fc88ff`, so the two install together now.
+With `INCOMING = false` this piece is not touched at all. The entry keeps every register and flag, answers the game's own
 code for any other key, and falls back to the game's own prologue when no club passes.
 The source is `sider/incoming.c` (gcc `-m32`, `offer_source.py` cleans the asm for
 keystone); `money_cave.py build` assembles it and checks the bytes the module ships.
@@ -1164,8 +1170,9 @@ last one, on 30 August. If the line says `NOT EMPTY`, the module writes nothing;
 the log.
 
 **New in version 6: `free memory at 047d6400`**, 336 bytes for the position need, in
-the page of the section `.link` that `MLSimMatch.lua` (up to `0x047d6376`) and
-`MLSimToDate.lua` (from `0x047d6550`) also use. It holds zeros in the file. This piece
+the page of the section `.link` that `MLSimMatch.lua` (up to `0x047d6376`), this module's
+offers for your players (from `0x047d6550`) and `MLGrowth.lua` (`0x047d6e50`) also use.
+It holds zeros in the file. This piece
 has not been used in the running game yet. If it says `NOT EMPTY`, set `NEED = false`
 and send the log.
 
@@ -2391,11 +2398,16 @@ Read from the DLL's code and strings, not run:
   `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
   `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b8b`, 2,891 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
   `MLTransfers.lua` version 6 uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
-  version 8 the 0x700 after it for the offers for your players (`0x047d6550`-`0x047d6c4f`
-    used, and `MLSimToDate.lua` cannot be installed with it), and `MLSimToDate.lua` uses
-    `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
-  `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining tail ranges after
-  `0x047d6550` are `0x047d6e50`-`0x047d6f5f` and `0x047d6fea`-`0x047d6fff`.
+  version 8 the 0x700 after it for the offers for your players (`0x047d6550`-`0x047d6c4f`),
+  and `MLSimToDate.lua` uses `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining
+  tail ranges after `0x047d6550` are `0x047d6e50`-`0x047d6f5f` and `0x047d6fea`-`0x047d6fff`.
+  `MLSimToDate.lua` version 3 had its calendar block (`0x900` bytes: the Schedule poll,
+  the selection, the heading and their strings) at `0x047d6550`-`0x047d6e4f`, which is why
+  the two modules could not be installed together; version 4 moved it to an unused run of
+  8,196 zeros in the `.trace` code page, `0x03fc7d9c`-`0x03fc9da0` (a thunk ends before
+  it, the next function starts after it, and no dword of the file points into it), where it
+  takes `0x03fc8000`-`0x03fc88ff`. `.trace` is read/write/execute, so nothing there needs
+  a protection change.
   `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f9a` (the season award, 148
   bytes, five bytes short of `MLSimMatch.lua`'s v7 tables), `0x047d5b8c`-`0x047d5bde`
   (the age curve, 83 of the 84 bytes between `MLSimMatch.lua`'s hook code and its

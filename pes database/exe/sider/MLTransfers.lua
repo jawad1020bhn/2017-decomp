@@ -663,8 +663,9 @@ local CAVE_SIZE = 0xe00
 -- and its two routines
 local NEED_CAVE = 0x047d6400
 local NEED_CAVE_SIZE = 0x150
--- a fourth piece, in the same unused page right after that one (MLSimToDate.lua starts at
--- 0x047d6f60): the chooser of the club that makes an offer for one of your players
+-- a fourth piece, in the same unused page right after that one (MLSimToDate.lua's day-loop
+-- hook starts at 0x047d6f60; its calendar block moved to .trace at 0x03fc8000 in version 4):
+-- the chooser of the club that makes an offer for one of your players
 local INCOMING_CAVE = 0x047d6550
 local INCOMING_CAVE_SIZE = 0x700
 local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e89304000083"

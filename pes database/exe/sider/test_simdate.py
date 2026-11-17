@@ -104,7 +104,7 @@ done:
     add dword ptr [esp], 0x13               ; back behind the game's own handling of the switch
     ret
 past:
-    jmp 0x047d6b50                         ; clears a calendar target and our switches
+    jmp {arrived}                          ; clears a calendar target and our switches
 normal:
     mov eax, dword ptr [0x26503e0]          ; what the replaced call did
     ret
@@ -113,7 +113,7 @@ normal:
 
 def assembled(big):
     code, _ = Ks(KS_ARCH_X86, KS_MODE_32).asm('\n'.join(l.split(';')[0] for l in SOURCE.splitlines()).format(
-        big=int(big), news=sc.NEWS), ROUTINE)
+        big=int(big), news=sc.NEWS, arrived=sc.ARRIVED), ROUTINE)
     return bytes(code)
 
 
