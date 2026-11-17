@@ -8,7 +8,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
-| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 6 have run in the emulator only |
+| `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included; version 7 adds squad pressure: a club that has more goalkeepers, defenders, midfielders or forwards than a limit lets a player of that group go more easily. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 7 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
 | `MLTeamSpirit.lua` | **changes the game.** Team Spirit has no effect in a played Master League match: every player's value is 99, so no ability is lowered (a skipped match never read it). One place of five bytes; needs no other module. Has run in the emulator only |
@@ -21,7 +21,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 | `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5ffd`, 4,030 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
-| `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua` and the two of its position need, with their source) and the same arithmetic as Python |
+| `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua`, the two of its position need and the one of its squad pressure, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
 | `test_need.py <PES2017.exe>` | the position need of `MLTransfers.lua` version 6: runs its two routines at their places in the game's planning and choosing code in the emulator, on made-up clubs, and compares with `money_cave.py` (needs `pip install lupa unicorn`) |
 | `window_report.py <PES2017.exe> <save before> <save after>` | reads one transfer window from two Master League saves: who signed whom, from where, by persona and by level, and whether the signings follow the rules of `MLTransfers.lua` (needs `pip install lupa unicorn`) |
@@ -432,12 +432,78 @@ work without writable code. These tests do **not** establish that the interface 
 visible or responsive in the real game, that a simulated match is booked correctly in a
 real save, or that Sider's file callbacks arrive at a particular time.
 
-## `MLTransfers.lua`, version 6: the selling side, club personas, scouting, rivals, position need
+## `MLTransfers.lua`, version 7: the selling side, club personas, scouting, rivals, position need, squad pressure
 
 Version 2 ran in the game: one transfer window played with it was read from two save
-files (see "What the second window showed" below). **Versions 3 to 6 have run in the
+files (see "What the second window showed" below). **Versions 3 to 7 have run in the
 emulator only.** It needs `MLMoney.lua` version 7 as before. The price ceiling of
 version 1 is still there and is described in the next section.
+
+### New in version 7: squad pressure
+
+**What the game does.** A computer club that is asked for a player does not look at how
+many players it has for his position. The one exception is the goalkeeper: when a club
+looks for a goalkeeper, the game skips a goalkeeper whose club has two or fewer who are
+not in a deal (`ai_candidates`, `0x0365f920`; `MASTER_LEAGUE.md` 9.6). Up to version 6
+the module was the same: a club's `keeps` (how often it refuses to let a player go) did
+not depend on the squad.
+
+**What `SQUAD_PRESSURE` adds.** The module counts the squad of the selling club by
+group: goalkeepers, defenders (CB, LB, RB), midfielders (DMF, CMF, LMF, RMF, AMF) and
+forwards (LWF, RWF, SS, CF), by the position a player is registered for. If the club
+has more players of the asked player's group than the limit, its `keeps` counts
+`keeps_drop` lower for him, not below 0.
+
+    local SQUAD_PRESSURE = { positions = { GK = 3, DF = 8, MF = 9, FW = 6 }, keeps_drop = 40 }
+
+1. The drop is for **every** player of a group that is above its limit, not only for
+   the last ones: the routine does not know which of seven forwards is the seventh.
+   What protects the best ones is `KEEP_BEST`: the drop comes after what `KEEP_BEST`
+   adds. With `KEEP_BEST = { 4, 12, 2 }` a forward rated as high as his club's eleven,
+   at a club with `keeps` 30, stands at 30 + 4 x 12 = 78 and falls to 38; a reserve
+   stands at 30 and falls to 0.
+2. With the numbers above the drop (40) is larger than the `keeps` of every persona
+   (10 to 35). So a club above a limit never refuses a player of that group who is
+   not first team. A smaller `keeps_drop` makes it softer.
+3. Players in a deal (bought or sold, not yet moved) are not counted, as in the
+   game's own goalkeeper rule. A player on the transfer list or without a contract
+   never reaches `keeps`, so nothing changes for him.
+4. It only lets players go. The rule of `SELL_SIDE` that a club with 23 or fewer
+   players sells nobody stays, and so do the price ceiling, the persona of the buyer,
+   scouting and the rivals.
+5. It needs `PERSONA = true`: without personas `keeps` is 0 for every club and there
+   is nothing to lower.
+
+| setting | as shipped; meaning |
+|---|---|
+| `SQUAD_PRESSURE` | the line above; `false`, or `keeps_drop = 0`: off, as version 6 |
+| `positions`: `GK`, `DF`, `MF`, `FW` (0 to 99 each) | 3, 8, 9, 6: the most players of the group a club can have without the drop. All four must be there |
+| `keeps_drop` (0 to 100) | 40: how much lower `keeps` counts, in points of 100 |
+
+**New memory.** The routine of version 6 fills its memory to the last byte, so the
+count is a routine of its own: 178 bytes in a fourth piece of unused memory,
+`0x047d6e50`-`0x047d6f5f` (272 bytes: the drop, the four limits, the group of each of
+the 13 positions, the routine). No new place of the game's code is changed; the routine
+of version 6 calls it where it compared the draw with `keeps`. It walks the squad only
+when the answer depends on it (a draw from `keeps` minus the drop to `keeps` minus 1).
+The memory is written with every setting, also with `SQUAD_PRESSURE = false` (drop 0),
+because the main routine always calls it. The module checks three more functions of
+the game and one of its constants before it writes (`team`, `player`, `no player`,
+`no player id` in the log).
+
+**What the test shows** (`test_money.py`, parts of `ok 3` and `ok 4`): the routine
+alone gives the answer of `money_cave.pressed_keeps` in 3,000 made-up cases for each of
+six settings (off, drop 0, limits no squad is above, limits every squad is above, a
+small drop, numbers that are rounded), looks at the squad only when it must, asks for
+each counted player once and keeps the registers of the choosing code; the choosing
+code with it lists the players the model lists; in the model a club with one player
+too many of a group lets go about 290 of 1,500 players of that group that it keeps
+otherwise, and no player of another group. Seven faulty settings are refused.
+`python3 planted_faults.py <exe> pressure` flips every bit of the routine: see
+`planted_faults.py` for the count. **Not shown:** how many more players move in a real
+window, and whether squads thin out too far over seasons; no window was played with it.
+
+To go back to version 6: `git show 1de32f1:"pes database/exe/sider/MLTransfers.lua"`.
 
 ### New in version 6: position need
 
@@ -1005,13 +1071,14 @@ not touched.
 | `CLUBS` | the 180 named clubs (at most 192); `{ }` names none |
 | `RIVALS` | the 61 pairs above (at most 64); `{ }`: no rivals |
 | `NEED`, `NEED_GAP` (1 to 30), `NEED_BETTER` (1 to 20) | `true`, 4, 1, version 6: see "New in version 6" |
+| `SQUAD_PRESSURE` | `{ positions = { GK = 3, DF = 8, MF = 9, FW = 6 }, keeps_drop = 40 }`, version 7: see "New in version 7" |
 
 A faulty setting is named in `sider.log` and nothing is written, as before.
 
 ### What the log says
 
 ```
-MLTransfers 6: the transfers of the computer clubs from the settings in MLTransfers.lua
+MLTransfers 7: the transfers of the computer clubs from the settings in MLTransfers.lua
 check: MLMoney.lua   at 047b065c  installed, version 7
 check: value routine at 047b0c90  as expected
 check: numbers       at 047b0654  as expected
@@ -1028,8 +1095,13 @@ check: take          at 041293c0  as expected
 check: plan          at 036602e5  as expected
 check: fill          at 03661b15  as expected
 check: lineup        at 03894bcf  as expected
+check: team          at 03822969  as expected
+check: player        at 03822835  as expected
+check: no player     at 02bddabe  as expected
+check: no player id  at 024feb04  as expected
 check: free memory   at 047d4200  empty
 check: free memory   at 047d6400  empty
+check: free memory   at 047d6e50  empty
 written: transfers at 0365fb0d  ok
 written: need plan at 03660b93  ok
 written: need pick at 03660c83  ok
@@ -1039,7 +1111,10 @@ then the ceilings, `selling side: ...`, `club personas: 13 personas, 180 clubs n
 ...`, the two lines of version 3 (`a club keeps its first team: for each rating point a
 player stands above its eleven minus 4, 12 percent more often; not against a buyer
 whose eleven is 2 or more points better` and `players rated 80 or more are known to
-every club; the ages of a persona are moved by up to 2 years from club to club`), the
+every club; the ages of a persona are moved by up to 2 years from club to club`; between
+them the line of version 7, ``squad pressure: a club with more than 3 goalkeepers, 8
+defenders, 9 midfielders or 6 forwards counts `keeps` 40 lower for a player of that
+group``), the
 line of version 4 (``players of a popularity of 600 or more are known to every club; for
 a player without a contract 35 percent of `strict` count``), one
 line per persona, `rivals: 61 pairs of clubs do not buy each other's
@@ -2280,8 +2355,9 @@ Read from the DLL's code and strings, not run:
   `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b7a`, 2,875 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
   `MLTransfers.lua` version 6 uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
   and `MLSimToDate.lua` uses `0x047d6550`-`0x047d6e4f` for its Schedule hooks and
-  `0x047d6f60`-`0x047d6fe9` for its day-loop hook. The remaining tail ranges after
-  `0x047d6550` are `0x047d6e50`-`0x047d6f5f` and `0x047d6fea`-`0x047d6fff`.
+  `0x047d6f60`-`0x047d6fe9` for its day-loop hook. `MLTransfers.lua` version 7 uses
+  `0x047d6e50`-`0x047d6f5f` between them (272 bytes, squad pressure). The only tail
+  range still free after `0x047d6550` is `0x047d6fea`-`0x047d6fff` (22 bytes).
   `MLSimToDate.lua` also
   checks and uses `0x0298c0e0`-`0x0298c1ff` in the writable, zero-filled `.text` stub
   for its state. A module must see zeros in its ranges before it writes.

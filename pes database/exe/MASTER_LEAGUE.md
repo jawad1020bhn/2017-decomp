@@ -1242,7 +1242,7 @@ position, or a position he can play), not already in a slot, and the two tests
 taken to be the foreign-player rules; not read through) and `fcn_0388f107`. Set B
 is searched first, then set A; clubs of kind 1 or 4 search only set A.
 
-Three details, from the disassembly:
+Four details, from the disassembly:
 
 - The walk goes from the list of the highest overall down to the list **one above
   the lowest**; the list of the lowest overall itself is not searched (loop from
@@ -1259,6 +1259,15 @@ Three details, from the disassembly:
   set A. Set B has none of these tests: players without a club, and players more
   than 3 points above their club's window, can be taken by any club in the second
   search.
+- Goalkeepers only (`0x0365f920`-`0x0365fa4b`): if the slot's position is 0 and the
+  player has a club, the function walks that club's squad (the club record from
+  `fcn_03822969`; id pairs at `+0xf8`, count in bits 9-15 of `+0x328`) and counts the
+  players whose registered position (`fcn_03117d0f`) is 0 and who are not in a deal
+  (`+0xb4`, bits 4 and 5 clear). The player is skipped unless the count is **3 or
+  more**: a club never gives up one of its last two goalkeepers. It is the only test
+  that looks at the size of the selling club's squad by position; there is none for
+  outfield players. (`sider/MLTransfers.lua` version 7 adds one for all four groups,
+  `SQUAD_PRESSURE`.) Read from the disassembly, not run alone.
 - No test reads a fee, a salary or a budget.
 
 `ai_pick_candidate` puts the up to three candidates into a random order

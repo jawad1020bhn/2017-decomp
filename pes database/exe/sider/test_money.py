@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(HERE, '..', 'tools'))
 import money                                     # noqa: E402
 import money_cave as mc                          # noqa: E402
 from emu import Game, REG, RETURN, STACK, STACK_SIZE     # noqa: E402
-from unicorn.x86_const import UC_X86_REG_EBP, UC_X86_REG_ESP    # noqa: E402
+from unicorn.x86_const import UC_X86_REG_EBP, UC_X86_REG_EFLAGS, UC_X86_REG_EIP, UC_X86_REG_ESP    # noqa: E402
 
 MODULE = os.path.join(HERE, 'MLMoney.lua')
 MODULE_T = os.path.join(HERE, 'MLTransfers.lua')
@@ -56,8 +56,8 @@ MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and
 CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
 READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
-# (the third piece, of the position need, only with NEED on)
-CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE))
+# (the third piece, of the position need, only with NEED on; the fourth, of SQUAD_PRESSURE, always)
+CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE), (mc.CAVE_4, mc.CAVE_4_SIZE))
 READS_2 = tuple((at, n) for _, at, n in mc.CONTEXT_CEILING) + CAVE_2
 # ai_candidates: its two calls in ai_pick_candidate (the call, where it returns to), and what it asks
 CHOOSE_CALLS = ((0x03660d53, 0x03660d58), (0x03660db4, 0x03660db9))
@@ -135,6 +135,11 @@ def settings(source):
     # (a file of version 5 or older has no NEED)
     need = (number('NEED_GAP'), number('NEED_BETTER')) if re.search(r'^local NEED = true$', source, re.M) else None
     rivals = [(int(a, 0), int(b, 0)) for a, b in re.findall(r'\{ *(0x[0-9a-fA-F]+|\d+), *(0x[0-9a-fA-F]+|\d+) *\}', text('RIVALS'))]
+    # (a file of version 6 or older has no SQUAD_PRESSURE)
+    pressure = None
+    if re.search(r'^local SQUAD_PRESSURE = \{', source, re.M):
+        entries = {k: float(x) for k, x in re.findall(r'(\w+) = ([\d.]+)', text('SQUAD_PRESSURE'))}
+        pressure = ([entries[k] for k in mc.GROUPS], entries['keeps_drop'])
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
     return mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
                      knots('SALARY_AGE'), number('BUDGET_TRANSFER'), number('BUDGET_SALARY'), cup(),
@@ -143,7 +148,7 @@ def settings(source):
                      number('TALENT_MAX'), number('TALENT_CAP'), number('INCOME'), by_id(), numbers('CUP_NATIONAL'),
                      knots('CUP_TV'), number('INCOME_WAGES'), numbers('CEILING'), text('CEILING_RATING') == 'true',
                      number('CEILING_STRETCH'), number('CEILING_NEED'), number('CEILING_LISTED'), number('CEILING_FREE'),
-                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need)
+                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need, pressure)
 
 
 def installed_t(t):
@@ -193,6 +198,20 @@ def ages_alone(shift):
             ('PERSONA_GROUPS', groups), ('CLUBS', '{ }'), ('PERSONA_SPREAD', '0'), ('SCOUTING', 'false'),
             ('KEEP_BEST', '{ 0, 0, 0 }'), ('KNOWN_FROM', '0'), ('SQUAD_NEED', '0'), ('WINTER_MONTH', '0'),
             ('AGE_SHIFT', str(shift)), ('STRICT_FREE', '79')]
+
+
+def keeps_alone():
+    """Settings with which a club refuses a player of another club for what that club keeps
+    and little else (SQUAD_PRESSURE then decides for many players): three personas that look
+    in other clubs' squads only, know, want and can pay everybody, and keep 30, 60 and 100
+    percent of their players.
+    -> [(name of the setting, new text)]"""
+    wide = dict(dict.fromkeys(mc.GENE_NAMES, 0), clubs=100, winter=100, knows=100, wealth=250, premium=250, panic=250,
+                ambition=99, prestige=99)
+    kinds = [('K%d' % (i + 1), dict(wide, keeps=keeps, age=(0, 63), second=('clubs', 'free'))) for i, keeps in enumerate((30, 60, 100))]
+    groups = '{\n%s\n}' % '\n'.join('    { "K1", "K2", "K3" },' for _ in range(10))
+    return [('ARCHETYPES', archetypes_text(kinds)), ('PERSONA_GROUPS', groups), ('CLUBS', '{ }'), ('PERSONA_SPREAD', '0'),
+            ('SCOUTING', 'false'), ('KNOWN_FROM', '0'), ('SQUAD_NEED', '0'), ('WINTER_MONTH', '0'), ('AGE_SHIFT', '0')]
 
 
 def setting(source, name, new, part=None):
@@ -322,6 +341,10 @@ class Harness:
         self.entries, self.found, self.found_data = g.alloc(size=16 * 64), g.alloc(size=16), g.alloc(size=64)
         self.cells = [g.alloc(size=4) for _ in range(9)]
         self.pick_frame = g.alloc(size=0x4000) + 0x3f00
+        # the records of four selling clubs and of the players of their squads who are on no list
+        self.teams, self.bench = [g.alloc(size=0x520) for _ in range(4)], [g.alloc(size=0xc0) for _ in range(96)]
+        self.squads = random.Random(12)                      # choose_cases: the squads of the selling clubs
+        self.pressed = 0                                     # choose_cases: players who pass for SQUAD_PRESSURE alone
         g.write(self.pool + 0x7a0, b'\xff' * 8)              # no club shut out of the search
         g.write(self.plan, struct.pack('<I', 100))           # the buying club
         self.heap = g.top
@@ -504,8 +527,10 @@ class Harness:
         kind, any day of the year; buying and selling clubs with random places in the club
         ranking (some named in CLUBS, some in RIVALS and then often with a rival among the
         selling clubs, some missing from the ranking, a ranking with a count
-        that cannot be) and random numbers of players in the pool. The players listed must
-        be those of money_cave.candidates.
+        that cannot be) and random numbers of players in the pool; every selling club has a
+        squad (SQUAD_PRESSURE): its players on the lists, players on no list, some in a deal,
+        entries without a player, entries past its count. The players listed must be those
+        of money_cave.candidates.
         -> (cases in which the module changed the list, players refused by it)."""
         g, v, mu = self.g, self.v, self.g.mu
         today, bands = [0, 0, 0], {}
@@ -521,6 +546,12 @@ class Harness:
         usual_band, usual_ranking = g.replaced[mc.PLAYER_BAND], g.replaced.pop(RANKING_RECORD)
         g.replaced[mc.PLAYER_BAND] = (lambda g, a: bands[a(0)], usual_band[1])
         usual_rating, wrong_calls = g.replaced[mc.RATING], []
+        # the record of a club: of a selling club its own. The record of a player: one of a squad
+        # who is on no list has an even second part of his id (the others an odd one), twice his
+        # place in self.bench
+        usual_team, usual_player, team_at = g.replaced[CLUB_RECORD], g.replaced[PLAYER_RECORD], {}
+        g.replaced[CLUB_RECORD] = (lambda g, a: team_at.get(a(0), self.club), usual_team[1])
+        g.replaced[PLAYER_RECORD] = (lambda g, a: usual_player[0](g, a) if a(1) & 1 else self.bench[a(1) >> 1], usual_player[1])
 
         def rating(g, a):
             """the game's rating function. Called by the routine of MLTransfers.lua: it must ask
@@ -597,9 +628,12 @@ class Harness:
                 # a club that is not in the ranking: the first record, as the game's own search gives it
                 first_row = rows[0][3:1:-1] if rows else (0, 0)
 
+                groups = {}                                      # club: its players by group, filled with the squads below
+
                 def club_of(c):
                     lv, points = ranked.get(c, first_row)
-                    return dict(id=c, level=lv, points=points, count=counts.get(c & 0x3fff))
+                    return dict(id=c, level=lv, points=points, count=counts.get(c & 0x3fff),
+                                groups=groups.setdefault(c, [0] * len(mc.GROUPS)))
                 buyer = club_of(club)
                 if not broken:                                   # the game's own search of the ranking finds the same record
                     for c in [club] + sellers:
@@ -684,6 +718,7 @@ class Harness:
                                 o = line + above
                                 keeps = mc.gene(t, mc.persona(t, his, seller['level']), mc.GENE_NAMES.index('keeps'), his)
                                 limit = keeps + self.dice.choice([0, above]) * t.keep_step - self.dice.randint(0, 1)
+                                limit -= self.dice.choice([0, t.pressure_drop])      # SQUAD_PRESSURE: the other end
                                 factor = mc.HASH_KEEPS
                                 other = mc.club_key(his) ^ ((today[0] | today[1] << 16) * mc.HASH_A & mc.M32)
                         for _ in range(300 if limit is not None else 0):
@@ -697,7 +732,7 @@ class Harness:
                     self.by_id[keys[k]] = rec
                     i = random.randint(0, 1) if how == 'pick' else which
                     player = dict(rating=o, age=age, popularity=x, position=position, id=ident, status=status,
-                                  listed=mark != 0, fits=not deal and not loan, band=bands[rec], set=i,
+                                  listed=mark != 0, fits=not deal and not loan, band=bands[rec], set=i, deal=deal,
                                   club=None if his == mc.NO_CLUB else club_of(his))
                     lists[i].setdefault(random.randint(max(40, lowest - 1), highest), []).append(player)     # the lists are those of 99 to 40
                     everyone.append(player)
@@ -710,6 +745,14 @@ class Harness:
                             at += 16
                         g.write(self.pool + 0x3c0 * i + (99 - o) * 16, struct.pack('<III', begin, at, at))
                 assert at <= self.entries + 16 * 64
+                # the squads of the selling clubs, with three in four of their players on the lists
+                team_at.clear()
+                bench = iter(self.squads.sample(self.bench[1:], len(self.bench) - 1))
+                for c, team in zip(dict.fromkeys(sellers), self.teams):
+                    team_at[c] = team
+                    club_of(c)['groups'][:] = self.squad_of(team, bench, [
+                        (p['id'], p['position'], not p['deal']) for p in everyone
+                        if p['club'] is not None and p['club']['id'] == c and self.squads.randint(0, 3)])
                 g.write(self.found, struct.pack('<III', self.found_data, self.found_data, self.found_data + 64))
                 g.write(self.plan, struct.pack('<II', club, kind) + b'\0' * 0x110)
                 for cell, value in ((sel, which), (top, highest), (low, 0 if wide and how == 'pick' else lowest), (pos, 13),
@@ -806,6 +849,11 @@ class Harness:
                 assert g.read(self.plan, 0x118) == struct.pack('<II', club, kind) + b'\0' * 0x110
                 changed += want != free
                 refused += sum(len(walk(None, i, 99)) - len(walk(tables, i, 99)) for i in ((0, 1) if how == 'pick' else (which,)))
+                if tables is not None and t.pressure_drop:       # the same without SQUAD_PRESSURE: it only lets players go
+                    with_it = sum(len(walk(tables, i, 99)) for i in ((0, 1) if how == 'pick' else (which,)))
+                    drop, t.pressure_drop = t.pressure_drop, 0
+                    self.pressed += with_it - sum(len(walk(tables, i, 99)) for i in ((0, 1) if how == 'pick' else (which,)))
+                    t.pressure_drop = drop
                 if edge:
                     t.ceiling[level] = usual
                     g.write(mc.CEILING_TAB + 4 * level, struct.pack('<I', usual))
@@ -814,6 +862,7 @@ class Harness:
                 del g.replaced[address]
             g.replaced[mc.PLAYER_BAND], g.replaced[RANKING_RECORD] = usual_band, usual_ranking
             g.replaced[mc.RATING] = usual_rating
+            g.replaced[CLUB_RECORD], g.replaced[PLAYER_RECORD] = usual_team, usual_player
             if ceilings != (t.ceiling if t is not None else None):
                 t.ceiling[:] = ceilings
                 g.write(mc.CEILING_TAB, struct.pack('<%dI' % mc.LEVELS, *ceilings))
@@ -821,6 +870,77 @@ class Harness:
             v.update(saved)
             g.top = self.heap
         return changed, refused
+
+    def squad_of(self, team, bench, listed=(), sizes=(0, 3, 6, 9, 12, 20)):
+        """Fills the record of a club with a squad: the players of `listed` (id pair, position,
+        not in a deal?), one of `sizes` players on no list (records of `bench`; one in six in
+        a deal: bit 4, 5 or both of +0xb4), up to two entries that are the game's "no player";
+        one squad in four has entries past its count.
+        -> how many of its players the routine of SQUAD_PRESSURE counts for each group."""
+        g, dice = self.g, self.squads
+        squad = list(listed)
+        for _ in range(dice.choice(sizes)):
+            rec, position, out = next(bench), dice.randint(0, 15), dice.choice([0] * 15 + [1, 2, 3])
+            g.write(rec + 4, struct.pack('<I', dice.getrandbits(28) | position << 28))
+            g.write(rec + 0xb4, struct.pack('<I', dice.getrandbits(32) & ~0x30 | out << 4))
+            squad.append(((dice.getrandbits(32), 2 * self.bench.index(rec)), position, not out))
+        squad += [((dice.getrandbits(32), 0), 0, False)] * dice.randint(0, 2)
+        dice.shuffle(squad)
+        counted = len(squad) - dice.choice([0, 0, 0, 1]) * dice.randint(0, len(squad))
+        g.write(team, dice.getrandbits(8 * 0x520).to_bytes(0x520, 'little'))
+        g.write(team + mc.TEAM_SQUAD, b''.join(struct.pack('<II', *ident) for ident, _, _ in squad))
+        g.write(team + mc.TEAM_COUNT, struct.pack('<I', dice.getrandbits(32) & ~(0x7f << 9) | counted << 9))
+        return [sum(counts and position < len(mc.POSITIONS) and mc.GROUP_OF[position] == k
+                    for _, position, counts in squad[:counted]) for k in range(len(mc.GROUPS))]
+
+    def pressure_cases(self, n, t):
+        """The routine of SQUAD_PRESSURE alone, entered as the routine of the second piece
+        enters it: a draw, `keeps` at the draw, one above, at the draw plus the drop, one
+        above that, or anywhere up to 16,000; a player of any position, his club with a
+        random squad of up to 70 entries (what a club record holds). The carry flag (the
+        club keeps him) must be what money_cave.pressed_keeps gives; the squad is looked at
+        only for a draw from `keeps` minus the drop to `keeps` minus 1, and then the club of
+        the frame and each of its counted players once, in their order, in the mode data of
+        the frame; ebx, esi, edi, ebp and the stack come back as they were.
+        -> cases in which the club lets the player go for SQUAD_PRESSURE alone."""
+        g, mu, dice = self.g, self.g.mu, self.squads
+        usual_team, usual_player = g.replaced[CLUB_RECORD], g.replaced[PLAYER_RECORD]
+        asked, team, rec = [], self.teams[0], self.squad[0]
+        g.replaced[CLUB_RECORD] = (lambda g, a: (asked.append((mu.reg_read(REG['ecx']), a(0))), team)[1], usual_team[1])
+        g.replaced[PLAYER_RECORD] = (lambda g, a: (asked.append((mu.reg_read(REG['ecx']), (a(0), a(1)))),
+                                                   self.bench[a(1) >> 1])[1], usual_player[1])
+        frame, esp, freed = self.pick_frame, STACK + STACK_SIZE - 0x1000, 0
+        try:
+            for case in range(n):
+                club, position, draw = dice.getrandbits(32), dice.randint(0, 15), dice.randint(0, 99)
+                keeps = max(0, draw + dice.choice([0, 1, t.pressure_drop, t.pressure_drop + 1, dice.randint(-100, 150),
+                                                   dice.randint(150, 16000)]))
+                groups = self.squad_of(team, iter(dice.sample(self.bench[1:], len(self.bench) - 1)), sizes=(0, 3, 6, 9, 12, 20, 33, 68))
+                g.write(rec, dice.getrandbits(8 * 0xc0).to_bytes(0xc0, 'little'))
+                g.write(rec + 4, struct.pack('<I', dice.getrandbits(28) | position << 28))
+                g.write(frame - 0x3c, struct.pack('<II', club, frame - 0x800))
+                g.write(frame - 0x800 - 8, struct.pack('<I', self.mode_data))
+                mu.mem_write(esp - 0x100, dice.getrandbits(8 * 0x100).to_bytes(0x100, 'little') + struct.pack('<I', RETURN))
+                start = dict(eax=keeps, ecx=draw, edx=dice.getrandbits(32), ebx=rec, esi=dice.getrandbits(32), edi=dice.getrandbits(32))
+                for k, value in start.items():
+                    mu.reg_write(REG[k], value)
+                mu.reg_write(UC_X86_REG_ESP, esp)
+                mu.reg_write(UC_X86_REG_EBP, frame)
+                del asked[:]
+                mu.emu_start(mc.PRESSURE_CODE, RETURN, count=STEPS)
+                assert mu.reg_read(UC_X86_REG_EIP) == RETURN and mu.reg_read(UC_X86_REG_ESP) == esp + 4, 'stack'
+                assert mu.reg_read(UC_X86_REG_EBP) == frame and all(mu.reg_read(REG[k]) == start[k] for k in ('ebx', 'esi', 'edi')), 'registers'
+                want = mc.pressed_keeps(t, keeps, position, groups)
+                assert mu.reg_read(UC_X86_REG_EFLAGS) & 1 == (draw < want), (case, draw, keeps, position, groups)
+                looked = t.pressure_drop > 0 and keeps - t.pressure_drop <= draw < keeps and position < len(mc.POSITIONS)
+                ids = struct.unpack('<140I', g.read(team + mc.TEAM_SQUAD, 0x230))
+                count = struct.unpack('<I', g.read(team + mc.TEAM_COUNT, 4))[0] >> 9 & 0x7f
+                assert asked == [(self.mode_data, club)] + [(self.mode_data, pair) for pair in zip(ids[:2 * count:2], ids[1:2 * count:2])
+                                                            if pair[1]] if looked else not asked, 'squad looked at'
+                freed += want <= draw < keeps
+        finally:
+            g.replaced[CLUB_RECORD], g.replaced[PLAYER_RECORD] = usual_team, usual_player
+        return freed
 
     def prize_cases(self, n, t):
         """The two places of prize_step that pay a prize: what reaches the balance, the
@@ -1026,6 +1146,7 @@ def main(exe):
         assert g.read(mc.CAVE_2, mc.CAVE_2_SIZE) == (mc.image_2(t) if ceiling else b'\0' * mc.CAVE_2_SIZE), 'ceiling'
         assert g.read(mc.CAVE_3, mc.CAVE_3_SIZE) == (mc.image_3(t) if t.need else b'\0' * mc.CAVE_3_SIZE), 'need'
         assert ((mc.CAVE_3, mc.CAVE_3_SIZE) in writes) == t.need
+        assert g.read(mc.CAVE_4, mc.CAVE_4_SIZE) == (mc.image_4(t) if ceiling else b'\0' * mc.CAVE_4_SIZE), 'squad pressure'
         for name, at, old, _ in mc.SITES:
             assert g.read(at, len(old)) == (used[name][2] if name in used else old), name
         assert [l.split()[1] + (' ' + l.split()[2] if l.split()[3] == 'at' else '') for l in lines if l.startswith('written:')] == list(used)
@@ -1056,10 +1177,10 @@ def main(exe):
     # 1. the module as it is
     money_text, transfers_text = source.split(SPLIT)
     assert mc.lua_block(exe) in money_text, 'ROUTINES, SITES or CONTEXT of MLMoney.lua are not what money_cave.py makes'
-    assert mc.lua_block_transfers(exe) in transfers_text, 'ROUTINE, SITE, NEED_ROUTINES, NEED_SITES, MONEY or CONTEXT of MLTransfers.lua are not what money_cave.py makes'
+    assert mc.lua_block_transfers(exe) in transfers_text, 'ROUTINE, SITE, NEED_ROUTINES, NEED_SITES, PRESSURE_ROUTINE, MONEY or CONTEXT of MLTransfers.lua are not what money_cave.py makes'
     assert 'eiling' not in money_text.split('local m = {}')[1], 'MLMoney.lua still holds a part of the ceiling'
     assert mc.build() == {name: getattr(mc, name) for name in [r[2] for r in mc.ROUTINES] + [
-        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES']} if KEYSTONE else True
+        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES', 'PRESSURE_BYTES']} if KEYSTONE else True
     everything = ('values, salaries, transfer budget, cup prizes, league prizes, prizes into the transfer budget, '
                   'pay gap, salary bonuses, contract years, yearly income, national cup prizes, '
                   'price ceiling of the computer clubs')
@@ -1255,6 +1376,50 @@ def main(exe):
         assert t.age_shift == shift and len(t.genes) == 6 and not t.hand and not t.scouting
         chosen = h.choose_cases(300, t)
         assert chosen[1] > 300, chosen
+    # SQUAD_PRESSURE: off; a drop of 0; limits no squad is above; limits every squad is above; a small
+    # drop without KEEP_BEST; numbers that are rounded. Its routine alone for 3,000 cases each, then
+    # the choosing code with clubs that refuse for what the selling club keeps and little else, with
+    # and without the selling side. Counted: the cases, and the players on the lists, in which a
+    # club lets a player go for SQUAD_PRESSURE alone
+    pressures = (('false', [0] * 4, 0), ('{ positions = { GK = 3, DF = 8, MF = 9, FW = 6 }, keeps_drop = 0 }', [3, 8, 9, 6], 0),
+                 ('{ positions = { GK = 99, DF = 99, MF = 99, FW = 99 }, keeps_drop = 100 }', [99] * 4, 100),
+                 ('{ positions = { GK = 0, DF = 0, MF = 0, FW = 0 }, keeps_drop = 100 }', [0] * 4, 100),
+                 ('{ positions = { GK = 1, DF = 2, MF = 4, FW = 3 }, keeps_drop = 10 }', [1, 2, 4, 3], 10),
+                 ('{ keeps_drop = 24.5, positions = { FW = 3.4, MF = 2.5, DF = 2, GK = 0 } }', [0, 2, 3, 3], 25))
+    freed = []
+    for case, (pressure, limits, drop) in enumerate(pressures):
+        text = setting(only(PERSONA=None, **({'SELL_SIDE': None} if case % 2 else {})), 'SQUAD_PRESSURE', pressure)
+        for name, new in keeps_alone() + ([('KEEP_BEST', '{ 0, 0, 0 }')] if case == 4 else []):
+            text = setting(text, name, new)
+        t, lines = install(text, 'values')
+        assert (t.pressure_limits, t.pressure_drop) == (limits, drop)
+        assert (('  squad pressure: a club with more than %d goalkeepers, %d defenders, %d midfielders or %d forwards '
+                 'counts `keeps` %d lower for a player of that group' % (*limits, drop)) if drop
+                else '  squad pressure: off; a club keeps a player the same however many it has for his position') in lines
+        h.pressed = 0
+        freed.append((h.pressure_cases(3000, t), h.pressed))
+        assert h.choose_cases(500, t)[0] > 0
+        freed[-1] = (freed[-1][0], h.pressed)
+    assert freed[:3] == [(0, 0)] * 3 and min(direct for direct, _ in freed[3:]) > 50 and freed[3][1] > 20, freed
+    # the model itself, with the numbers of the file: a club with one player too many of a group lets
+    # players of that group go that it keeps otherwise, and no player of another group (the buyer's
+    # slot asks for a status band: the buyer then looks everywhere, at any age)
+    t, _ = install(only(PERSONA=None), 'values')
+    assert (t.pressure_limits, t.pressure_drop) == ([3, 8, 9, 6], 40)
+    two = [dict(id=c, level=5, points=1200, count=30) for c in (0x00194321, 0x00191234)]
+
+    def let_go(position, squad):
+        n = 0
+        for i in range(1500):
+            p = dict(rating=random.randint(55, 70), age=25, popularity=0, position=position, id=(i, 1))
+            usual, pressed = (mc.accepts(t, 5, dict(p, club=dict(two[0], groups=groups)), two[1], dict(band=6))
+                              for groups in ([3, 8, 9, 6], squad))
+            assert usual <= pressed                              # a larger squad never makes a club keep a player
+            n += usual != pressed
+        return n
+    freed_by = [let_go(position, squad) for position, squad in ((0, [4, 8, 9, 6]), (2, [3, 9, 9, 6]), (5, [3, 8, 10, 6]),
+                                                              (12, [3, 8, 9, 7]), (12, [9, 9, 10, 6]), (13, [9, 9, 10, 7]))]
+    assert min(freed_by[:4]) > 20 and freed_by[4:] == [0, 0], freed_by
     # the rivals alone and with each other part: 64 pairs among 12 clubs (every club has many
     # rivals, and many pairs stand twice or the other way round), one pair, 64 pairs of 128 clubs
     def some_rivals(pairs, clubs):
@@ -1379,8 +1544,16 @@ def main(exe):
           'among 2 to 128 clubs; MLTransfers.lua with the personas alone, with the selling '
           'side, with the ceiling, with and without scouting, PERSONA_SPREAD 0 to 50, STRENGTH, WINTER_MONTH, '
           'SQUAD_NEED, KEEP_BEST, KNOWN_FROM, AGE_SHIFT, KNOWN_FAME and STRICT_FREE at their limits and off; personas that refuse for the age alone, with AGE_SHIFT 2 and 5; 1, 7 and 15 personas with numbers anywhere inside their limits, groups '
-          'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each' % (
-              len(alone), ', '.join(gaps)))
+          'of 1 to 8 names, 0, 1, 40 (each id twice) and 192 named clubs: 500 to 700 sets of lists each; '
+          'SQUAD_PRESSURE off, with a drop of 0, with limits no squad and every squad is above, with a small '
+          'drop and with numbers that are rounded: its routine alone gives the carry flag of '
+          'money_cave.pressed_keeps for 3,000 cases each and looks at a squad only when the draw lies between '
+          '`keeps` and `keeps` minus the drop (%s cases in which a club lets a player go for it alone), and '
+          'the choosing code lists the players of money_cave.candidates (%s players listed for it alone); in '
+          'the model a club with one player too many of a group lets go %s of 1,500 goalkeepers, full backs, '
+          'midfielders and forwards it keeps otherwise, and no player of another group' % (
+              len(alone), ', '.join(gaps), ', '.join(str(direct) for direct, _ in freed[3:]),
+              ', '.join(str(listed) for _, listed in freed[3:]), ', '.join(map(str, freed_by[:4]))))
 
     # 4. cases in which nothing may be written
     rest = everything.replace(', ' + CEILING_LABEL, '')
@@ -1568,6 +1741,13 @@ def main(exe):
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 101, 2 }')),
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '{ 4, 12, -1 }')),
            ('KEEP_BEST is not {', setting(source, 'KEEP_BEST', '12')),
+           ('SQUAD_PRESSURE is not false or {', setting(source, 'SQUAD_PRESSURE', 'true')),
+           ('SQUAD_PRESSURE is not false or {', setting(source, 'SQUAD_PRESSURE', '{ GK = 3, DF = 8, MF = 9, FW = 6, keeps_drop = 40 }')),
+           ('SQUAD_PRESSURE is not false or {', source.replace('FW = 6 }, keeps_drop = 40', 'FW = 6 }, keeps_drop = 101')),
+           ('SQUAD_PRESSURE is not false or {', source.replace('FW = 6 }, keeps_drop = 40', 'FW = 6 }')),
+           ('SQUAD_PRESSURE is not false or {', source.replace('MF = 9, FW = 6 }, keeps_drop', 'MF = 9 }, keeps_drop')),
+           ('SQUAD_PRESSURE is not false or {', source.replace('GK = 3, DF = 8, MF', 'GK = 100, DF = 8, MF')),
+           ('SQUAD_PRESSURE is not false or {', source.replace('GK = 3, DF = 8, MF', 'GK = 3, DF = -1, MF')),
            ('ARCHETYPES: entry 1 (Galactico): free + listed + clubs is above 100',
             source.replace('free = 25, listed = 10, clubs = 65', 'free = 26, listed = 10, clubs = 65')),
            ('ARCHETYPES: entry 3 (Moneyball): knows is not a number from 1 to 100', source.replace('knows = 90', 'knows = 0')),
