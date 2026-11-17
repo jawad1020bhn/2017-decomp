@@ -41,6 +41,7 @@ from emu import Game                             # noqa: E402
 
 SELLER = 0x00424039
 MODE_SIZE = 0xd10000                              # past the plan records (+0xccb80c) and their count
+MODE_DAY = 0xc2cbb0                               # word: the day of the year, then the year
 CLUB_STRIDE = mc.CLUB_STRIDE
 
 
@@ -96,12 +97,14 @@ class Harness:
               + b'\x8b\x0d' + struct.pack('<I', self.position) + b'\x89\x08'
               + b'\xa1' + struct.pack('<I', self.rating) + b'\xc3')
 
-    def case(self, key, seller, player, clubs):
+    def case(self, key, seller, player, clubs, date=(0, 0)):
         """Writes the mode data and the player record; clubs: [(id, slot, flagged, plan)] with
-        plan = (slots, need, points, level)."""
+        plan = (slots, need, points, level); date: (day of the year, year), as the mode data
+        holds them at +0xc2cbb0."""
         g, mode = self.g, self.mode
         g.write(mc.CURRENT_CLUB_AT, struct.pack('<I', seller))
         g.write(mc.INCOMING_KEY, bytes([key]))
+        g.write(mode + MODE_DAY, struct.pack('<HH', *date))
         g.write(mode + mc.CLUB_TABLE_COUNT, struct.pack('<I', len(clubs)))
         g.write(mode + mc.RANK_COUNT, struct.pack('<I', len(clubs)))
         g.write(mode + mc.PLAN_COUNT, struct.pack('<I', len(clubs)))
@@ -147,8 +150,10 @@ class Harness:
         return struct.unpack('<I', g.read(self.out, 4))[0]
 
 
-def make_case(rng, t, most_clubs=10):
-    """A key, a seller, a player and a club table; every rule is met by some of the clubs."""
+def make_case(rng, t, most_clubs=32):
+    """A key, a seller, a player and a club table; every rule is met by some of the clubs.
+    most_clubs: as many as the game's own table has clubs in a competition, not a handful:
+    the chooser answers another club only when one of all of them wants the player."""
     clubs, slots = [], rng.sample(range(0, 64), most_clubs)
     for i in range(most_clubs):
         club = rng.getrandbits(30) | 1
@@ -186,9 +191,10 @@ def main(exe):
         clubs, player = make_case(rng, h.t)
         # most cases ask for a slot a club sits at, so that the game has an answer to keep
         key = rng.choice(clubs)[1] if rng.random() < 0.75 else rng.randrange(0, 64)
-        h.case(key, SELLER, player, clubs)
+        date = (rng.randrange(0, 366), rng.randrange(2020, 2060))
+        h.case(key, SELLER, player, clubs, date)
         got = h.answer()
-        want = mc.offer_pick(h.t, key, player, clubs, SELLER)
+        want = mc.offer_pick(h.t, key, player, clubs, SELLER, date)
         game = next((c for c, slot, _, _ in clubs if slot == key), 0)      # what the game itself answers
         assert got == (want or game or SELLER), \
             'case %d: the module answered %#x, money_cave.offer_pick says %#x (the game: %#x)' % (
@@ -201,6 +207,25 @@ def main(exe):
             nothing += 1
         cases += 1
 
+    # the day: the club that bids is not the same club on every day of the window. A case is
+    # looked for whose answer the rules change with the day, and then the module must answer
+    # as they say on every one of those days
+    for tries in range(50):
+        clubs, player = make_case(rng, h.t)
+        key = rng.choice(clubs)[1]
+        days = [(rng.randrange(0, 366), rng.randrange(2020, 2060)) for _ in range(12)]
+        wants = [mc.offer_pick(h.t, key, player, clubs, SELLER, day) for day in days]
+        if len(set(wants)) > 1:
+            break
+    else:
+        assert False, 'the day changed no answer in 50 cases: it does not reach the draws'
+    for day, want in zip(days, wants):
+        h.case(key, SELLER, player, clubs, day)
+        game = next((c for c, slot, _, _ in clubs if slot == key), 0)
+        assert h.answer() == (want or game or SELLER), \
+            'day %s: the module answered %#x, money_cave.offer_pick says %#x' % (day, h.answer(), want)
+    different = len(set(wants))
+
     # nothing is answered where the game's own answer is no club at all: the game's code runs
     clubs = [[0x0019000d, 3, False, ([], (0, 0), 100, 5)], [0x001b4036, 5, False, ([], (0, 0), 100, 5)]]
     player = dict(id=(0x1234, 0x5678), age=28, popularity=100, position=4, rating=70, status=0, listed=False)
@@ -209,6 +234,8 @@ def main(exe):
     assert changed >= 10 and kept >= 20, 'the cases did not exercise both paths: %d, %d' % (kept, changed)
     print('offers for your players: %d cases as money_cave.offer_pick says (%d the game\'s own club '
           'kept, %d another club answered, %d no club at the game\'s slot)' % (cases, kept, changed, nothing))
+    print('the day: a case with %d different answers over %d days of the career, as the rules say'
+          % (different, len(days)))
 
 
 if __name__ == '__main__':

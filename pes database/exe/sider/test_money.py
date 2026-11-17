@@ -60,8 +60,8 @@ INCOMING = ((mc.INCOMING_CODE, 0x700), (mc.INCOMING_SITE, 6))
 READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
 # (the third piece, of the position need, only with NEED on; the fifth, of SQUAD_PRESSURE, always)
-CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE), (mc.INCOMING_CODE, 0x700),
-          (mc.CAVE_5, mc.CAVE_5_SIZE))
+CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE),
+          (mc.INCOMING_CODE, mc.INCOMING_CAVE_SIZE), (mc.CAVE_5, mc.CAVE_5_SIZE))
 READS_2 = tuple((at, n) for _, at, n in mc.CONTEXT_CEILING) + CAVE_2
 # ai_candidates: its two calls in ai_pick_candidate (the call, where it returns to), and what it asks
 CHOOSE_CALLS = ((0x03660d53, 0x03660d58), (0x03660db4, 0x03660db9))

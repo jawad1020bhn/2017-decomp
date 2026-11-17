@@ -30,10 +30,12 @@
 --   * offers for your own players (INCOMING): the game picks the club that makes an offer
 --     for one of your players by a slot of the competition in hand. The module answers that
 --     look-up itself, with the club of the nearest slot among those that would really take
---     him: no rival of yours, a character that wants him (age band, ambition, prestige), a
---     place for his position in its plan (or its position need asking for it), and money
---     enough for his value (the ceiling of its level, with the wealth, premium and panic of
---     its character). The same offers come; when no club passes, the game's answer stands.
+--     him, by the rules the computer clubs choose their players by: no rival of yours, a
+--     character that wants him (age band, ambition, prestige), a club that knows him, one
+--     that is looking where he is, a place for his position in its plan (or its position
+--     need asking for it), and money enough for his value (the ceiling of its level, with
+--     the wealth, premium, fame and panic of its character). Every draw has the day of the
+--     career in it. The same offers come; when no club passes, the game's answer stands.
 -- With every switch off but CEILING, and RIVALS empty, the module works as its version 1
 -- did.
 --
@@ -656,15 +658,28 @@ local RIVALS = {
 -- yours by a slot of the competition in hand: a club look-up answers the club that sits at
 -- that slot, and the routine that creates the offer asks it. The module answers that look-up
 -- itself, with the club whose slot is nearest to the game's own among those that would
--- really take him:
+-- really take him, by the same rules the computer clubs choose their players by, narrowed
+-- to what a club that is not choosing a player for its own plan can be asked:
 --   * not a rival of yours (RIVALS), and not the club the game itself skips;
 --   * its character wants him (PERSONA): he is in its age band, he is not too good for it
---     (prestige) nor too poor for it (ambition, as it judges him);
+--     (prestige) nor too poor for it (ambition, as it judges him), and for a player
+--     without a contract only a part of `strict` counts (STRICT_FREE);
+--   * it knows him (SCOUTING): a listed player, one rated KNOWN_FROM or more and a famous
+--     one are known to every club, every other one only to `knows` percent of them;
+--   * it is looking where he is: for this position and this time its character looks
+--     either among the players without a contract, the listed players or those of other
+--     clubs (free, listed, clubs), and it takes him only from the place it looks in;
 --   * it buys for his position at all (NEED): a free place of its plan asks for that
---     position, or the position need marked it;
+--     position, or the position need marked it. A marked position is a club in want of
+--     him: it does not mind his age or the rating it makes of him, and it goes further
+--     for him (panic);
 --   * it can afford him (CEILING): his value after the discount for a player without a
---     contract or one on the list does not exceed the ceiling of its level raised by its
---     wealth and premium, and by its panic when it is in need.
+--     contract or one on the list does not exceed the ceiling of its level, raised by its
+--     wealth, by a part of its stretch (CEILING_STRETCH, premium), by its fame and by its
+--     panic when it is in want of him. Above the ceiling it takes him less and less often,
+--     as in the transfers between the computer clubs, and never past the stretch.
+-- Every draw of these rules has the day of the career in it, so that the club that bids is
+-- not the same club on every day of the window.
 -- A club with a full squad is answered too: the room test of the routine that creates the
 -- offer is the game's own and decides whether the offer is made.
 -- An offer that was already sensible is left alone, and when no club passes, the game's own
@@ -684,52 +699,59 @@ local NEED_CAVE_SIZE = 0x150
 -- hook starts at 0x047d6f60; its calendar block moved to .trace at 0x03fc8000 in version 4):
 -- the chooser of the club that makes an offer for one of your players
 local INCOMING_CAVE = 0x047d6550
-local INCOMING_CAVE_SIZE = 0x700
-local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e89304000083"
+local INCOMING_CAVE_SIZE = 0x7f0
+local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e8cd05000083"
       .. "c40c85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec20"
       .. "89e58b5d308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86b"
       .. "d507ff83c40c0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8"
-      .. "894de48b45ecf765e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565383ec7c894584"
-      .. "8b028b155cf85102894d90b940000000894594a1c8477d0439c80f47c18d34c5cc477d04b8cc477d0439f00f"
-      .. "84320100008b188b4804395d94750839ca0f841901000083c00839da75df394d9475dae9080100008b328d5a"
-      .. "10397594740889da39c275f089ca0fb7420889857cffffff0fb6420ebac000000089458ca160427d0439d00f"
-      .. "47c289c283e8010f82f70000008b0c85c8447d04394d9475e90fb68207447d046bc01431db05c8427d048945"
-      .. "88694594b179379e89458069d3930100018b7d808b0d44427d048b3548427d048b458831fa01d869d26bcaeb"
-      .. "850fb600c1ea180fafd6c1ea0801cab9e8030000e8d3feffff89449d984383fb1475bca14c427d048bb57cff"
-      .. "ffffba0900000039558c0f46558c0faff08b0d50427d0489f001c80fb68a64427d04c1e81039c873070fb682"
-      .. "64427d040fb68a6e427d0439c173070fb6826e427d048b7d908b4dc48b770801c18b570439f1735131c0e977"
-      .. "0200008b4584ba8a0200008d88cc84cc008b80a028000039d00f47c289cac1e00401c8e9d8feffffb8090000"
-      .. "0039458c0f46458c695594b179379ec1ea1d8d84c278427d040fb600e9f7feffff8b5d808b4dac31d38d1409"
-      .. "895d8069db656b54e642c1eb180fafd389f329cbc1ea088d3c1a8b55c089bd7cffffff01fa39c20f8277ffff"
-      .. "ffa1fc4f7d04694d9441a11ddf8b7d908b15fc4f7d0401c040c1e9180357140fafc1c1e80829c28b45880fb6"
-      .. "400e39c2720b8b45880fb6400f39d073358b45908b55ccb96400000083781c0075068b0de84f7d0469458093"
-      .. "35871b0fafd1c1e8186bc064c1e8086bc06439d00f8206ffffff8b45908b7d84b9530300008b400c8b973464"
-      .. "d0008945888b4584050cb8cc0039ca0f47d169d21801000001c239c20f84d2feffff8b188d8818010000395d"
-      .. "94740489c8ebe785c00f84b9feffff8db8100100008d4810897d94bf810000008b11f7c200c03f00741589d3"
-      .. "c1eb0783e37f395d887508c1ea160fa3d7722a83c110394d9475d98b4d880fb690090100004139ca0f856efe"
-      .. "ffff0fb6800a01000039f00f835ffeffff8b5d8cb80100000081c380501f018b149d00000000420f84c10000"
-      .. "0050508b4590ffb57cffffffff30e84bfcffff83c41089c68b45908b401c83f802742085c075088b153c427d"
-      .. "04eb068b1540427d0489f0b964000000e86ffcffff89c68b049d000000008b55b0b96400000083cfffe856fc"
-      .. "ffff8b55b889c3a138427d04e847fcffff8d506489d8e83dfcffff8b55b489c3a134427d04e82efcffff6955"
-      .. "806bcaeb85b900640000c1ea180fafd089d8e815fcffffb9a086010001c38b45900f42df8b50180faf55bc89"
-      .. "d8e8fafbffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e557565383ec3c837d08000f84a00100"
-      .. "00a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100008b308b580451ff75085356"
-      .. "e88ffbffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639f10f854e01000069db930100"
-      .. "0131d3895dcc8b5004c1ea1c8955d452528d55d85250e82bfbffff8b55c883c41031c98945d08b421cc1e807"
-      .. "83e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f4883f80176128b82b8000000"
-      .. "2500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff0300000f87cb0000008b450831d28d"
-      .. "98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b8814030000c1e9070fb6c93b4d"
-      .. "10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b85ff7449397dc474"
-      .. "448b831e03000083e0074874388b45088d4dc889dae8b2faffff85c074278b83140300008b5510c1e8070fb6"
-      .. "c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d69d220050000"
-      .. "8b45088d4dc801dae867faffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3"
+      .. "894de48b45ecf765e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565389c381ec8c00"
+      .. "00008b028b155cf85102894d94b940000000894590a1c8477d0439c80f47c18d3cc5cc477d04b8cc477d0439"
+      .. "f80f84970100008b308b4804397590750839ca0f847e01000083c00839f275df394d9075dae96d0100008b3a"
+      .. "8d7210397d90740889f239c275f089ca0fb742088945840fb6420ebac0000000894588a160427d0439d00f47"
+      .. "c289c283e8010f825c0100008b0c85c8447d04394d9075e90fb68207447d046bc01431f605c8427d0489458c"
+      .. "694590b179379e898578ffffff8b458c8b0d44427d0469d6930100018b3d48427d0401f08a008845808b8578"
+      .. "ffffff31c20fb6458069d26bcaeb85c1ea180fafd7c1ea0801cab9e8030000e8c8feffff8944b5984683fe14"
+      .. "75b38b154c427d048b7d84b8090000003945880f4645880faffa8b0d50427d0489fa01ca89d60fb69064427d"
+      .. "04c1ee1039d673070fb6b064427d040fb6906e427d0439f273070fb6b06e427d04668b83b2cbc200b9530300"
+      .. "0066894580668b83b0cbc2008b933464d00066898574ffffff8b459439ca8b40040f47d1898570ffffff8b45"
+      .. "9469d2180100008b400c89857cffffff8b45948b40088945848d830cb8cc0001c239c2756031ff8b45c48b5d"
+      .. "8401f039d80f83e400000031c0e94a0300008b83a0280000ba8a0200008d8bcc84cc0039d00f47c289cac1e0"
+      .. "0401c8e976feffffb8090000003945880f464588695590b179379ec1ea1d8d84c278427d040fb600e992feff"
+      .. "ff8b188d8818010000395d90740489c8eb8b31ff85c0748b8db8100100008d481089bd6cffffffbf81000000"
+      .. "8b11f7c200c03f00741889d3c1eb0783e37f399d7cffffff7508c1ea160fa3d7723f83c110398d6cffffff75"
+      .. "d38bbd7cffffff0fb690090100008d4f0131ff39ca0f8530ffffff0fb6800a0100008b7d8439f80f92c00fb6"
+      .. "c08d3c00e916ffffffbf01000000e90cffffff8b8574ffffff0fb755808b9d78ffffffc1e01009d08b9570ff"
+      .. "ffff69c09301000131da8b5d9431c28955808b531c83fa0174328b0df84f7d04394d8473278b0de44f7d04c1"
+      .. "e914394b187319694d80b1675616c1e9186bc964c1e9083b4da80f83b7feffff8b4d8c8b5d8c8a491083c310"
+      .. "899d74fffffffec17467698d7cffffff35aeb2c28b9d78ffffff31d931c169c16bcaeb858b4d98c1e8186bc0"
+      .. "64c1e80839c8730485d2eb16034d9c39c8730583fa01eb0a034da039c8730a83fa027421e956feffff83ff02"
+      .. "0f854dfeffff8b8574ffffff0fb60039c20f853cfeffffeb7985ff0f8432feffff83ff02746c8b5d94a1fc4f"
+      .. "7d048b0dfc4f7d04034b14695d9041a11ddf01c040c1eb180fafc3c1e80829c18b458c0fb6400e39c1720b8b"
+      .. "458c0fb6400f39c873308b45ccb96400000085d275068b0de84f7d046955809335871b0fafc1c1ea186bd264"
+      .. "c1ea086bd26439c20f82c1fdffff8b55ac694d80656b54e68d0412c1e918400fafc18b4d8429d1c1e80801c1"
+      .. "83ff02740d8b45c001c839f00f8291fdffff8b5d88b80100000081c380501f018b149d00000000420f84c600"
+      .. "000050508b459451ff30e81bfbffff83c41089c68b45948b401c83f802742085c075088b153c427d04eb068b"
+      .. "1540427d0489f0b964000000e83ffbffff89c68b049d000000008b55b0b964000000e829fbffff89c383ff02"
+      .. "75198b55b8a138427d04e815fbffff8d506489d8e80bfbffff89c38b55b4a134427d04b96400000083cfffe8"
+      .. "f4faffff6955806bcaeb85b900640000c1ea180fafd089d8e8dbfaffffb9a086010001c38b45940f42df8b50"
+      .. "180faf55bc89d8e8c0faffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e557565383ec3c837d08"
+      .. "000f84a0010000a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100008b308b5804"
+      .. "51ff75085356e855faffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639f10f854e0100"
+      .. "0069db9301000131d3895dcc8b5004c1ea1c8955d452528d55d85250e8f1f9ffff8b55c883c41031c98945d0"
+      .. "8b421cc1e80783e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f4883f8017612"
+      .. "8b82b80000002500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff0300000f87cb000000"
+      .. "8b450831d28d98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b8814030000c1e9"
+      .. "070fb6c93b4d10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b85ff"
+      .. "7449397dc474448b831e03000083e0074874388b45088d4dc889dae878f9ffff85c074278b83140300008b55"
+      .. "10c1e8070fb6c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d"
+      .. "69d2200500008b45088d4dc801dae82df9ffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3"
 -- The place that is changed: the club look-up itself, in the place of its six prologue
 -- bytes, so that the club the routine that creates an offer asks for is our answer.
 local INCOMING_SITE = { "incoming", 0x0381e2eb, "5589e583ec14", "e96082fb0090" }
 -- a fifth piece, right after the fourth (MLGrowth.lua starts at 0x047d6e50), for
 -- SQUAD_PRESSURE: its numbers and its routine, which the routine of the first piece calls
 -- (so it is always written with it)
-local PRESSURE_CAVE = 0x047d6c50
+local PRESSURE_CAVE = 0x047d6d40
 local PRESSURE_CAVE_SIZE = 0x110
 -- the groups of SQUAD_PRESSURE in the order of the memory, and the group (0 to 3) of each
 -- of the 13 positions, GK to CF
@@ -771,7 +793,7 @@ local ROUTINE = { 0x7cc, "53575589e581ec900000008b45008945c88b58d88b480481f9580d
       .. "ff3f00003d8d0200000f83aa00000083bc81ac070000170f869c000000817dc0b90d660375395253e86bf407"
       .. "ff83c4045a8b4de083f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f80773"
       .. "60807a0e08735a586a0c598b55c4e85e0300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d042b55"
-      .. "a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e908e8412000"
+      .. "a87e090faf15f04f7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e908e8312100"
       .. "000f82b1020000eb0658e9a9020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e4"
       .. "4f7d047319694dd4b1675616c1e9186bc964c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200"
       .. "008b55b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca0189"
@@ -817,11 +839,11 @@ local NEED_SITES = {
 }
 
 -- SQUAD_PRESSURE: its routine (offset in the fifth piece of memory, machine code)
-local PRESSURE_ROUTINE = { 0x18, "39c10f83a90000002b05506c7d0439c10f8c9a0000008b4304"
-      .. "c1e81c83f80c0f878b00000056570fb680586c7d04506a008b4dc88b49f8ff75c4e8c2bc04ff8bb828030000"
-      .. "c1ef0983e77f8db0f80000008d3cfe39fe73496804eb4f0289f1e8f26d40fe84c075348b4dc88b49f8ff7604"
-      .. "ff36e855bb04fff680b400000030751b8b4004c1e81c83f80c77100fb680586c7d043b4424047503ff042483"
-      .. "c608ebb3585a0fb692546c7d045f5e39c2f5c3f9c3" }
+local PRESSURE_ROUTINE = { 0x18, "39c10f83a90000002b05406d7d0439c10f8c9a0000008b4304"
+      .. "c1e81c83f80c0f878b00000056570fb680486d7d04506a008b4dc88b49f8ff75c4e8d2bb04ff8bb828030000"
+      .. "c1ef0983e77f8db0f80000008d3cfe39fe73496804eb4f0289f1e8026d40fe84c075348b4dc88b49f8ff7604"
+      .. "ff36e865ba04fff680b400000030751b8b4004c1e81c83f80c77100fb680486d7d043b4424047503ff042483"
+      .. "c608ebb3585a0fb692446d7d045f5e39c2f5c3f9c3" }
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {
