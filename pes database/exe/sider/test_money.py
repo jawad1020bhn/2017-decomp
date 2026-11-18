@@ -1672,7 +1672,8 @@ def main(exe):
                           'installed, version ' + mc.MARK[3:].decode())
             assert [l for l in lines if l.endswith('DIFFERENT')] == ['check: %-13s at %08x  DIFFERENT' % (name, at)], lines
             needed += 1
-    assert all(mc.CAVE <= at and at + len(data) <= mc.CAVE + mc.CAVE_SIZE for _, at, data in mc.MONEY_NEEDED)
+    assert inside(tuple((at, len(data)) for _, at, data in mc.MONEY_NEEDED),
+                  CAVE + ((mc.FEE_SITE, len(mc.FEE_SITE_NEW)),))
     on_its_own(lambda: install(source, everything), ALREADY, 'installed, version ' + mc.MARK[3:].decode())
     for name, at, old, _ in mc.SITES:                        # every changed place lies inside a checked piece
         pieces = mc.CONTEXT_CEILING if name in mc.TRANSFER_SITES else mc.CONTEXT
@@ -1770,6 +1771,8 @@ def main(exe):
            ('ARCHETYPES: entry 1 (Galactico): free + listed + clubs is above 100',
             source.replace('free = 5, listed = 10, clubs = 85', 'free = 6, listed = 10, clubs = 85')),
            ('ARCHETYPES: entry 3 (Moneyball): knows is not a number from 1 to 100', source.replace('knows = 90', 'knows = 0')),
+           ('ARCHETYPES: entry 1 (Galactico): wealth is not a number from 10 to 250', source.replace('wealth = 150,', 'wealth = 251,', 1)),
+           ('ARCHETYPES: entry 1 (Galactico): wealth is not a number from 10 to 250', source.replace('wealth = 150,', 'wealth = "150",', 1)),
            ('ARCHETYPES: entry 2 (State-backed): wealth is not a number from 10 to 250', source.replace('wealth = 160', 'wealth = 251')),
            ('ARCHETYPES: entry 4 (Elite trader): fog is not a number from 0 to 10',
             source.replace('fog = 1, wealth = 100, premium = 60', 'fog = 11, wealth = 100, premium = 60')),
@@ -1820,10 +1823,14 @@ def main(exe):
                         (mc.NEED_PLAN_SITE, 'RESULT: a change did not go in.'), (mc.NEED_PICK_SITE, 'RESULT: a change did not go in.')):
         h.restore()                                          # the memory or a place of the position need
         lines, _, writes = run(g, source, sticky=lambda address: address != fails)
-        assert results(lines)[1].startswith(last) and writes[-1][0] == fails, (hex(fails), results(lines))
-        if fails != mc.NEED_PICK_SITE:                       # what follows the failed write is not written
-            assert g.read(mc.NEED_PICK_SITE, 5) == mc.NEED_PICK_SITE_OLD and (fails == mc.CAVE_3) == (
-                g.read(mc.CEILING_SITE, 9) == mc.CEILING_SITE_OLD)
+        assert results(lines)[1].startswith(last), (hex(fails), results(lines))
+        if fails == mc.CAVE_3:
+            assert writes[-1][0] == fails, writes
+        else:
+            assert 'Hooks restored.' in results(lines)[1], lines
+        for label, at, old, _ in settings(source).sites():
+            if label in mc.TRANSFER_SITES:
+                assert g.read(at, len(old)) == old, (hex(fails), label)
     h.restore()
     assert h.unchanged()
     check(None, 200, 20)

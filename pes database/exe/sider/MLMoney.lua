@@ -929,16 +929,26 @@ function m.init(ctx)
         ["income 4"] = INCOME_WAGES,
     }
     for i = 0, 5 do on["nat " .. i] = CUP_NATIONAL end
+    local patched = {}
     for _, s in ipairs(SITES) do
         if on[s[1]] then
             local at, new = s[2], unhex(s[4])
             if s[1] == "years" then new = string.sub(new, 1, 1) .. u32(years) end
             if string.sub(s[1], 1, 4) == "nat " then new = u32(national[tonumber(string.sub(s[1], 5)) + 1]) end
+            patched[#patched + 1] = s
             memory.write(at, new)
             local same = (memory.read(at, #new) == new)
             log(string.format("written: %-8s at %08x  %s", s[1], at, same and "ok" or "FAILED"))
             if not same then
-                log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
+                local restored = true
+                for j = #patched, 1, -1 do
+                    local site = patched[j]
+                    local old = unhex(site[3])
+                    memory.write(site[2], old)
+                    if memory.read(site[2], #old) ~= old then restored = false end
+                end
+                log("RESULT: a change did not go in. " .. (restored and "Hooks restored. " or "Hook restore failed. ")
+                    .. "Quit the game, remove the module, send this log.")
                 return
             end
         end

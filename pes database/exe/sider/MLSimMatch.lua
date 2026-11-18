@@ -1,4 +1,4 @@
--- MLSimMatch.lua, version 8: realistic simulated matches (Skip Match and AI-vs-AI)
+-- MLSimMatch.lua, version 9: realistic simulated matches (Skip Match and AI-vs-AI)
 -- in PES 2017 (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What it changes, in the running game only (no file is touched):
@@ -50,7 +50,8 @@
 --
 -- Install: copy this file into the "modules" folder next to sider.exe and add
 --     lua.module = "MLSimMatch.lua"
--- to sider.ini (in any order relative to MLMoney.lua, MLTransfers.lua, MLYear.lua).
+-- to sider.ini (in any order relative to MLMoney.lua, MLTransfers.lua, MLYear.lua
+-- and the matching MLGrowth.lua). Version 9 leaves the Growth curve gap untouched.
 --
 -- Uses only: log, memory.read, memory.write, string, table, math, ipairs, pairs,
 -- tonumber, type, tostring.
@@ -245,6 +246,7 @@ local CAVE_D2 = 0x047d3fa0
 local CAVE_D2_SIZE = 96
 local CAVE_ET = 0x047d5040
 local CAVE_ET_SIZE = 4030
+local CAVE_ET_CODE_SIZE = 2892
 local CAVE_C = 0x047b0060
 local CAVE_C_SIZE = 405
 local CAVE_PK = 0x047d6030
@@ -656,7 +658,7 @@ local function build_et_image()
 
     for _, r in ipairs(ET_ROUTINES) do
         local bytes = unhex(r[2])
-        if r[1] + #bytes > WIN_CDF_2D_OFF then return nil end
+        if r[1] + #bytes > CAVE_ET_CODE_SIZE then return nil end
         put(r[1], bytes)
     end
 
@@ -854,7 +856,7 @@ local function check_bytes(name, addr, expected_hex)
 end
 
 function m.init(ctx)
-    log("MLSimMatch 8: realistic simulated matches, ATK/DEF scorelines, smart/GK-safe subs, lineup & condition strength, ratings, scorers/assists, ET/PK, cards, fatigue & injuries")
+    log("MLSimMatch 9: realistic simulated matches, ATK/DEF scorelines, smart/GK-safe subs, lineup & condition strength, ratings, scorers/assists, ET/PK, cards, fatigue & injuries")
 
     local fault = settings_fault()
     if fault then
@@ -989,7 +991,11 @@ function m.init(ctx)
     if need_cave then check_empty("free memory", CAVE, CAVE_SIZE) end
     if need_data_d then check_empty("free data memory", CAVE_D, CAVE_D_SIZE) end
     if need_data_d2 then check_empty("free data2 memory", CAVE_D2, CAVE_D2_SIZE) end
-    if need_et_cave then check_empty("free ET memory", CAVE_ET, CAVE_ET_SIZE) end
+    -- MLGrowth owns the gap between ET code and score tables, in either load order.
+    if need_et_cave then
+        check_empty("free ET memory", CAVE_ET, CAVE_ET_CODE_SIZE)
+        check_empty("free ET tables", CAVE_ET + WIN_CDF_2D_OFF, CAVE_ET_SIZE - WIN_CDF_2D_OFF)
+    end
     if need_pk_cave then check_empty("free PK memory", CAVE_PK, CAVE_PK_SIZE) end
     if need_cards_hook then check_empty("free card memory", CAVE_C, CAVE_C_SIZE) end
 
@@ -1016,19 +1022,31 @@ function m.init(ctx)
     if need_cave and not write_cave("cave", CAVE, cave_image) then return end
     if need_data_d and not write_cave("data cave", CAVE_D, data_d_image) then return end
     if need_data_d2 and not write_cave("data2 cave", CAVE_D2, data_d2_image) then return end
-    if need_et_cave and not write_cave("ET cave", CAVE_ET, et_image) then return end
+    if need_et_cave then
+        if not write_cave("ET cave", CAVE_ET, string.sub(et_image, 1, CAVE_ET_CODE_SIZE)) then return end
+        if not write_cave("ET tables", CAVE_ET + WIN_CDF_2D_OFF,
+            string.sub(et_image, WIN_CDF_2D_OFF + 1)) then return end
+    end
     if need_pk_cave and not write_cave("PK cave", CAVE_PK, pk_image) then return end
     if need_cards_hook and not write_cave("cards cave", CAVE_C, cards_image) then return end
 
     -- 4. Patch active hook sites
-    for _, key in ipairs(active_sites) do
+    for i, key in ipairs(active_sites) do
         local s = SITES[key]
         local new = unhex(s[4])
         memory.write(s[2], new)
         local stuck = (memory.read(s[2], #new) == new)
         log(string.format("written: %-16s at %08x  %s", s[1], s[2], stuck and "ok" or "FAILED"))
         if not stuck then
-            log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
+            local restored = true
+            for j = i, 1, -1 do
+                local site = SITES[active_sites[j]]
+                local old = unhex(site[3])
+                memory.write(site[2], old)
+                if memory.read(site[2], #old) ~= old then restored = false end
+            end
+            log("RESULT: a change did not go in. " .. (restored and "Hooks restored. " or "Hook restore failed. ")
+                .. "Quit the game, remove the module, send this log.")
             return
         end
     end

@@ -7,7 +7,7 @@
 --
 -- Install: copy this file into the "modules" folder next to sider.exe and add
 --     lua.module = "MLCheck.lua"
--- to sider.ini. Start the game with Sider, wait for the title screen, quit, and
+-- to sider.ini, before MLMoney.lua and other memory patchers. Start the game, quit, and
 -- look for the lines with "MLCheck" in sider.log.
 --
 -- Uses only: log, memory.read, string, table, ipairs, tostring.

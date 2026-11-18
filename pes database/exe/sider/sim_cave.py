@@ -73,11 +73,12 @@ PES 2017 (sha256 44b0caaa...):
 
 Memory caves used (all verified zeroed in PES2017.exe, zero overlap with MLMoney.lua,
 MLTransfers.lua, or MLYear.lua):
-  - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3faf (<= 1376 B)
-  - CAVE_D2 (.xcode page end) : 0x047d3fb0..0x047d3fff (80 / 80 B, RWX)
+  - CAVE    (.xcode tail)     : 0x047d3a50..0x047d3f06 (1207 B)
+  - CAVE_D2 (.xcode page end) : 0x047d3fa0..0x047d3fff (96 B, RWX)
   - CAVE_D  (.data1 mid-gap)  : 0x047d4170..0x047d41ff (144 / 144 B)
-  - CAVE_ET (.reloc page)     : 0x047d5040..0x047d5fff (<= 4032 B)
-  - CAVE_PK (.link page)      : 0x047d6030..0x047d6fff (<= 4048 B)
+  - CAVE_ET (.reloc page)     : code 0x047d5040..0x047d5b8b, tables 0x047d5be0..0x047d5ffd
+                                (leave the 84-byte MLGrowth gap untouched)
+  - CAVE_PK (.link page)      : 0x047d6030..0x047d6376 (839 B)
   - CAVE_C  (.trace tail)     : 0x047b0060..0x047b01fd (<= 414 B)
 """
 import math
@@ -89,8 +90,8 @@ import sys
 # =====================================================================
 
 CAVE = 0x047d3a50
-CAVE_END = 0x047d3fb0             # CAVE_D2 has the last 80 bytes of the page
-CAVE_SIZE_MAX = CAVE_END - CAVE  # 1376 bytes
+CAVE_END = 0x047d3f07             # MLGrowth season award starts here
+CAVE_SIZE_MAX = CAVE_END - CAVE  # 1207 bytes
 
 CAVE_D = 0x047d4170
 CAVE_D_END = 0x047d4200
@@ -103,6 +104,7 @@ CAVE_D2_MAX = CAVE_D2_END - CAVE_D2  # 96 bytes, the end of the .xcode page (RWX
 CAVE_ET = 0x047d5040
 CAVE_ET_END = 0x047d6000
 CAVE_ET_MAX = CAVE_ET_END - CAVE_ET  # 4032 bytes (.reloc page)
+CAVE_ET_CODE_SIZE = 0x0b4c         # stop before MLGrowth's curve at 0x047d5b8c
 WIN_CDF_2D_OFF = 0x0ba0              # 0x047d5be0: 49 * 21 = 1029 bytes
 WIN_CDF_2D_ADDR = CAVE_ET + WIN_CDF_2D_OFF
 DRAW_CDF_BANDS_OFF = WIN_CDF_2D_OFF + 49 * 21  # 0x047d5fe5: 5 * 5 = 25 bytes
@@ -110,8 +112,8 @@ DRAW_CDF_BANDS_ADDR = CAVE_ET + DRAW_CDF_BANDS_OFF
 CAVE_ET_SIZE = DRAW_CDF_BANDS_OFF + 25         # 4030 bytes (0x047d5040..0x047d5ffe)
 
 CAVE_PK = 0x047d6030
-CAVE_PK_END = 0x047d7000
-CAVE_PK_MAX = CAVE_PK_END - CAVE_PK  # 4048 bytes (.link page)
+CAVE_PK_END = 0x047d6377           # MLGrowth exp award starts here
+CAVE_PK_MAX = CAVE_PK_END - CAVE_PK  # 839 bytes
 CARD_ADJ_ADDR = CAVE_PK + 0xf0       # 0x047d6120 (28 bytes)
 PK_TABLE_ADDR = CAVE_PK + 0x110      # 0x047d6140 (16 bytes)
 
@@ -2384,7 +2386,7 @@ def assemble():
     """
     sim_vec_bytes = asm(sim_vec_src, sim_vec_addr)
     cave_et_end = sim_vec_addr + len(sim_vec_bytes)
-    assert cave_et_end <= WIN_CDF_2D_ADDR, f"CAVE_ET code overflow into tables: {hex(cave_et_end)} > {hex(WIN_CDF_2D_ADDR)}"
+    assert cave_et_end <= CAVE_ET + CAVE_ET_CODE_SIZE, f"CAVE_ET code overlaps MLGrowth: {hex(cave_et_end)}"
 
     # ---- CAVE_PK (.link page): PK_HOOK, card_adj, PK_TABLE, FATIGUE_HOOK, INJURY_FN ----
     # Entry from 0x037063bb: [esp+4]=out_res, [esp+8]=match_ptr
@@ -3153,7 +3155,7 @@ def build_image(settings=None):
 
 
 def build_et_image(settings=None):
-    """Return full CAVE_ET bytes (code routines + WIN_CDF_2D + DRAW_CDF_BANDS) for writing at CAVE_ET."""
+    """Build the ET image; installers must skip the gap before WIN_CDF_2D (MLGrowth)."""
     s = dict(DEFAULT_SETTINGS)
     if settings:
         s.update(settings)
@@ -3163,7 +3165,7 @@ def build_et_image(settings=None):
         addr, hx = CODE_PARTS[k]
         b = bytes.fromhex(hx)
         off = addr - CAVE_ET
-        assert off + len(b) <= WIN_CDF_2D_OFF, (k, hex(addr + len(b)), hex(WIN_CDF_2D_ADDR))
+        assert off + len(b) <= CAVE_ET_CODE_SIZE, (k, hex(addr + len(b)), "MLGrowth curve")
         buf[off : off + len(b)] = b
     wc2d = b"".join(bytes(c) for c in build_win_cdf_2d(goal_scale=s["GOAL_SCALE"]))
     dcb = b"".join(bytes(c) for c in build_draw_cdf_bands(s["DRAW_WEIGHTS"]))
@@ -3239,6 +3241,7 @@ def lua_block(exe_path):
         f"local CAVE_D2_SIZE = {CAVE_D2_SIZE}",
         f"local CAVE_ET = 0x{CAVE_ET:08x}",
         f"local CAVE_ET_SIZE = {len(et_img)}",
+        f"local CAVE_ET_CODE_SIZE = {CAVE_ET_CODE_SIZE}",
         f"local CAVE_C = 0x{CAVE_C:08x}",
         f"local CAVE_C_SIZE = {len(cards_hx) // 2}",
         f"local CAVE_PK = 0x{CAVE_PK:08x}",
@@ -3337,7 +3340,7 @@ def main():
     if cmd == "build":
         built = assemble()
         print(f"CAVE    end: 0x{built['cave_end']:08x} ({built['cave_end'] - CAVE} / {CAVE_SIZE_MAX} bytes)")
-        print(f"CAVE_ET end: 0x{built['cave_et_end']:08x} ({built['cave_et_end'] - CAVE_ET} / {WIN_CDF_2D_OFF} code bytes; total {CAVE_ET_SIZE} / {CAVE_ET_MAX})")
+        print(f"CAVE_ET end: 0x{built['cave_et_end']:08x} ({built['cave_et_end'] - CAVE_ET} / {CAVE_ET_CODE_SIZE} code bytes; total {CAVE_ET_SIZE} / {CAVE_ET_MAX})")
         print(f"CAVE_C  end: 0x{built['cave_c_end']:08x} ({built['cave_c_end'] - CAVE_C} / {CAVE_C_MAX} bytes)")
         print(f"CAVE_PK end: 0x{built['cave_pk_end']:08x} ({built['cave_pk_end'] - CAVE_PK} / {CAVE_PK_MAX} bytes)")
         keys = ("chk", "rand", "ratings", "scorer", "eff_strength", "player_eff_ovr", "smart_subs", "et", "outcome", "score", "sim_vec", "pk", "card_adj", "fatigue", "injury", "cards")

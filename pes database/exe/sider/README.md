@@ -3,25 +3,82 @@
 Modules for the Sider that ships in `pes.7z` (`sider.dll` of 20 February 2022, Lua
 enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edited.
 
+## Safety fixes — 17 November 2026
+
+- **`MLTeamSpirit.lua` v3:** uses Sider's already-decoded team numbers, reads the
+  career day/year as u16 fields, ignores future results when calculating form, and
+  bounds the final match/club/competition reads. Existing packed `RIVALS` settings
+  still work; copy the labelled **`RIVALS id`**, not the Sider team number, from the log.
+- **`MLGrowth.lua` v4:** preserves the annual award's age margin across the attribute
+  lookup. The assembly, preassembled bytes and embedded Lua block are synchronized;
+  the season award uses 147 of its 153 reserved bytes.
+- **`MLSimMatch.lua` v9:** neither checks nor writes the 84-byte gap reserved for
+  Growth's curve. The matching SimMatch/Growth files now work in either load order.
+  With an older SimMatch v8, SimMatch must still load first. Upgrade both files.
+- **Failed writes:** Money, Transfers, Year, SimMatch, Growth and Spirit now attempt
+  to restore all patches already attempted if a write fails its read-back check.
+  Failed restoration is reported. This is not exception-safe transaction support:
+  Sider 3.6.0's Lua sandbox provides no `pcall`, so a host memory-API error can still
+  stop init before rollback. Fully exit PES on any write/init failure; do not save.
+- **Transfers setup:** the checked default is numeric `wealth = 150` for Galactico.
+  A log saying that persona's wealth is invalid means the installed file differs.
+  Back it up and replace it with this copy, or keep your custom value numeric and
+  within **10–250**. The validator remains enabled; unsafe settings are not clamped
+  or accepted silently.
+  Transfers also verifies Money's actual installed fee hook, not just its marker and
+  cave contents, so it cannot activate after Money has rolled back a failed install.
+
+Back up your saves, installed modules and `sider.ini` before replacing files. Copy
+these Lua files into Sider's `modules` folder, not the Python generators/tests.
+This is a recommended order for the **eight ML lines only**, not a replacement for
+an entire `sider.ini`:
+
+```ini
+lua.enabled = 1
+lua.module = "MLCheck.lua"
+lua.module = "MLMoney.lua"
+lua.module = "MLYear.lua"
+lua.module = "MLTransfers.lua"
+lua.module = "MLSimMatch.lua"
+lua.module = "MLTeamSpirit.lua"
+lua.module = "MLSimToDate.lua"
+lua.module = "MLGrowth.lua"
+```
+
+Run Check before patchers, and Money before Transfers. Keep just one line per module.
+**Restart PES completely** after changing files/lines: existing hooks cannot be
+removed by editing a running game's configuration. Growth/money changes already
+saved by the game are not reverted by removing a module. SimToDate's default "off"
+still installs its Schedule/day-loop hooks; omit its module line and restart if you
+need a run without those hooks.
+
+All **12 `test_*.py` suites** passed against the bundled executable, including the
+new `test_safety.py` (22 shared-memory orders and 102 refused/damaged patch writes)
+and 1,456 annual-growth edge cases. This is emulator testing, not live Windows/PES
+verification. The original close remains undiagnosed; see `SAFETY_AUDIT.md` for scope
+and remaining limits. PlayerDump, GrowthBridge and Stadiums are unchanged, as requested.
+Switcher2 is not present in the repository and could not be repaired.
+
 | file | what it does |
 |---|---|
 | `MLCheck.lua` | **read-only test.** Reads the overall window of computer clubs by level (section 9.4 of `../MASTER_LEAGUE.md`) and four numbers of the transfer fee formula (section 6.2) from the running game and writes them to `sider.log`. It writes nothing to the game |
 | `test_module.py <PES2017.exe>` | runs `MLCheck.lua` outside the game against the bytes of the exe file (needs `pip install lupa`) |
-| `MLGrowth.lua` | **changes the game.** Version 3 gives Master League players a moderated, adaptive age curve: development at 15-27 is slowed a little, while potential headroom, appearances and the low 28+ tail keep growth player-specific. The same curve applies to player awards, training focus and the annual progression of untracked AI players. Checks game code and empty caves first; emulator tested only. |
+| `MLGrowth.lua` | **changes the game.** Version 4 gives Master League players a moderated, adaptive age curve: development at 15-27 is slowed a little, while potential headroom, appearances and the low 28+ tail keep growth player-specific. The same curve applies to player awards, training focus and the annual progression of untracked AI players. Checks game code and empty caves first; emulator tested only. |
 | `growth_cave.py` / `test_growth.py <PES2017.exe>` | source/reference model and emulator test for `MLGrowth.lua` (needs `pip install keystone-engine lupa unicorn capstone`). `growth_cave.py calibrate <exe> <save>` projects the annual AI-player changes over a save. |
 | `MLMoney.lua` | **changes the game.** Player values by rating, age, talent, position and popularity, salaries, the transfer budget of a new career, the yearly income of the club, cup and league prizes, from tables at the top of the file. Checks the game's code first and writes nothing if it differs. Version 2 ran in the game and version 5 was played by hand (no log); versions 3, 4, 6 and 7 have run in the emulator only |
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included; version 7 adds the offers for your own players: a rival of yours no longer makes one; version 8 makes the chooser of that club the whole rules the game never had (no rival, a persona that wants him, a place in its plan, a price it can afford) and leaves the room test to the game; version 9 adds squad pressure: a club that has more goalkeepers, defenders, midfielders or forwards than a limit lets a player of that group go more easily, and makes the offers for your own players choose their club by the whole rules of the computer clubs: scouting, the place it buys from, the day of the career and the stretch above the ceiling. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 9 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
-| `MLTeamSpirit.lua` | **changes the game.** Version 2: in a played Master League match your club has a Team Spirit of its own, 90 to 99, worked out before every match from the career's own match records — the last five results, two losses in a row, a run of wins, the last round of a cup, a rival and a league match at the top or the bottom — so 22 abilities of your players are lowered by 2 percent at the worst instead of 30. Version 1 answered 99 for every player, which switched the effect off. One place of twelve bytes, and one byte of it written again before a match; no new memory, no cave. Needs no other module. Has run in the emulator only |
+| `MLTeamSpirit.lua` | **changes the game.** Version 3: in a played Master League match your club has a Team Spirit of its own, 90 to 99, worked out before every match from the career's own match records — the last five results, two losses in a row, a run of wins, the last round of a cup, a rival and a league match at the top or the bottom — so 22 abilities of your players are lowered by 2 percent at the worst instead of 30. Version 1 answered 99 for every player, which switched the effect off. One place of twelve bytes, and one byte of it written again before a match; no new memory, no cave. Needs no other module. Has run in the emulator only |
 | `test_spirit.py <PES2017.exe>` | runs `MLTeamSpirit.lua` on the exe in the emulator, then the game's function that gives a player his Team Spirit value and the one of the match set-up that stores the values for the match; the rules are run on careers written out in the emulator's memory (needs `pip install lupa unicorn capstone`) |
 | `MLSimToDate.lua` | **changes the game.** "Sim to Date": choose a future day in the Master League Schedule with F8, cancel with F9, switch stopping for news with F10; matches before it are simulated via Skip Match. Off as it comes. Optional existing Lua/text-file date controls remain. Needs no other module. **Emulator only; not tested in-game** |
 | `simdate_calendar.py` | source and generator for the x86 Schedule hooks embedded in `MLSimToDate.lua` (needs `keystone-engine` only when regenerating) |
 | `test_simdate.py <PES2017.exe>` | runs the sim routine, day loop, installation checks and file-control logic in the emulator (needs `pip install lupa unicorn keystone-engine capstone`) |
 | `test_simdate_calendar.py <PES2017.exe>` | runs the Schedule input hook, date selection, status and day loop with emulator stand-ins (same dependencies) |
-| `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 8: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
-| `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5ffd`, 4,030 B), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
+| `MLSimMatch.lua` | **changes the game.** Simulated matches (Skip Match and AI-vs-AI), version 9: smooth Davidson win/draw/loss probabilities with home advantage, Attack/Defense split (`ATTACK_DEFENSE_SPLIT`) separating team ATK vs opponent DEF in a 7x7 2D Poisson scoreline table (`WIN_CDF_2D`) and 5-band match-tempo draw scoring (`DRAW_CDF_BANDS`), dedicated Goalkeeper OVR & 1.5x condition arrow modifier (`GK_SCORE_MOD`) shifting opponent scoring bands and boosting clean sheets (`GK_eff >= 82`), Skip Match CPU substitutions with GK protection and smart bench ranking, dynamic end-of-match player ratings, attribute- & position-weighted goal scorers & assists across all 10 outfielders (hooking `fcn_037085b5` so Finishing/Attacking Prowess/Header, Low/Lofted Pass, registered position, condition arrow, and fatigue drive `sim_vec` directly), strength-scaled Extra Time + fair OVR-weighted Penalty Shootouts (fixing the vanilla 100%-home PK bug), position-weighted yellow/red cards + competition suspensions, Starting XI lineup + condition/fatigue-adjusted effective team strength (excluding injured/suspended players via `fcn_0385b771`), stamina-scaled fatigue across both user and AI teams (with +30m ET adjustment), and simulated match injuries weighted by injury resistance & post-match fatigue. Needs no other module. Has run in the emulator only |
+| `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5b8b` and `0x047d5be0..0x047d5ffd`, 3,946 B; Growth owns the gap), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
+| `test_safety.py <PES2017.exe>` | installs all eight modules in both Growth/SimMatch orders and 20 sampled orders, rejects cross-module write overlaps, and injects failed/damaged writes to verify patch restoration and explicit restore-failure logs (same LuaJIT/Unicorn dependencies) |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
 | `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua`, its two of the position need, the one of the offers for your players and the one of its squad pressure, with their source) and the same arithmetic as Python |
 | `test_money.py <PES2017.exe>` | runs `MLMoney.lua` and then `MLTransfers.lua` on the exe in the emulator, then runs the game's salary, fee, budget, prize and income code with the changes in and compares it with `money_cave.py` (needs `pip install lupa unicorn`) |
@@ -34,7 +91,7 @@ enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edi
 ## Install and run `MLCheck.lua`
 
 1. Copy `MLCheck.lua` into the `modules` folder next to `sider.exe`.
-2. Add this line to `sider.ini`, below the other `lua.module` lines:
+2. Add this line to `sider.ini`, above `MLMoney.lua` and other memory-patching modules:
    `lua.module = "MLCheck.lua"`
 3. Start the game with Sider as usual, wait for the title screen, quit.
 4. Open `sider.log` (next to `sider.exe`) and look for the lines with `MLCheck`.
@@ -175,7 +232,7 @@ Not shown: the set-up of a career as a whole was not run, only its eight instruc
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
 
-## `MLTeamSpirit.lua`, version 2: Team Spirit follows the form of your club
+## `MLTeamSpirit.lua`, version 3: Team Spirit follows the form of your club
 
 Emulator only: it has not run in the game yet. (Version 1 answered 99 for every player,
 which switched the effect off; it is described at the end of this section.)
@@ -215,8 +272,8 @@ worked out from the match records of the career (section 5 of `../MASTER_LEAGUE.
 
 Every rule is a setting at the top of the file, and every one that fires is named in
 `sider.log` with the value it led to. Nothing is stored in the game: no cave, no new
-memory, no code of our own. Nothing is saved: without the module the game's own values
-are back at once.
+memory, no code of our own. The value itself is not saved; after restarting PES
+without the module the game computes Team Spirit as before.
 
 ### Install
 
@@ -227,7 +284,7 @@ are back at once.
    ```
 3. Start the game and look at `sider.log`:
    ```
-   MLTeamSpirit 2: Team Spirit follows the form of your club
+   MLTeamSpirit 3: Team Spirit follows the form of your club
         base 95, kept inside 90 to 99; two losses -> 92, 3 wins -> 98, a cup final -> 99
    check: the value of a player of your club at 038df6c1  as expected
    RESULT: installed. In a Master League match the Team Spirit of every player of your club is worked out from the club's form before the match and kept inside 90 to 99; it is 95 until the first match.
@@ -235,9 +292,9 @@ are back at once.
 4. Play a match. One line is written for it, and the game plan screen of your club reads
    the same number:
    ```
-   MLTeamSpirit 2: your club is 114838. Every line below names the other club of the match the same way; such a number in RIVALS makes that club a derby.
-   MLTeamSpirit 2: at home against club 131222, competition 29 round 4, form D D D D D -> 97  [big match (+2)]
-   MLTeamSpirit 2: at home against club 131222, competition 30 round 53, form none -> 99  [final (99)]
+   MLTeamSpirit 3: your club is 114838 (Sider team 7). RIVALS uses packed club ids; copy the RIVALS id shown for the opponent.
+   MLTeamSpirit 3: at home against club 8 (RIVALS id 131072), competition 29 round 4, form D D D D D -> 97  [big match (+2)]
+   MLTeamSpirit 3: at home against club 8 (RIVALS id 131072), competition 30 round 53, form none -> 99  [final (99)]
    ```
 
 `RESULT: nothing written. ...` with a `DIFFERENT` line: the game does not hold the
@@ -263,8 +320,9 @@ Nothing of this has been in the game, so the first thing to look at is the log:
    affected.
 4. **A derby.** The three rivals of your club record (`+0x514`) are read. In the two
    saves of `../ML saves/` every club record names no rival at all, so a derby may never
-   fire; the line for a match names the other club, and that number in the setting
-   `RIVALS` makes the club a derby whatever the game says.
+   fire; copy the opponent's labelled `RIVALS id` from a match line into the setting
+   `RIVALS` to make it a derby whatever the game says. This remains a packed career id,
+   not Sider's decoded team number.
 5. **A big match.** The places in the league are counted from the matches of the season
    in the records, so they are the league table of the game's own results.
 
@@ -288,7 +346,10 @@ ok 10: the kind of a competition is the one of the record that carries its numbe
 `ok 4` to `ok 7` fill a mode data block of the emulator with match records, competition
 records, club records with rivals and a day of the year, and then call the function the
 module registers for the conditions of a match with a Sider `ctx` — the same call Sider
-makes. `ok 2` also checks the five bytes of version 1's place are still the game's own:
+makes, using decoded `ctx.home_team`/`ctx.away_team` numbers, not packed career ids.
+The original v2 tests used packed callback ids and did not expose the double decoding.
+`ok 11`–`ok 13` also cover away matches, packed RIVALS compatibility, u16 date widths,
+future seasons, and the final table batches. `ok 2` also checks the five bytes of version 1's place are still the game's own:
 with version 1's jump in them no player reaches the branch, and the log says so.
 
 Not shown: the code that multiplies the abilities (`fcn_02f903a7`) and the screen were
@@ -2362,7 +2423,7 @@ places; no season was played. The emulator computes the club factor with 80-bit
 floating point; if the game runs with a lower precision setting, a salary can differ by
 1 (100 on the screen).
 
-## `MLSimMatch.lua`, version 8: simulated matches, Attack/Defense split, attribute scorers/assists, subs, fatigue & injuries
+## `MLSimMatch.lua`, version 9: simulated matches, Attack/Defense split, attribute scorers/assists, subs, fatigue & injuries
 
 Emulator only: it has not run in the game yet. Needs no other module and coexists cleanly
 with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` in any load order.
@@ -2559,28 +2620,34 @@ Read from the DLL's code and strings, not run:
   the salary part to 0 in the function's own stack frame.)
 - Free memory for code and tables: `0x047b0200`-`0x047b0fff`, the end of `.trace`
   (3,584 bytes; `MLMoney.lua` uses the first 3,568), and below it `0x047b0060`-`0x047b01fd`
-  (`MLSimMatch.lua` version 8 uses `0x047b0060`-`0x047b01f4`, 405 bytes, for cards + injury call;
+  (`MLSimMatch.lua` version 9 uses `0x047b0060`-`0x047b01f4`, 405 bytes, for cards + injury call;
   `0x047b0124`-`0x047b01fe` was used by version 5 of `MLMoney.lua` only). The end of `.xcode`,
-  `0x047d3a43`-`0x047d3fff` (`MLSimMatch.lua` version 8 uses `0x047d3a50`-`0x047d3f06`,
+  `0x047d3a43`-`0x047d3fff` (`MLSimMatch.lua` version 9 uses `0x047d3a50`-`0x047d3f06`,
   1,207 bytes, for code and `0x047d3fa0`-`0x047d3fff`, 96 bytes, for its v5–v7 config & positional/GK tables;
   previously used by version 6 of `MLMoney.lua` and version 1 of `MLTransfers.lua` at
   `0x047d3c40`-`0x047d3dbc`). The page of `.data1` behind its code,
-  `0x047d4170`-`0x047d4fff`: `MLSimMatch.lua` version 8 uses `0x047d4170`-`0x047d41ff`
+  `0x047d4170`-`0x047d4fff`: `MLSimMatch.lua` version 9 uses `0x047d4170`-`0x047d41ff`
   (144 bytes) for v1–v3 config/tables; `MLTransfers.lua` versions 3 and 4 use all of
   `0x047d4200`-`0x047d4fff` (version 2: up to `0x047d4f5f`; one window was played with
   it and that part was left alone. The last 160 bytes are zero in the file and were not
   yet used in the game). The v5 config of `MLSimMatch.lua` was first put at
   `0x047d4f60`-`0x047d4f7f`, inside what `MLTransfers.lua` version 3 uses; the two could
   not be installed together, so it was moved to the end of the `.xcode` page (`0x047d3fa0`-`0x047d3fff`, 96 bytes for v7).
-  `.reloc` (`0x047d5040`-`0x047d5fff`) and `.link` (`0x047d6030`-`0x047d6fff`) 4 KB RX tails hold
-  `MLSimMatch.lua` version 8's `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec` code (`0x047d5040`-`0x047d5b8b`, 2,891 bytes) and 2D scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 4,030 bytes total), and PK + `card_adj` + fatigue + injury (`0x047d6030`-`0x047d6376`, 839 bytes) hooks;
-  `MLTransfers.lua` version 6 uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
-  version 8 the 0x700 after it for the offers for your players (`0x047d6550`-`0x047d6c4f`),
-  version 9 the 0x110 after that for the squad pressure (`0x047d6c50`-`0x047d6d5f`),
-  and `MLSimToDate.lua` uses `0x047d6f60`-`0x047d6fe9` for its day-loop hook. With
-  `MLGrowth.lua` (below) the tail ranges still free after `0x047d6550` are
-  `0x047d6d60`-`0x047d6e4f` (240 bytes), `0x047d6f4c`-`0x047d6f5f` (20 bytes) and
-  `0x047d6fea`-`0x047d6fff` (22 bytes).
+  `.reloc` and `.link` RX page tails hold `MLSimMatch.lua` version 9's
+  `eff_strength` + `player_eff_ovr`/`gk_eff_ovr` + ET + outcome + score + `sim_vec`
+  code reservation (`0x047d5040`-`0x047d5b8b`, 2,892 bytes) and separate 2D
+  scoreline/draw CDF tables (`0x047d5be0`-`0x047d5ffd`, 1,054 bytes). It checks and
+  writes these separately: **`0x047d5b8c`-`0x047d5bdf` belongs to Growth**, not the
+  simulator. PK + `card_adj` + fatigue + injury use `0x047d6030`-`0x047d6376`
+  (839 bytes). The generators enforce these bounds, including the adjacent Growth code.
+  `MLTransfers.lua` uses `0x047d6400`-`0x047d654f` (336 bytes, position need),
+  `0x047d6550`-`0x047d6d3f` (2,032 bytes, incoming offers), and
+  `0x047d6d40`-`0x047d6e4f` (272 bytes, squad pressure).
+  `MLSimToDate.lua` uses `0x047d6f60`-`0x047d6fec` (141 bytes) for its day-loop hook.
+  With Growth below, the ranges still free after the transfer code are
+  `0x047d6f4c`-`0x047d6f5f` (20 bytes) and `0x047d6fed`-`0x047d6fff` (19 bytes).
+  **`0x047d6d60`-`0x047d6e4f` is not free**; old allocation notes understated the
+  current incoming/pressure sizes.
   `MLSimToDate.lua` version 3 had its calendar block (`0x900` bytes: the Schedule poll,
   the selection, the heading and their strings) at `0x047d6550`-`0x047d6e4f`, which is why
   the two modules could not be installed together; version 4 moved it to an unused run of
@@ -2588,12 +2655,12 @@ Read from the DLL's code and strings, not run:
   it, the next function starts after it, and no dword of the file points into it), where it
   takes `0x03fc8000`-`0x03fc88ff`. `.trace` is read/write/execute, so nothing there needs
   a protection change.
-  `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f9a` (the season award, 148
-  bytes, five bytes short of `MLSimMatch.lua`'s v7 tables), `0x047d5b8c`-`0x047d5bde`
+  `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f99` (the season award, 147
+  bytes, six bytes short of `MLSimMatch.lua`'s v7 tables), `0x047d5b8c`-`0x047d5bde`
   (the age curve, 83 of the 84 bytes between `MLSimMatch.lua`'s hook code and its
   scoreline tables), `0x047d6377`-`0x047d63fa` (the exp award, 132 bytes, up to
   `MLTransfers.lua` version 6), `0x047d6e50`-`0x047d6efd` (the season walk and the
-  award arithmetic, 174 of the 176 bytes before `MLSimToDate.lua`'s day-loop hook),
+  award arithmetic, all 174 bytes before the training-focus code),
   and `0x047d6efe`-`0x047d6f4b` (the training scale, 78 bytes, still 20 short of
   `MLSimToDate.lua`'s hook).
   `MLSimToDate.lua` also

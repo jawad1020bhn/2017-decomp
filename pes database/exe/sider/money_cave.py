@@ -1531,13 +1531,14 @@ def call(site, target):
     return b'\xe8' + struct.pack('<i', target - (site + 5))
 
 
-# what MLTransfers.lua must find in the memory of MLMoney.lua before it writes: name,
-# address, bytes. (FEE_BYTES is defined above; the mark is compared apart, for the log.)
-MONEY_NEEDED = (('value routine', FEE_CODE, FEE_BYTES), ('numbers', HUNDRED_AT, struct.pack('<II', 100, 1000)))
 assert THOUSAND_AT == HUNDRED_AT + 4
 
 
 FEE_SITE_NEW = call(FEE_SITE, FEE_CODE) + b'\x90' * 12
+# MLTransfers checks the cave and installed hook: a stale mark after rollback is not ready.
+MONEY_NEEDED = (('value routine', FEE_CODE, FEE_BYTES),
+                ('numbers', HUNDRED_AT, struct.pack('<II', 100, 1000)),
+                ('value hook', FEE_SITE, FEE_SITE_NEW))
 SALARY_SITE_NEW = call(SALARY_SITE, SALARY_CODE) + b'\xeb' + bytes([SALARY_BLOCK_END - (SALARY_SITE + 7)])
 BUDGET_T_SITE_NEW = call(BUDGET_T_SITE, BUDGET_T_CODE)
 BUDGET_S_SITE_NEW = call(BUDGET_S_SITE, BUDGET_S_CODE) + b'\x90' * 3

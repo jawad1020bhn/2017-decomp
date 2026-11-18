@@ -202,13 +202,13 @@ def install(g, source, sticky=True):
 
 # ---------------- a career of the test ----------------
 
-def record(at, comp, round_no, home, away, g1=None, g2=None, month=1, day=10, played=True):
+def record(at, comp, round_no, home, away, g1=None, g2=None, month=1, day=10, played=True, year=TODAY[1]):
     """One match record, as the game writes them. `at` is its place in the table."""
     rec = bytearray(MATCH_STRIDE)
     struct.pack_into('<H', rec, 0x00, at)
     struct.pack_into('<H', rec, 0x04, comp)
     struct.pack_into('<H', rec, 0x06, round_no | (0x6000 if played else 0x2000))
-    struct.pack_into('<H', rec, 0x08, TODAY[1])
+    struct.pack_into('<H', rec, 0x08, year)
     rec[0x0a], rec[0x0b] = month, day
     struct.pack_into('<I', rec, 0x0c, home)
     struct.pack_into('<I', rec, 0x10, away)
@@ -338,13 +338,13 @@ def main(exe):
 
     # ---------------- the rules, on careers of the test ----------------
     g = Game(exe)
-    lines, reads, writes, fire = install(g, source)
+    lines, event_reads, writes, fire = install(g, source)
     assert lines[-1].startswith(INSTALLED), lines
 
-    def answer(matches, comp=LEAGUE, round_no=5, opp=OTHER, number=0, clubs=(), kinds=None):
+    def answer(matches, comp=LEAGUE, round_no=5, opp=OTHER, number=0, clubs=(), kinds=None, today=TODAY):
         """Builds the career and calls the module for one match of it. -> (value, its lines)"""
-        career(g, matches, kinds, clubs)
-        said = fire('after_set_conditions', home_team=club(OURS), away_team=club(opp),
+        career(g, matches, kinds, clubs, today=today)
+        said = fire('after_set_conditions', home_team=OURS, away_team=opp,
                     tournament_id=comp, match_id=number)
         return g.read(VALUE_AT, 1)[0], ' | '.join(said)
 
@@ -401,13 +401,13 @@ def main(exe):
     base_value, _ = answer(now)
     assert base_value == RULES['BASE']
     career(g, now)
-    fire('after_set_conditions', home_team=club(OTHER), away_team=club(THIRD),
+    fire('after_set_conditions', home_team=OTHER, away_team=THIRD,
          tournament_id=LEAGUE, match_id=0)
     assert g.read(VALUE_AT, 1) == bytes([RULES['BASE']])
     career(g, now)
     selector = struct.unpack('<I', g.read(SELECTOR, 4))[0]
     g.write(selector + 0x20, struct.pack('<I', 0x12))           # League, not Master League
-    fire('after_set_conditions', home_team=club(OURS), away_team=club(OTHER),
+    fire('after_set_conditions', home_team=OURS, away_team=OTHER,
          tournament_id=LEAGUE, match_id=0)
     assert g.read(VALUE_AT, 1) == bytes([RULES['BASE']])
     print('ok 6: a match of two other clubs and a mode that is not a career leave the value '
@@ -457,7 +457,7 @@ def main(exe):
     assert decoy == 1, decoy       # a league sits in the place the cup's number would be
     this = [record(600, CUP, FINAL_ROUND, club(OURS), club(OTHER), month=11, day=1, played=False)] + top
     career(g, this)
-    said = fire('after_set_conditions', home_team=club(OURS), away_team=club(OTHER),
+    said = fire('after_set_conditions', home_team=OURS, away_team=OTHER,
                 tournament_id=CUP, match_id=600)
     got = g.read(VALUE_AT, 1)[0]
     assert got == RULES['FINAL_VALUE'], 'the cup rules did not fire: %d (%s)' % (got, ' | '.join(said))
@@ -467,7 +467,7 @@ def main(exe):
               record(602, unseen, NEAR_ROUND, club(THIRD), club(FOURTH), month=11, day=1, played=False)]
     career(g, [record(600, unseen, FINAL_ROUND, club(OURS), club(OTHER),
                       month=11, day=1, played=False)] + theirs)
-    said = fire('after_set_conditions', home_team=club(OURS), away_team=club(OTHER),
+    said = fire('after_set_conditions', home_team=OURS, away_team=OTHER,
                 tournament_id=unseen, match_id=600)
     got = g.read(VALUE_AT, 1)[0]
     assert got == RULES['BASE'], (got, ' | '.join(said))
@@ -476,6 +476,66 @@ def main(exe):
           'the one of the record that sits at that number\'s place in the table (a league was put '
           'in the cup\'s place and the cup rules still fired); a competition the table does not '
           'hold is no cup')
+
+
+    # Sider publishes decoded team numbers, while memory and RIVALS use packed IDs.
+    away = [record(0, LEAGUE, 5, club(OTHER), club(OURS), played=False)]
+    career(g, away + played_run([0, 1], (0, 2)))
+    said = fire('set_conditions', home_team=OTHER, away_team=OURS, match_id=0)
+    assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP'], said
+    assert says(said, 'away against club %d' % OTHER), said
+    g.write(USER_CLUB, b'\xff' * 4)
+    previous = g.read(VALUE_AT, 1)
+    fire('after_set_conditions', home_team=OTHER, away_team=OURS, match_id=0)
+    assert g.read(VALUE_AT, 1) == previous
+
+    rival_source = source.replace('local RIVALS = {}', 'local RIVALS = { %d }' % club(RIVAL))
+    rival_game = Game(exe)
+    _, _, _, rival_fire = install(rival_game, rival_source)
+    career(rival_game, [record(0, LEAGUE, 5, club(OURS), club(RIVAL), played=False)])
+    said = rival_fire('after_set_conditions', home_team=OURS, away_team=RIVAL, match_id=0)
+    assert rival_game.read(VALUE_AT, 1)[0] == RULES['BASE'] + RULES['DERBY_BONUS'], said
+    assert says(said, 'RIVALS id %d' % (RIVAL << 14)), said
+    print('ok 11: decoded Sider IDs work at home and away on both events; an unknown user club '
+          'is ignored, and packed RIVALS settings still work')
+
+    this = [record(700, LEAGUE, 4, club(OURS), club(OTHER), month=11, day=1, played=False)]
+    future = [record(800, LEAGUE, 0, club(OURS), club(OTHER), month=8, day=1,
+                     played=False, year=TODAY[1] + 1),
+              record(801, OTHER_COMP, 0, club(OURS), club(OTHER), 9, 0,
+                     month=8, day=1, year=TODAY[1] + 1)]
+    for year in (2024, 2026):
+        current = [(at, rec[:8] + struct.pack('<H', year) + rec[10:]) for at, rec in league() + this]
+        later = [(at, rec[:8] + struct.pack('<H', year + 1) + rec[10:]) for at, rec in future]
+        mode = career(g, current + later, today=(TODAY[0], year))
+        g.write(mode + YEAR_AT + 2, b'\xff\x7f')  # adjacent data is not part of the u16 year
+        said = fire('after_set_conditions', home_team=OURS, away_team=OTHER, match_id=700)
+        assert g.read(VALUE_AT, 1)[0] == RULES['BASE'] + RULES['BIG_MATCH_BONUS'], said
+        if said:
+            assert says(said, 'form D D D D D'), said
+    print('ok 12: u16 day/year ignore adjacent bytes and future-season fixtures/results '
+          'do not change current form or the league bonus (2024 and 2026)')
+
+    edge = [record(MATCH_COUNT - 1, LEAGUE, 5, club(OURS), club(RIVAL), played=False)]
+    kinds = {i: 1 for i in range(1, 17)}
+    kinds[LEAGUE] = 1
+    clubs = [(THIRD + i, (0, 0, 0)) for i in range(8)] + [(OURS, (RIVAL, 0, 0))]
+    mode = career(g, edge + played_run([0, 1], (0, 2)), kinds=kinds, clubs=clubs)
+    poison = record(0, OTHER_COMP, 5, club(OURS), club(OTHER), 9, 0, month=11, day=1)[1]
+    g.write(mode + MATCHES_AT + MATCH_COUNT * MATCH_STRIDE, poison)
+    event_reads.clear()
+    said = fire('after_set_conditions', home_team=OURS, away_team=RIVAL, match_id=MATCH_COUNT - 1)
+    assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP'] + RULES['DERBY_BONUS'], said
+    for start, stride, count, batch in ((MATCHES_AT, MATCH_STRIDE, MATCH_COUNT, 32),
+                                        (CLUBS_AT, CLUB_STRIDE, len(clubs), 8),
+                                        (COMPETITIONS_AT, COMP_STRIDE, len(kinds), 16)):
+        begin, end = mode + start, mode + start + stride * count
+        scanned = [(a, n) for a, n in event_reads if begin <= a < end]
+        assert scanned and all(a + n <= end for a, n in scanned), (hex(start), scanned[-1:])
+        last = (count - 1) // batch * batch
+        assert (begin + last * stride, (count - last) * stride) in scanned
+    print('ok 13: final match/club/competition reads stop at their counts, including the last '
+          'valid match; a fake win immediately after the 9,000-record array is ignored')
 
 
 if __name__ == '__main__':

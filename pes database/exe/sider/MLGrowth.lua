@@ -1,4 +1,4 @@
--- MLGrowth.lua, version 3: a moderated, adaptive age curve for every Master League
+-- MLGrowth.lua, version 4: a moderated, adaptive age curve for every Master League
 -- player (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): Master League keeps growth
@@ -25,6 +25,7 @@
 --      the physical fields (speed, body balance, physical contact, explosive power,
 --      jumping, stamina) from 31 on, which decline in full.  Guards, carry, level-ups,
 --      news and the growth report run as before.
+--   Version 4 fixes the annual award's age-margin calculation.
 --   B. The season walk now also gives every player WITHOUT a growth record a few
 --      points on the ability of his position (CF/SS finishing, DMF and defenders
 --      defending, GK goalkeeping, the rest dribbling), following the same curve, so
@@ -41,11 +42,12 @@
 --
 -- Install: copy this file into the "modules" folder next to sider.exe and add
 --     lua.module = "MLGrowth.lua"
--- to sider.ini, above or below the other lines.  Remove the line to get the vanilla
--- growth back; nothing of the game or of a save is edited on disk.
+-- to sider.ini. With MLSimMatch version 9 either order works; version 8 must load
+-- before Growth. Upgrade both files together. Remove the line and restart PES to
+-- restore vanilla growth. Development already saved by the game is not undone.
 --
--- It needs no other module, and no other module needs it.  It does not overlap the
--- caves of MLSimMatch.lua, MLMoney.lua, MLTransfers.lua or MLSimToDate.lua.
+-- It needs no other module, and no other module needs it. Its write ranges are
+-- separate from the matching SimMatch, Money, Transfers and SimToDate modules.
 --
 -- Uses only: log, memory.read, memory.write, string, table, tonumber.
 
@@ -55,7 +57,7 @@ local m = {}
 local DATA = 0x0298c200
 local DATA_SIZE = 236
 local CAVE_E2 = 0x047d3f07
-local CAVE_E2_SIZE = 148
+local CAVE_E2_SIZE = 147
 local CAVE_CURVE = 0x047d5b8c
 local CAVE_CURVE_SIZE = 83
 local CAVE_B1 = 0x047d6377
@@ -66,10 +68,10 @@ local CAVE_FOCUS = 0x047d6efe
 local CAVE_FOCUS_SIZE = 78
 
 local BLOCKS = {
-    { "season award code", CAVE_E2, "8d43f10fb69058c2980285d274758b4704c1e81c0fb690c8c298028955fc8d45f8505289f9e87f3905ff8b55fc8b45f883f863734e89c6b96300000029c139d173198d43f10fb68010c298020fafc8c1e20289c889d199f7f9eb0d8d43f10fb68010c29802c1e80285c07e1701f083f8637605b86300000050ff75fc89f9e8264205ff89ec5d5f5e5b8b1518e54f02e9a5f7e4fe" },
+    { "season award code", CAVE_E2, "8d43f10fb69058c2980285d27474528b4704c1e81c0fb690c8c298028955fc8d45f8505289f9e87e3905ff5a8b45f883f863734e89c6b96300000029c139d173198d43f10fb68010c298020fafc8c1e20289c889d199f7f9eb0d8d43f10fb68010c29802c1e80285c07e1701f083f8637605b86300000050ff75fc89f9e8274205ff89ec5d5f5e5b8b1518e54f02e9a6f7e4fe" },
     { "age curve code", CAVE_CURVE, "8d43f10fb68010c2980250db0424d80dd8c29802588d43f10fb68858c2980285c9742b8d469df7d883fe4b7c0883fb157f0383c00450db04245851db042458def9d9e8dbf1dbc1d9c9ddd8dec9c3ddd8d9eec3" },
     { "exp award code", CAVE_B1, "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e87d2806ff83c40c0fb6f08b551cf64203800f85100b0000c745f814000000a1e00365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c00f84bd0a00008b4df4ff7730ff772ce8dca394fe8b90a00100008955f88b551ce98f0a0000" },
-    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f850ed1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
+    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f850dd1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
     { "season walk code 2", CAVE_E1 + 58, "d902e8fbecffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b5589e581ec3c020000e9cfc00dff" },
     { "training scale code", CAVE_FOCUS, "5356575589e583ec10894df88b5f1cc1eb0783e33f8d45fc6a00508d472c50e8f61c06ff83c40c0fb6f0e85fecffffdb4518dec983ec04db1c24ff75148b4df8e8a6a7e4fe89ec5d5f5e5bc20800" },
     { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a0808080805050503030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101010001010100000000000000000000000000000000000013131111110f1111110f0f0f101111110000803e0000a0410000003f0000003f0000803e" },
@@ -115,7 +117,7 @@ local function check_bytes(name, addr, expected_hex)
 end
 
 function m.init(ctx)
-    log("MLGrowth 3: a moderated age curve for every Master League player "
+    log("MLGrowth 4: a moderated age curve for every Master League player "
         .. "(potential and playtime decide growth, young players still lead, "
         .. "physical decline from 31, training follows the curve too)")
 
@@ -165,14 +167,21 @@ function m.init(ctx)
     end
 
     -- 5. patch the four hook sites
-    for _, s in ipairs(SITES) do
+    for i, s in ipairs(SITES) do
         local new = unhex(s[4])
         memory.write(s[2], new)
         local stuck = (memory.read(s[2], #new) == new)
         log(string.format("written: %-20s at %08x  %s", s[1], s[2], stuck and "ok" or "FAILED"))
         if not stuck then
-            log("RESULT: a change did not go in. Quit the game, remove the module, "
-                .. "send this log.")
+            local restored = true
+            for j = i, 1, -1 do
+                local site = SITES[j]
+                local old = unhex(site[3])
+                memory.write(site[2], old)
+                if memory.read(site[2], #old) ~= old then restored = false end
+            end
+            log("RESULT: a change did not go in. " .. (restored and "Hooks restored. " or "Hook restore failed. ")
+                .. "Quit the game, remove the module, send this log.")
             return
         end
     end
