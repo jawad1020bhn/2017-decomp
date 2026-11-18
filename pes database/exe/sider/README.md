@@ -3,12 +3,49 @@
 Modules for the Sider that ships in `pes.7z` (`sider.dll` of 20 February 2022, Lua
 enabled in `sider.ini`). They work on the running game; `PES2017.exe` is not edited.
 
-**New: `MLNews.lua` v2** is a presentation-only world-result ticker prototype, not a
+**New: `MLNews.lua` v3** is a presentation-only world-result ticker prototype, not a
 finished news system. It observes actual AI-v-AI league results from the loaded career
 and prefixes one native headline. **Emulator-tested only; seeing a factual headline
-inside Master League is still the outstanding milestone.** See the [live check](#mlnewslua-version-2-factual-world-result-ticker-proof).
+inside Master League is still the outstanding milestone.** See the [live check](#mlnewslua-version-3-factual-world-result-ticker-proof).
 
-## Follow-up to the supplied log — Growth 5, Spirit 4, News 2
+## After-progress runtime fix — News 3 and TeamSpirit 5
+
+The runtime log from **3 October 2026** reaches the real ticker copy but reports
+`copied=0; last=alternate table layout; mode=19`. This is a bug in our guard, **not an
+empty ticker or an invalid career date**. The zero year/day/count fields were reset
+diagnostics: selection stopped before those fields were read.
+
+`mode + ec1408 == 2` is normal **indexed lookup mode**, not a different table layout.
+Native career loading (`035fbac3`) and progression (`036101d9`) set it to 2. Club and
+competition data stay at the same resident offsets; indexed access can leave holes,
+so the number of populated records is not always the last occupied slot.
+
+- **`MLNews.lua` v3** accepts verified lookup modes 0/1/2, using counted scans for 0/1
+  and bounded slot scans for 2. It now logs `lookup=2` rather than rejecting it. All
+  date/result/name/ownership/count guards remain; unknown lookup modes still refuse.
+- **`MLTeamSpirit.lua` v5** fixes the same false rejection and applies the correct
+  scan extent to controlled-club, rival and competition lookups. Rules are unchanged.
+  The value is recalculated **at the next match setup**, not immediately after a win
+  on the ML home screen. With no other results/bonuses, one win gives 96, three wins
+  at least 98, two losses at most 92. Weighted earlier results can still balance to 95.
+
+Replace **only these two Lua files**, back up custom settings and **fully restart PES**.
+Growth v5 and the other modules are unchanged in this follow-up. Existing module lines
+need no edit. PlayerDump, GrowthBridge, Stadiums and all configuration remain untouched.
+
+The old versions fail the new indexed-career regression before this fix: News v2
+returns no prefix at stage 4, and Spirit v4 keeps 95 instead of 96 after one win.
+All **13 suites now pass sequentially**, including sparse indexed tails, outside-array
+decoys and all-nine-module execution. These tests are not the user's save or a PES
+screenshot. Real display remains the acceptance milestone.
+
+On the disposable career, return to the ML menu after a recent eligible AI league
+result and look for `WORLD RESULT`. Send **`MLNews 3 runtime:`** lines and a screenshot
+if absent. For Spirit, enter the next played match's setup/game plan, then compare its
+value with the **`MLTeamSpirit 5:`** line containing `form ... -> ...`. A post-match
+home-screen value alone is not proof of a missed next-match update.
+
+## Earlier startup-log follow-up — Growth 5, Spirit 4, News 2
 
 The log confirms all nine ML modules installed, **not that all runtime behavior
 worked**. Two further defects were reproduced before fixing them:
@@ -31,7 +68,7 @@ worked**. Two further defects were reproduced before fixing them:
   V2 adds diagnostic-only counters/stages and throttled logs on supported resource/
   match callbacks. It does not fabricate a headline or claim the display is fixed.
 
-Replace these **three Lua files**, back up custom settings, and **fully restart PES**.
+That earlier release replaced **three Lua files**. For the current two-file update, see above.
 Keep existing module lines once each; no `.ini` change is needed if already listed.
 PlayerDump, GrowthBridge and Stadiums remain excluded and unchanged.
 
@@ -43,8 +80,8 @@ valid ID to the wrong global. Those assumptions are now covered explicitly.
 | --- | --- |
 | Check / Money / Year / Transfers / SimMatch | Checks/installation succeeded; repository feature suites pass. Not a whole-career live verification. Year affects new careers only. |
 | Growth 4 | Installed, but the miss-branch defect remained. Replace with 5. |
-| TeamSpirit 3 | Installed; the shown callback skipped form with an invalid user-club ID. Replace with 4. |
-| News 1 | Installed; no visible headline verified. Use 2's runtime report below. |
+| TeamSpirit 3 | Installed; the shown callback skipped form with an invalid user-club ID. Use current v5, which retains the v4 locator fix. |
+| News 1 | Installed; no visible headline verified. Use current v3 and its runtime report below. |
 | SimToDate 4 | Installed **switched off**, as configured. F8 in Schedule starts it; this is not an error. |
 | Script_Stadiums | **Not activated:** missing `map_teams.txt`. Excluded from edits. |
 | Script_Switcher2 | Pattern lookup failed despite “initialized.” Its source is absent; function is not confirmed. |
@@ -125,7 +162,7 @@ present in the repository and could not be repaired.
 | `MLTransfers.lua` | **changes the game.** The transfers between computer clubs. Version 1 held the price ceiling, which was a part of `MLMoney.lua` up to its version 6; version 2 adds the selling side, club personas, scouting and rivals; version 3 makes a club hold on to its first team, makes good players known to every club and adds two personas; version 4 makes famous players known to every club too, makes clubs less strict about the age of a player without a contract and lets the biggest clubs keep fewer of their players; version 5 changes settings only: clubs know more players, keep fewer, want a wider range of ages and count a player without a contract at 75 percent of his value; version 6 adds the position need: a club looks for a better player for the weakest place of its eleven, the goalkeeper included; version 7 adds the offers for your own players: a rival of yours no longer makes one; version 8 makes the chooser of that club the whole rules the game never had (no rival, a persona that wants him, a place in its plan, a price it can afford) and leaves the room test to the game; version 9 adds squad pressure: a club that has more goalkeepers, defenders, midfielders or forwards than a limit lets a player of that group go more easily, and makes the offers for your own players choose their club by the whole rules of the computer clubs: scouting, the place it buys from, the day of the career and the stretch above the ceiling. Needs `MLMoney.lua` (version 7) in the line above its own in `sider.ini`. Version 2 ran in the game (one transfer window was read from two saves); versions 3 to 9 have run in the emulator only |
 | `MLYear.lua` | **changes the game.** The year in which a new career starts: 2026 (season 2026/27) instead of the 2024 of this exe. Needs no other module. Has run in the emulator only |
 | `test_year.py <PES2017.exe>` | runs `MLYear.lua` on the exe in the emulator, then runs the eight changed instructions of the game (needs `pip install lupa unicorn`) |
-| `MLTeamSpirit.lua` | **changes the game.** Version 4: in a played Master League match your club has a Team Spirit of its own, 90 to 99, worked out before every match from the career's own match records — the last five results, two losses in a row, a run of wins, the last round of a cup, a rival and a league match at the top or the bottom — so 22 abilities of your players are lowered by 2 percent at the worst instead of 30. Version 1 answered 99 for every player, which switched the effect off. One place of twelve bytes, and one byte of it written again before a match; no new memory, no cave. Needs no other module. Has run in the emulator only |
+| `MLTeamSpirit.lua` | **changes the game.** Version 5: in a played Master League match your club has a Team Spirit of its own, 90 to 99, worked out before every match from the career's own match records — the last five results, two losses in a row, a run of wins, the last round of a cup, a rival and a league match at the top or the bottom — so 22 abilities of your players are lowered by 2 percent at the worst instead of 30. Version 1 answered 99 for every player, which switched the effect off. One place of twelve bytes, and one byte of it written again before a match; no new memory, no cave. Needs no other module. Has run in the emulator only |
 | `test_spirit.py <PES2017.exe>` | runs `MLTeamSpirit.lua` on the exe in the emulator, then the game's function that gives a player his Team Spirit value and the one of the match set-up that stores the values for the match; the rules are run on careers written out in the emulator's memory (needs `pip install lupa unicorn capstone`) |
 | `MLSimToDate.lua` | **changes the game.** "Sim to Date": choose a future day in the Master League Schedule with F8, cancel with F9, switch stopping for news with F10; matches before it are simulated via Skip Match. Off as it comes. Optional existing Lua/text-file date controls remain. Needs no other module. **Emulator only; not tested in-game** |
 | `simdate_calendar.py` | source and generator for the x86 Schedule hooks embedded in `MLSimToDate.lua` (needs `keystone-engine` only when regenerating) |
@@ -135,7 +172,7 @@ present in the repository and could not be repaired.
 | `sim_cave.py` | the tables and 16 x86 routines `MLSimMatch.lua` writes to `.xcode` (`0x047d3a50..0x047d3f06`, 1,207 B; `0x047d3fa0..0x047d3fff`, 96 B), `.data1` (`0x047d4170..0x047d41ff`, 144 B), `.reloc` (`0x047d5040..0x047d5b8b` and `0x047d5be0..0x047d5ffd`, 3,946 B; Growth owns the gap), `.link` (`0x047d6030..0x047d6376`, 839 B), and `.trace` (`0x047b0060..0x047b01f4`, 405 B), and their Python reference model |
 | `test_sim.py <PES2017.exe>` | runs `MLSimMatch.lua` and `PES2017.exe`'s match-simulation machine code (`0x03707a1f`, `0x03705feb`, `0x03708de9`, `0x03707e71`, `0x03708cc4`, `0x037085b5`, `0x03706ef6`, `0x037062ca`, `0x037063bb`, `0x038556f1`, `0x0385b771`, `0x03865b0a`, `0x038278b0`) in Unicorn and verifies coexistence with `MLMoney.lua`, `MLTransfers.lua`, and `MLYear.lua` |
 | `test_safety.py <PES2017.exe>` | installs all nine modules in both Growth/SimMatch orders and 20 sampled orders, rejects cross-module write overlaps, and injects failed/damaged writes to verify patch restoration and explicit restore-failure logs (same LuaJIT/Unicorn dependencies) |
-| `MLNews.lua` | **UI-memory patch; sporting state is observed only.** Version 2 prefixes the first displayed native ML ticker item with a dated recent AI-v-AI league score, keeping the original headline. No native news-list insertion, history file, extra RNG call or gameplay write. Needs no other module; emulator only, not live-game verified. |
+| `MLNews.lua` | **UI-memory patch; sporting state is observed only.** Version 3 prefixes the first displayed native ML ticker item with a dated recent AI-v-AI league score, keeping the original headline. No native news-list insertion, history file, extra RNG call or gameplay write. Needs no other module; emulator only, not live-game verified. |
 | `news_cave.py` / `test_news.py <PES2017.exe>` | source/generator and native-reader emulator checks for `MLNews.lua`: factual selection, bounded reads, string ownership, unchanged native shuffle/RNG, save-table replay and nine-module execution (needs `pip install lupa unicorn capstone keystone-engine`). Python is not deployed to Sider. |
 | `club_ids.tsv` | the 499 clubs of the club ranking of the career `MLTransfers.lua` was set against: id (for `CLUBS`), place, persona, rating of the first eleven |
 | `money_cave.py` | what the two modules write (13 small routines of `MLMoney.lua`, the routine of `MLTransfers.lua`, its two of the position need, the one of the offers for your players and the one of its squad pressure, with their source) and the same arithmetic as Python |
@@ -146,7 +183,7 @@ present in the repository and could not be repaired.
 | `window_transfers.py <PES2017.exe> <save>` | **changes nothing.** Writes the transfers of the current window of one Master League save into a `.csv` file, the most expensive first: price, player, age, position, rating, club left, club joined, date (needs `pip install lupa unicorn`) |
 | `test_transfers.py <PES2017.exe>` | checks `window_transfers.py` against the four saves of `../ML saves/` |
 
-## `MLNews.lua`, version 2: factual world-result ticker proof
+## `MLNews.lua`, version 3: factual world-result ticker proof
 
 **Not yet live-game verified.** This first step is a dated score from the independent
 football world, not a log-only feed and not a claim that the full news system is done.
@@ -182,14 +219,17 @@ it does not load the whole career or establish the saved-clock mapping.
 - Unplayed, future, older, malformed, cup and extra-time/shoot-out results are skipped.
   Names must terminate within 70 bytes and contain no controls or angle-bracket UI tags.
   This build requires exactly one primary controller-slot-0 club, excludes every
-  controlled club from the story, and skips other mode selectors, alternate table-layout
-  flag 2, and counts above 651 clubs / 300 competitions. Other controller layouts are not proven.
+  controlled club from the story, and skips other mode selectors, unknown lookup modes
+  and counts above 651 clubs / 300 competitions. Lookup modes 0/1 use counted scans;
+  mode 2 scans bounded slots, including sparse tails. The 651 saved-club slots are
+  supported; the native array's two extra slots remain outside this prototype's scope.
+  Other controller layouts are not proven.
 - It deliberately makes **no** claims about upsets, streaks, transfers, finances,
   sackings or player emotions. Those need separate verified event detection.
 
-### Installed but invisible: v2 runtime report
+### Installed but invisible: v3 runtime report
 
-V2 uses 48 bytes at `0298c2f0–0298c31f` for counters and the **last attempt's** rejection/
+V3 uses 48 bytes at `0298c2f0–0298c31f` for counters and the **last attempt's** rejection/
 copy stage. This is not article history and never feeds selection. The block is
 zero-checked and read back before exposing the hook. `livecpk_make_key` and
 `after_set_conditions` observers read only this block, return nil and log changed
@@ -197,16 +237,22 @@ snapshots at most once per second when the host clock is available. Resource cal
 are not a per-frame timer: a quiet menu may publish nothing until the next load.
 
 After loading the career, return to its main menu after a recent AI league fixture.
-Open a menu/start a match to trigger callbacks, then send `MLNews 2 runtime:` lines,
+Open a menu/start a match to trigger callbacks, then send `MLNews 3 runtime:` lines,
 a screenshot of the ML menu and the career date:
 
 | Runtime status | Meaning |
 | --- | --- |
 | `copies=0`, waiting for a native ticker copy | No hook call observed since launch: empty native feed **or another UI path**, not proof of which. |
-| Mode / pointer / layout / count / clock / ownership rejection | Selection stopped at that guard. Logged mode, year/day-index, counts and primary ownership describe the last attempt. Do not bypass checks. |
+| Mode / pointer / lookup / count / clock / ownership rejection | Selection stopped at that guard. Logged mode, lookup, year/day-index, counts and ownership describe the last attempt; later fields may still be zero/unread. Do not bypass checks. |
 | `no eligible recent AI league result` | Copy ran, but no match passed all date/league/AI/name/score filters. If one is visible, supply its career save/date. |
 | `text formatting failed` | A result was selected but formatting failed; retain the log. |
 | `prefix copied ... final rendering NOT verified` | A native temporary string was built. If invisible, inspect actual UI path/scrolling/layout; **not a rendering-success claim**. |
+
+`lookup=2` is expected in a normally loaded/progressing career. At **03/10/2026** the
+non-leap calendar's day index is **275**. The extra lookup field reuses the old marker
+word at diagnostic offset +44; the allocation remains 48 bytes. Native selection uses
+its own local lookup value, never the diagnostic copy. Count fields report populated
+counts, even when an indexed scan visits the full bounded slot range.
 
 Metadata describes the last attempted rebuild, not necessarily the currently open
 career if no new rebuild happened. It is diagnostic only: no added sports RNG calls,
@@ -263,10 +309,13 @@ native reader, shuffle, vectors, strings and cleanup execute; CRT allocation/for
 random APIs and final widgets are stand-ins. Hooked and unhooked runs have the same RNG
 arguments and resulting seed, unchanged career fields and stored native headlines, and
 no leaked temporary string/vector ownership in the exercised paths. It also exercises
-the ticker with all nine ML modules installed. Installation tests cover 51 sampled
+the ticker with all nine ML modules installed. Installation tests cover 57 sampled
 context/cave/state mismatches, unreadable checks, repeated init and failed/damaged writes.
 Runtime tests cover empty-feed silence, every rejection/copy stage, observer throttling
 and unreadable diagnostics; observers never write game data or change a CPK key.
+The default fixtures now use indexed mode 2, as native load/progression do. Tests also
+check 0/1 compatibility, actual native getter agreement, sparse last-slot clubs and
+competitions with small populated counts, and decoys outside the arrays staying unread.
 
 ## Install and run `MLCheck.lua`
 
@@ -412,7 +461,7 @@ Not shown: the set-up of a career as a whole was not run, only its eight instruc
 so a ninth place that takes the year in another way would not be seen. The search for
 2024 and 2025 in the code found no other. Nothing ran in the game.
 
-## `MLTeamSpirit.lua`, version 4: Team Spirit follows the form of your club
+## `MLTeamSpirit.lua`, version 5: Team Spirit follows the form of your club
 
 Emulator only: it has not run in the game yet. (Version 1 answered 99 for every player,
 which switched the effect off; it is described at the end of this section.)
@@ -464,7 +513,7 @@ without the module the game computes Team Spirit as before.
    ```
 3. Start the game and look at `sider.log`:
    ```
-   MLTeamSpirit 3: Team Spirit follows the form of your club
+   MLTeamSpirit 5: Team Spirit follows the form of your club
         base 95, kept inside 90 to 99; two losses -> 92, 3 wins -> 98, a cup final -> 99
    check: the value of a player of your club at 038df6c1  as expected
    RESULT: installed. In a Master League match the Team Spirit of every player of your club is worked out from the club's form before the match and kept inside 90 to 99; it is 95 until the first match.
@@ -472,9 +521,9 @@ without the module the game computes Team Spirit as before.
 4. Play a match. One line is written for it, and the game plan screen of your club reads
    the same number:
    ```
-   MLTeamSpirit 3: your club is 114838 (Sider team 7). RIVALS uses packed club ids; copy the RIVALS id shown for the opponent.
-   MLTeamSpirit 3: at home against club 8 (RIVALS id 131072), competition 29 round 4, form D D D D D -> 97  [big match (+2)]
-   MLTeamSpirit 3: at home against club 8 (RIVALS id 131072), competition 30 round 53, form none -> 99  [final (99)]
+   MLTeamSpirit 5: your club is 114838 (Sider team 7). RIVALS uses packed club ids; copy the RIVALS id shown for the opponent.
+   MLTeamSpirit 5: at home against club 8 (RIVALS id 131072), competition 29 round 4, form D D D D D -> 97  [big match (+2)]
+   MLTeamSpirit 5: at home against club 8 (RIVALS id 131072), competition 30 round 53, form none -> 99  [final (99)]
    ```
 
 `RESULT: nothing written. ...` with a `DIFFERENT` line: the game does not hold the
@@ -482,7 +531,11 @@ expected code at that place; send the log. To undo, remove the line from `sider.
 
 ### How to see it working in a career
 
-Nothing of this has been in the game, so the first thing to look at is the log:
+V5's indexed-table fix is emulator-tested, not live-verified. **Recalculation runs at
+match setup** (`set_conditions` / `after_set_conditions`), not on a post-match home
+screen. Set up the next played match before judging a change after a win. A single
+win in an otherwise empty history gives 96, but a full weighted history can balance
+to 95; no rule promises a visible increase after every win. Start with the log:
 
 1. **The value moves.** Play three or four matches of a career and read the lines: the
    form string (`W W D L W`, newest first) is the last matches of your club, and the
@@ -508,7 +561,7 @@ Nothing of this has been in the game, so the first thing to look at is the log:
 
 ### What the test shows
 
-`python3 test_spirit.py <PES2017.exe>` (four seconds):
+`python3 test_spirit.py <PES2017.exe>` (historical first-ten-check output below):
 
 ```
 ok 1: without the module the game gives the made-up player a value below 99 in every mode (48 cases: he knows the tactics at 3, 30, 60, 90, plays a position rated A, B or C), lower out of position, and the match set-up stores it for 3 formations x 13 positions
@@ -529,7 +582,10 @@ module registers for the conditions of a match with a Sider `ctx` — the same c
 makes, using decoded `ctx.home_team`/`ctx.away_team` numbers, not packed career ids.
 The original v2 tests used packed callback ids and did not expose the double decoding.
 `ok 11`–`ok 13` also cover away matches, packed RIVALS compatibility, u16 date widths,
-future seasons, and the final table batches. `ok 2` also checks the five bytes of version 1's place are still the game's own:
+future seasons, and the final table batches. V5 also tests modes 0/1/2, bounds and
+real-save club-table replays; sparse indexed primary/rival/competition tails produce
+96/98/99 for one-win/derby/final setups without changing career bytes, alone and with
+all nine modules installed. `ok 2` also checks the five bytes of version 1's place are still the game's own:
 with version 1's jump in them no player reaches the branch, and the log says so.
 
 Not shown: the code that multiplies the abilities (`fcn_02f903a7`) and the screen were
@@ -2839,7 +2895,7 @@ Read from the DLL's code and strings, not run:
   **News block** was found in the static scan; raw overlapping-dword matches are not
   proof of pointers (see `SAFETY_AUDIT.md`). Computed/third-party uses remain unproved.
   `.trace` is read/write/execute, so nothing there needs a protection change.
-  `MLNews.lua` v2 also reserves `0x0298c2f0`-`0x0298c31f` (48 bytes) for
+  `MLNews.lua` v3 retains `0x0298c2f0`-`0x0298c31f` (48 bytes) for
   diagnostic counters/stages, after Growth tables. This is data only, not executable
   or a story cache; the runtime hook is not exposed until it has been verified.
   `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f99` (the season award, 147

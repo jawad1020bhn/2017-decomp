@@ -81,7 +81,7 @@ class World:
         g.write(b + COMPS, b'\xff' * (300 * COMP_SIZE))
         g.write(b + MATCHES, b'\0' * (COUNT * STRIDE))
         put(g, self.menu + 0x20, 0x13)
-        put(g, b + 0xec1408, 0)
+        put(g, b + 0xec1408, 2)  # native career load/progression selects indexed access
         put(g, b + CLUB_COUNT, 3)
         put(g, b + COMP_COUNT, 1)
         self.club(0, 1, b'User Club', user=True)
@@ -124,9 +124,10 @@ class World:
         if not self.check_reads:
             return
         b, g = self.base, self.g
+        indexed = u32(g, b + 0xec1408) == 2
         allowed = ((TODAY, 4), (CLUB_COUNT, 4), (COMP_COUNT, 4), (0xec1408, 4),
-                   (CLUBS, min(u32(g, b + CLUB_COUNT), 651) * CLUB_SIZE),
-                   (COMPS, min(u32(g, b + COMP_COUNT), 300) * COMP_SIZE),
+                   (CLUBS, (651 if indexed else min(u32(g, b + CLUB_COUNT), 651)) * CLUB_SIZE),
+                   (COMPS, (300 if indexed else min(u32(g, b + COMP_COUNT), 300)) * COMP_SIZE),
                    (MATCHES, COUNT * STRIDE), (SEED, 2))
         assert any(b + a <= address and address + size <= b + a + count for a, count in allowed), (
             'out-of-bounds career read', hex(address - b), size)
@@ -144,8 +145,11 @@ class World:
     def expected(self):
         g, b = self.g, self.base
         nc, np = u32(g, b + CLUB_COUNT), u32(g, b + COMP_COUNT)
-        if not 1 <= nc <= 651 or not 1 <= np <= 300:
+        lookup = u32(g, b + 0xec1408)
+        if lookup not in (0, 1, 2) or not 1 <= nc <= 651 or not 1 <= np <= 300:
             return b''
+        if lookup == 2:
+            nc, np = 651, 300
         clubs, user = {}, []
         for i in range(nc):
             r = g.read(b + CLUBS + i * CLUB_SIZE, CLUB_SIZE)
@@ -412,6 +416,52 @@ def install_checks(g, source):
     return probe
 
 
+def lookup_modes(w, ui, probe):
+    g, b = w.g, w.base
+    expected = b'WORLD RESULT 02/10/2026: North FC 3-1 South FC | '
+    for lookup in (2, 0, 1):
+        w.reset()
+        put(g, b + 0xec1408, lookup)
+        w.today(2026, 10, 3)
+        w.match(date=(2026, 10, 2))
+        home = u32(g, b + CLUBS + CLUB_SIZE)
+        assert g.call(0x03822969, [home], ecx=b) == b + CLUBS + CLUB_SIZE
+        assert g.call(0x03822ab9, [1001], ecx=b) == b + COMPS
+        got = w.build()
+        assert got == expected, ('valid native lookup mode rejected', lookup, got, u32(g, n.STATE + 12))
+        ui.news(1)
+        assert ui.draw()[0][0].startswith(expected)
+    # Indexed tables may have live slots beyond the number of populated records.
+    w.reset()
+    w.today(2026, 10, 3)
+    g.write(b + CLUBS, b'\xff' * (651 * CLUB_SIZE))
+    g.write(b + COMPS, b'\xff' * (300 * COMP_SIZE))
+    w.club(600, 1, b'User Club', user=True)
+    home = w.club(649, 2, b'North FC')
+    w.club(650, 3, b'South FC')
+    w.comp(299, 1001)
+    w.match(home=649, away=650, date=(2026, 10, 2))
+    assert g.call(0x03822969, [home], ecx=b) == b + CLUBS + 649 * CLUB_SIZE
+    assert g.call(0x03822ab9, [1001], ecx=b) == b + COMPS + 299 * COMP_SIZE
+    # Decoys just outside both arrays must never be read or selected.
+    w.club(651, 4, b'Outside User', user=True)
+    w.comp(300, 2002)
+    w.match(1, home=649, away=650, date=(2026, 10, 3), comp=2002, goals=(9, 0))
+    assert w.build() == w.expected() == expected
+    ui.news(2)
+    assert ui.draw()[0][0].startswith(expected)
+    report = probe()
+    assert 'year=2026 day-index=275' in report and 'lookup=2' in report, report
+    assert 'final rendering NOT verified' in report
+    for lookup in (0, 1, 3, 0xffffffff):
+        put(g, b + 0xec1408, lookup)
+        assert not w.build()
+    w.reset()
+    ui.news(0)
+    print('ok 1a: native getters and ticker accept modes 0/1/2 at 03 Oct 2026; indexed sparse '
+          'club/competition tails work with count metadata 3/1, outside-array decoys stay unread')
+
+
 def diagnostics(w, ui, probe):
     g = w.g
     cold = g.read(n.STATE, n.STATE_SIZE)
@@ -422,7 +472,7 @@ def diagnostics(w, ui, probe):
     assert probe() is None
     ui.news(1)
     cases = ((w.menu + 0x20, 18, 2), (MENU, 0, 1), (MODE, 0, 3),
-             (w.base + 0xec1408, 2, 4), (w.base + TODAY, 1999 << 16, 5),
+             (w.base + 0xec1408, 3, 4), (w.base + TODAY, 1999 << 16, 5),
              (w.base + CLUB_COUNT, 0, 6), (w.base + COMP_COUNT, 0, 7),
              (w.base + CLUBS + 0x314, 255 << 7, 8))
     for address, value, reason in cases:
@@ -455,7 +505,7 @@ def diagnostics(w, ui, probe):
     assert probe()
     ui.news(0)
     assert not ui.active
-    print('ok 1a: empty-feed silence and every native rejection/copy stage are observable; '
+    print('ok 1b: empty-feed silence and every native rejection/copy stage are observable; '
           'callbacks return nil, are throttled and never write game/CPK data')
 
 
@@ -504,7 +554,7 @@ def rules(w):
     put(g, w.menu + 0x20, 40)
     assert w.build()
     put(g, w.menu + 0x20, 19)
-    for a, value in ((b + 0xec1408, 2), (w.owner + 0x30, 0), (MODE, 0), (MENU, 0)):
+    for a, value in ((b + 0xec1408, 3), (w.owner + 0x30, 0), (MODE, 0), (MENU, 0)):
         old = u32(g, a)
         put(g, a, value)
         assert w.build() == b''
@@ -666,6 +716,9 @@ def main(exe):
     g.mu.mem_protect(n.CAVE & ~0xfff, 0x2000, UC_PROT_READ | UC_PROT_EXEC)
     w = World(g)
     ui = NativeUI(g, w)
+    lookup_modes(w, ui, probe)
+    # Restore cold diagnostics after the explicit lookup-mode exercise.
+    g.write(n.STATE, n.state())
     diagnostics(w, ui, probe)
     rules(w)
     native(w, ui)
@@ -677,8 +730,9 @@ def main(exe):
         lines, _, _ = tm.run(g, (HERE / (name + '.lua')).read_text(encoding='utf-8'))
         result = tm.results(lines)[0]
         assert result.startswith('RESULT: 6 of 6 as expected.' if name == 'MLCheck' else 'RESULT: installed'), (name, result)
+    lookup_modes(w, ui, probe)
     native(w, ui)
-    print('ok 6: native ticker/RNG/ownership checks also pass with all nine ML modules installed')
+    print('ok 6: indexed/sparse native ticker/RNG/ownership checks also pass with all nine ML modules installed')
     print('all ok (emulator only; the final UI is a stand-in, not a screenshot from PES)')
 
 

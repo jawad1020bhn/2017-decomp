@@ -4,7 +4,51 @@
 
 **Status:** The earlier reproducible defects remain repaired, and all **13 test suites passed** in a fresh sequential run including MLNews. The new factual world-result ticker is **emulator-tested only, not live-game verified**; its first real in-game display remains outstanding. PlayerDump, GrowthBridge and Stadiums are unchanged, as requested. The original unexpected close is **not diagnosed** by these tests or the initialization log.
 
-## Follow-up: the new log exposed missing runtime coverage
+## Runtime follow-up: normal indexed careers were incorrectly rejected
+
+**Reported evidence:** after progressing to **03/10/2026**, News v2 logged rising
+native `copies` / `attempts`, `copied=0`, and `last=alternate table layout; mode=19`.
+The hook and native items were present; it refused at the lookup-mode guard before
+reading clock/count/result fields. Their zeros were diagnostic resets, not evidence
+of a zero game date. Spirit v4 had the same unconditional rejection of value 2.
+
+**Native trace:** `035fbac3` sets `[career + ec1408] = 2` after the normal `03787e30`
+career load. Progression `036101d9` also writes 2. This selects indexed access, not
+relocated arrays: `03822969 → 0381e428` returns `career + 481be0 + (id & 3fff)*520`,
+and `03822ab9 → 0381e458` scans all 300 competition slots at `career + 552e80`.
+`0381e624` counts populated records separately; sparse tables must not truncate at
+that count. The two indexed getters now have exact installation fingerprints.
+
+**News v3 / Spirit v5:** accept only known lookup values 0/1/2. Preserve existing
+positive/bounded count checks. Modes 0/1 scan the populated prefix; mode 2 scans the
+bounded slot extent (651 saved-club slots / 300 competition slots), skipping invalid
+records. The native array's two additional club slots remain unsupported, not silently
+included. Spirit shares this selection for primary-club, rivals and competition-kind
+walks. Missing/ambiguous ownership and invalid pointers/dates/results remain guarded.
+No career/sporting records, growth settings, other modules or allocation sizes change.
+
+News's diagnostic +44 word now records the observed lookup value (initially unread),
+replacing the unused `MLN2` marker. The state stays 48 bytes at the same address;
+selection branches on a separate stack local, never diagnostic metadata. `lookup=2`
+is normal; unknown values still yield stage 4. Native copy is still not rendering proof.
+
+**Regressions:** before production edits, valid indexed fixtures failed against News
+v2 at stage 4 and Spirit v4 at 95 rather than 96 after one win. Most career fixtures
+now default to the indexed mode actually used in load/progression. Tests explicitly
+retain 0/1 support, compare real native getters, place the primary club at slot 600,
+AI clubs at 649/650 and a competition at 299 with populated counts only 3/1, and poison
+the immediately following slots to enforce bounded reads. At an explicit test clock
+03/10/2026 (day 275), News prefixes the known 02/10 result, while Spirit's one-win,
+derby and cup-final setups give 96/98/99. Both sparse paths also run with all nine
+modules installed; career record bytes and the native ticker RNG behavior stay unchanged.
+These are synthetic worlds and read-only save-table replays, **not the user's save**.
+
+Spirit still computes before the **next match setup**; no post-match/home-menu refresh
+was added. A weighted real history can legitimately give 95 even after a win. The next
+live check needs the matching `MLTeamSpirit 5: ... form ... -> ...` line and game plan,
+and `MLNews 3 runtime:` plus a factual visible prefix/result cross-check.
+
+## Earlier startup-log follow-up
 
 All nine ML modules installed, but two further defects were reproduced **before**
 fixing them. Initialization and the previous green suites were not enough evidence.
@@ -61,7 +105,7 @@ audited; excluded modules/configuration remain untouched.
 | Failed patch writes leave earlier changes installed | Money, Transfers, Year, SimMatch, Growth and Spirit now restore patches already attempted when read-back verification fails, and explicitly report failed restoration. See the host-error limitation below. |
 | Stale free-memory notes | Corrected the current reservation map in `README.md` and the generator bounds, including incoming/pressure sizes and Growth's boundary before training-focus code. |
 
-### MLNews v2: native ticker display proof, not a completed news system
+### MLNews v3: native ticker display proof, not a completed news system
 
 **Sources:** `MLNews.lua`, `news_cave.py`, `test_news.py`.
 
@@ -71,8 +115,9 @@ item, not the first shuffled source record, with a dated actual AI-v-AI league r
 The newest eligible date wins, then the largest goal margin. Results must be completed,
 0–7 game days old, have valid bounded dates/names/clubs/competition and no extra-time/
 shoot-out words. Exactly one primary controller-slot-0 club must exist; all controlled
-clubs are excluded from the story. Other mode selectors, alternate table-layout flag 2
-and invalid counts are skipped. Other controller layouts are not live-verified.
+clubs are excluded from the story. Other mode selectors, unknown lookup modes and
+invalid counts are skipped. Normal indexed mode 2 is supported as described above;
+other controller layouts are not live-verified.
 
 The 2,560-byte code/constant image is at `03fc8900–03fc92ff`, directly after SimToDate's
 separate `03fc8000–03fc88ff`. It is zero-checked and read back **before** the hook is
@@ -95,7 +140,7 @@ read-protected except for the native seed page, with a write guard allowing only
 existing u16 seed write; all other career bytes and stored news strings are checked
 unchanged. Temporary ownership is balanced on the tested paths, with the code cave
 read/execute-only. Tests include 30 seeded fixture worlds, 2,772 date-parser cases,
-last-record bounds, malformed/ambiguous data, unreadable install checks, 51 sampled
+last-record bounds, malformed/ambiguous data, unreadable install checks, 57 sampled
 fingerprint/cave/state mismatches, write refusal/damage/recovery, empty feeds, format failure,
 redraws and earlier/changed same-address career data. Native ticker tests also run
 with all nine modules installed. This is **not** a whole-match or Windows leak profile.
@@ -137,13 +182,13 @@ are still necessary. The diagnostic values are never story-selection input.
 
 ### Team Spirit v3
 
-**Sources:** `MLTeamSpirit.lua`, `test_spirit.py`. Earlier fixes retained in v4; the user-club locator fix is described above.
+**Sources:** `MLTeamSpirit.lua`, `test_spirit.py`. Earlier fixes retained in v5; the user-club locator and indexed-mode fixes are described above.
 
 Before the fix, Sider-style home/away team numbers `7`/`8` were divided by 16,384 a second time. Two losses therefore left the value at **95 rather than 92**. The old tests passed packed career IDs, unlike the real callback. All event fixtures now use decoded team numbers, and the expected form, cup, derby and league bonuses pass at home and away.
 
 The old date reader treated day 305/year 2024 as day **132,645,169**. It now decodes day and year separately and ignores neighboring bytes. Tests cover both 2024 and 2026, a scheduled next-season opening fixture, and a future-dated played result. Current form and the league bonus stay unchanged.
 
-The old final match batch processed 9,024 records instead of 9,000, reading **14,112 bytes past the array**. Tests now put a fake win immediately after that array and prove it is neither read nor included. The last valid match (record 8,999) still works. Club and competition walkers also stop exactly at their counts, including partial final batches.
+The old final match batch processed 9,024 records instead of 9,000, reading **14,112 bytes past the array**. Tests now put a fake win immediately after that array and prove it is neither read nor included. The last valid match (record 8,999) still works. Club and competition walkers also stop at the proper scan extent (populated counts in modes 0/1, bounded slots in mode 2), including partial final batches.
 
 **Compatibility:** `RIVALS` still accepts packed career club IDs. The log labels a copyable `RIVALS id` separately from the decoded Sider team number. Existing packed rival settings remain effective.
 
@@ -184,23 +229,23 @@ Tests now inject **104 refused/damaged patch writes** across seven patchers (inc
 
 ## Validation
 
-All 13 suites exited **0**, sequentially against the bundled executable, in 456.07 seconds after the follow-up fixes:
+All 13 suites exited **0**, sequentially against the bundled executable, in 461.68 seconds after the indexed-career fixes:
 
 | Suite | Seconds |
 | --- | ---: |
-| `test_module.py` | 0.25 |
-| `test_safety.py` | 1.66 |
-| `test_growth.py` | 5.40 |
-| `test_spirit.py` | 7.42 |
-| `test_year.py` | 0.86 |
-| `test_need.py` | 7.98 |
-| `test_offer.py` | 0.61 |
-| `test_sim.py` | 80.74 |
-| `test_simdate.py` | 24.20 |
-| `test_simdate_calendar.py` | 1.76 |
-| `test_transfers.py` | 7.14 |
-| `test_money.py` | 289.30 |
-| `test_news.py` | 28.58 |
+| `test_module.py` | 0.28 |
+| `test_safety.py` | 1.56 |
+| `test_growth.py` | 5.34 |
+| `test_spirit.py` | 7.95 |
+| `test_year.py` | 0.78 |
+| `test_need.py` | 7.82 |
+| `test_offer.py` | 0.63 |
+| `test_sim.py` | 79.49 |
+| `test_simdate.py` | 24.92 |
+| `test_simdate_calendar.py` | 1.91 |
+| `test_transfers.py` | 8.25 |
+| `test_money.py` | 295.95 |
+| `test_news.py` | 26.61 |
 
 Before changing production code, the corrected Spirit fixtures and new Growth cases failed against the original code. The new failed-write regression also failed before recovery was implemented, and the chained Money-failure/Transfers regression failed before the prerequisite hook check was added. The final sequential run passed all suites; running multiple large emulator suites concurrently can exceed the sandbox's memory budget, so the release check used one suite at a time.
 
@@ -255,7 +300,7 @@ In particular, `047d6d60–047d6e4f` is **not free**; it belongs to transfer squ
 
 1. Back up the actual installed modules, `sider.ini`, and saves. Copy the updated Lua files from this folder into Sider's `modules` folder. Do not copy Python generators/tests there.
 2. Keep Check before Money and Money before Transfers. The matching SimMatch v9/Growth v5 work in either order. Keep just one line per module; the recommended nine-ML-line order (News optional/experimental) is in `README.md`. News can also be tested alone; it has no module dependency.
-3. The earlier log refused Transfers settings; the latest supplied log now shows valid Galactico `wealth = 150` and successful installation. No new Transfers settings change is required. Back up custom settings before replacing Growth, Spirit and News.
+3. The earlier log refused Transfers settings; the latest supplied log now shows valid Galactico `wealth = 150` and successful installation. No new Transfers settings change is required. For this follow-up, back up custom settings and replace only News v3 / Spirit v5; Growth v5 is unchanged.
 4. Fully exit and relaunch PES after each change. Removing a Lua line does not undo a running patch. Growth/money changes already persisted by the game are not reversed by disabling the module. SimToDate's default "off" still installs hooks; excluding those requires removing its module line and restarting.
 5. PlayerDump, GrowthBridge and Stadiums remain untouched. No `sider.ini`, third-party package, Sider DLL, executable or save was edited by this fix.
 6. **Switcher2 remains unrepairable from this checkout:** its source is absent. The logged `Pattern not found. Unknown game version` cannot safely be fixed by inventing an address or bypassing the version check. Its source and the actual installed configuration are needed.
@@ -265,6 +310,6 @@ Twelve logged sources are absent: `Script_CustomCup.lua`, `Script_Entrance.lua`,
 
 The original log's `DLL detaching / Unmapping from PES` is a generic detach message, not a fault address. Speed `20833.333 (0.000)` is neutral speed, not a large speed multiplier. These interpretations and Sider's decoded team-ID contract were checked against upstream Sider 3.6.0 source at commit [`45096559ec742f650d828b6e967135f35aad75a4`](https://github.com/pes-modding/sider3/tree/45096559ec742f650d828b6e967135f35aad75a4); exact equivalence to the user's DLL was not established.
 
-**Verdict:** Earlier fixes and the two newly reproduced Growth/Spirit defects are repaired and regression-tested. Initialization and old emulator coverage did not establish full correctness. The new News hook is a backup-save display prototype, not a completed live-display milestone. Follow its acceptance procedure in `README.md` before relying on it. The reported game closure still has no proven cause.
+**Verdict:** Earlier fixes are retained, and the reported false rejection of normal indexed careers is now repaired in News v3 / Spirit v5 and regression-tested. Initialization and the earlier compact-only fixtures did not establish runtime correctness. The new News hook is a backup-save display prototype, not a completed live-display milestone. Follow its acceptance procedure in `README.md` before relying on it. The reported game closure still has no proven cause.
 
 **Not checked:** live Windows/Sider/PES behavior, a crash dump, missing third-party sources/assets, drivers, other injected DLLs, or every native instruction/path. **Risk:** emulator success does not guarantee crash-free play or undo changes already saved by the game.
