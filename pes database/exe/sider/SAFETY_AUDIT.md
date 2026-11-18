@@ -1,10 +1,52 @@
 # Sider Lua safety audit and fixes — 17 November 2026
 
-**What this repo does:** The eight Master League Lua modules change PES 2017's running memory. The audit and fixes assume one 32-bit game process using the bundled executable and Sider 3.6.0.
+**What this repo does:** Nine Master League Lua modules are covered here. MLCheck only reads memory; MLNews patches native presentation while observing sporting state; the other seven patch gameplay or controls. The audit assumes one 32-bit game process using the bundled executable and Sider 3.6.0.
 
-**Status:** The reproducible issues in the available sources have been repaired, and all **12 test suites passed**. PlayerDump, GrowthBridge and Stadiums are unchanged, as requested. The original unexpected close is **not diagnosed** by these tests or the initialization log.
+**Status:** The earlier reproducible defects remain repaired, and all **13 test suites passed** in a fresh sequential run including MLNews. The new factual world-result ticker is **emulator-tested only, not live-game verified**; its first real in-game display remains outstanding. PlayerDump, GrowthBridge and Stadiums are unchanged, as requested. The original unexpected close is **not diagnosed** by these tests or the initialization log.
 
-## Changes applied
+## Follow-up: the new log exposed missing runtime coverage
+
+All nine ML modules installed, but two further defects were reproduced **before**
+fixing them. Initialization and the previous green suites were not enough evidence.
+
+- **Growth 4 → 5:** the untracked positive-award branch jumped into the playtime
+  fragment without loading exp/curve onto x87 or restoring `&exp` in EDX after the
+  lookup. A real native 50-slot miss leaves EDX=`32` hex: the hook attempted
+  `fstp [00000032]`. The emulator maps the null page for Windows SEH, so the added
+  low-address write guard was necessary to catch this. V5 skips only the optional
+  appearance lookup, restores `&exp`, and runs full arithmetic. B1 shrinks from 132
+  to 128 bytes; rates/settings/events/other hooks are unchanged. This is a crash risk,
+  **not proof it occurred in the user's session**.
+- **Spirit 3 → 4:** `yours 4294967295` in the log means the callback skipped dynamic
+  form. V3 treated `024fea5c` as the user ID; native callers use it as an invalid-ID
+  placeholder. V4 resolves the primary controlled club from the current bounded
+  table (`+314`, bits 7–14), requires exactly one slot-0 club and compares its decoded
+  ID with Sider's teams. Added read-only layout checks avoid Transfers' hooked entry.
+  Missing/ambiguous ownership, alternate layout and unsupported counts fail closed.
+
+Old Growth fixtures mocked tracked lookups; old Spirit fixtures fabricated a valid
+ID at the wrong global. Corrected fixtures fail against Growth 4 / Spirit 3 before
+the fixes. Coverage now includes 36 real first/last/missing growth-record cases with
+low-address/x87 guards and four real-save **club-table** ownership replays with the
+invalid-ID global unchanged. The latter use synthetic two-loss form, not full career
+loads. Growth awards/season/training, Spirit callbacks/native value reads and ticker
+execution also each run with all nine ML modules installed.
+
+**News 1 → 2:** the supplied v1 log has no runtime/selection evidence. Its invisible
+display remains **undiagnosed**, not “fixed by installation.” V2 adds zero-checked
+48-byte diagnostics at `0298c2f0–0298c31f`, after Growth data. Native code records the
+last rejection/copy stage, counters and bounded metadata; none is selection input.
+Supported resource/match observers only read it, return nil and throttle changed
+snapshot logs. `copied` means **a native string was built**, not that a headline
+rendered. Empty feed/unvisited UI, data/result rejection and copy stages are now
+observable; the real UI milestone is still open. See `README.md`.
+
+The latest log also shows Stadiums **not activated** (missing map), Switcher2's failed
+pattern lookup despite “initialized,” and SimToDate intentionally off. Third-party
+initialization is not gameplay verification. Missing sources cannot be independently
+audited; excluded modules/configuration remain untouched.
+
+## Earlier changes applied
 
 | Original finding | Current status |
 | --- | --- |
@@ -19,9 +61,83 @@
 | Failed patch writes leave earlier changes installed | Money, Transfers, Year, SimMatch, Growth and Spirit now restore patches already attempted when read-back verification fails, and explicitly report failed restoration. See the host-error limitation below. |
 | Stale free-memory notes | Corrected the current reservation map in `README.md` and the generator bounds, including incoming/pressure sizes and Growth's boundary before training-focus code. |
 
+### MLNews v2: native ticker display proof, not a completed news system
+
+**Sources:** `MLNews.lua`, `news_cave.py`, `test_news.py`.
+
+The only native patch is the five-byte string-copy call at `032a2dd1`, within the fully
+fingerprinted reader `032a2b93–032a33bf`. The wrapper prefixes the first **displayed**
+item, not the first shuffled source record, with a dated actual AI-v-AI league result.
+The newest eligible date wins, then the largest goal margin. Results must be completed,
+0–7 game days old, have valid bounded dates/names/clubs/competition and no extra-time/
+shoot-out words. Exactly one primary controller-slot-0 club must exist; all controlled
+clubs are excluded from the story. Other mode selectors, alternate table-layout flag 2
+and invalid counts are skipped. Other controller layouts are not live-verified.
+
+The 2,560-byte code/constant image is at `03fc8900–03fc92ff`, directly after SimToDate's
+separate `03fc8000–03fc88ff`. It is zero-checked and read back **before** the hook is
+written/read back. A failed hook write attempts to restore the original call and
+reports refused restoration. The code cave can remain occupied after failure; restart
+is mandatory. Runtime text uses a bounded 256-byte stack buffer, then the game's own
+string constructor/append/cleanup. It never adopts a stack/cave pointer as string-owned
+memory. This is a **presentation-memory patch**, not a zero-write module.
+
+The native list and stored strings are untouched: no news-vector insertion, extra RNG
+call, popup, forced stop or sporting-state update. An empty native feed stays empty.
+There is no story history/cache/file to contaminate a reload or another career, and prefixes
+do not accumulate across redraws. The same eligible result **can recur** on later
+redraws until replaced/expired; consumed-story deduplication is outside this proof.
+No invented finances, transfers, upsets, sackings or player emotions are generated.
+
+`test_news.py` executes the real reader, string/vector ownership paths and shuffle/mode
+RNG, comparing hooked/unhooked RNG arguments and the resulting seed. Career memory is
+read-protected except for the native seed page, with a write guard allowing only that
+existing u16 seed write; all other career bytes and stored news strings are checked
+unchanged. Temporary ownership is balanced on the tested paths, with the code cave
+read/execute-only. Tests include 30 seeded fixture worlds, 2,772 date-parser cases,
+last-record bounds, malformed/ambiguous data, unreadable install checks, 51 sampled
+fingerprint/cave/state mismatches, write refusal/damage/recovery, empty feeds, format failure,
+redraws and earlier/changed same-address career data. Native ticker tests also run
+with all nine modules installed. This is **not** a whole-match or Windows leak profile.
+
+Two real-save **table replays** reached the final UI stand-in with factual prefixes:
+
+```text
+WORLD RESULT 29/08/2024: Botafogo FR 0-4 Clube do Remo |
+WORLD RESULT 12/09/2024: Clube do Remo 4-0 SC Corinthians Paulista |
+```
+
+These copy observed club/competition/result tables and explicitly set the replay clock
+to the latest completed-match date. They are not full career loads, do not establish
+the saved-clock mapping and are **not** PES screenshots. CRT allocation/formatting/
+random APIs and final widgets are stand-ins. Actual rendering, fonts, scrolling/clipping,
+menu lifetime/transitions and live stability need the disposable-save procedure in
+`README.md`; only a visible, result-cross-checked Master League headline passes it.
+
+Static cave review found no verified native direct target or plain-data pointer into
+`[03fc8900,03fc9300)`. An overlapping-dword scan found nine live-code matches (instruction
+bytes/relative displacements or `+3fc` member offsets, not pointers) and 20 in encrypted
+`.data`. Fourteen raw near-call/jump/conditional candidates in live code were all inside
+other instructions, not instruction-boundary targets, when decoded from their recorded
+function starts. The preceding thunks jump over the zero run to `03fc9da0`; News is far
+from the padding NOP that straddles its start. This corrects the older blanket “no dword
+points into the run” wording; it is not proof against computed or third-party references.
+Runtime zero/fingerprint checks and nine-module overlap tests remain required.
+
+The diagnostic block fits inside the loader-zeroed tail of the read/write, non-executable
+`.text` page; the next section starts at `0298d000`. An overlapping-dword scan of the
+entire executable found **no value in `0298c2f0–0298c31f`**. Scanning its whole page
+found 38 raw matches, including real TLS metadata: the active PE TLS directory at
+`047d4008` declares raw TLS bytes only at `0298c000–0298c043`, with no additional
+zero-fill. The original header copy at `022c5170` has the same raw extent. Diagnostics
+are outside that extent and after Growth's last byte `0298c2eb`. This is not proof
+against computed references, broad page operations, protected startup behavior or
+unknown third-party modules; zero/read-back checks and the disposable-save live test
+are still necessary. The diagnostic values are never story-selection input.
+
 ### Team Spirit v3
 
-**Sources:** `MLTeamSpirit.lua:169–174`, `232–277`, `297–335`, `480–545`; `test_spirit.py`.
+**Sources:** `MLTeamSpirit.lua`, `test_spirit.py`. Earlier fixes retained in v4; the user-club locator fix is described above.
 
 Before the fix, Sider-style home/away team numbers `7`/`8` were divided by 16,384 a second time. Two losses therefore left the value at **95 rather than 92**. The old tests passed packed career IDs, unlike the real callback. All event fixtures now use decoded team numbers, and the expected form, cup, derby and league bonuses pass at home and away.
 
@@ -33,7 +149,7 @@ The old final match batch processed 9,024 records instead of 9,000, reading **14
 
 ### Growth v4
 
-**Sources:** `growth_cave.py:258–315`, `359–382`, `530–543`; generated blocks in `MLGrowth.lua`; `test_growth.py`.
+**Sources:** `growth_cave.py`, generated blocks in `MLGrowth.lua`, `test_growth.py`. Earlier annual-margin fix retained in v5; the lookup-miss fix is described above.
 
 The annual award previously loaded an age margin into EDX, replaced it with an ability selector, and later used that selector for its headroom comparison/division. The margin is now saved across the getter call. The regenerated award is **147 bytes**, within its **153-byte** reservation; the dependent season-hook branch has also been regenerated.
 
@@ -50,7 +166,7 @@ The simulator's logical ET image is still 4,030 bytes for code/table generation.
 
 It does not check or overwrite `0x047d5b8c–0x047d5bdf`, where Growth places its curve. Both Growth-first and simulator-first installations pass. Native-code/table tamper checks outside the gap remain active. Generator limits prevent future simulator code from growing into adjacent Growth allocations.
 
-The integration test installs all eight modules in **22 orders**: two explicit opposite Growth/SimMatch orders and 20 deterministic sampled orders, respecting Check-before-Money and Money-before-Transfers. It captures every write, rejects cross-module intersections, and checks that later modules preserve every previously installed byte.
+The integration test now installs all nine modules in **22 orders**: two explicit opposite Growth/SimMatch orders and 20 deterministic sampled orders, respecting Check-before-Money and Money-before-Transfers. It captures every write, rejects cross-module intersections, and checks that later modules preserve every previously installed byte.
 
 **Upgrade both files together.** With an older SimMatch v8, SimMatch must still load before Growth. The supplied log used that working order; this dependency was not proof of why that run closed.
 
@@ -62,28 +178,29 @@ On a read-back mismatch, the patchers restore the failed patch and earlier attem
 
 Transfers additionally checks Money's actual native fee hook. A stale Money cave/marker after rollback is no longer accepted as a completed prerequisite; the regression verifies that Transfers writes nothing after each recoverable Money failure.
 
-Tests inject **102 refused/damaged patch writes** across the six patchers and verify that all original patch bytes are restored. Separate cases refuse restoration itself and verify that each patcher reports `restore failed` rather than falsely claiming recovery. Existing SimToDate tests cover its rollback and READY gate.
+Tests now inject **104 refused/damaged patch writes** across seven patchers (including News) and verify that all original patch bytes are restored. Separate cases refuse restoration itself and verify that each patcher reports `restore failed` rather than falsely claiming recovery. Existing SimToDate tests cover its rollback and READY gate. News additionally exercises failed/damaged cave writes with its native hook left untouched.
 
 **Host-error limitation:** Sider 3.6.0's Lua environment does not expose `pcall`. If `memory.write`/`memory.read` raises a host error, init can stop before Lua performs rollback. The fixes cover verification failures, not an exception-safe transaction or atomic writes across threads. No Sider DLL was modified. Quit PES on any init/write/restore failure; do not keep playing or save.
 
 ## Validation
 
-All 12 suites exited **0**, sequentially against the bundled executable:
+All 13 suites exited **0**, sequentially against the bundled executable, in 456.07 seconds after the follow-up fixes:
 
 | Suite | Seconds |
 | --- | ---: |
-| `test_module.py` | 0.3 |
-| `test_safety.py` | 1.3 |
-| `test_growth.py` | 3.8 |
-| `test_spirit.py` | 3.9 |
-| `test_year.py` | 0.8 |
-| `test_need.py` | 6.6 |
-| `test_offer.py` | 0.5 |
-| `test_sim.py` | 57.0 |
-| `test_simdate.py` | 19.0 |
-| `test_simdate_calendar.py` | 1.5 |
-| `test_transfers.py` | 7.4 |
-| `test_money.py` | 206.5 |
+| `test_module.py` | 0.25 |
+| `test_safety.py` | 1.66 |
+| `test_growth.py` | 5.40 |
+| `test_spirit.py` | 7.42 |
+| `test_year.py` | 0.86 |
+| `test_need.py` | 7.98 |
+| `test_offer.py` | 0.61 |
+| `test_sim.py` | 80.74 |
+| `test_simdate.py` | 24.20 |
+| `test_simdate_calendar.py` | 1.76 |
+| `test_transfers.py` | 7.14 |
+| `test_money.py` | 289.30 |
+| `test_news.py` | 28.58 |
 
 Before changing production code, the corrected Spirit fixtures and new Growth cases failed against the original code. The new failed-write regression also failed before recovery was implemented, and the chained Money-failure/Transfers regression failed before the prerequisite hook check was added. The final sequential run passed all suites; running multiple large emulator suites concurrently can exceed the sandbox's memory budget, so the release check used one suite at a time.
 
@@ -91,11 +208,12 @@ Run from this folder with Python packages `lupa`, `unicorn`, `capstone`, and `ke
 
 ```
 python test_safety.py "path/to/PES2017.exe"
+python test_news.py "path/to/PES2017.exe"
 python test_spirit.py "path/to/PES2017.exe"
 python test_growth.py "path/to/PES2017.exe"
 ```
 
-The executable and saves are only read by the harness. Executable SHA-256:
+The executable, all four saves and all nine ML Lua files hashed identically before and after this run (as did the existing transfer CSV). The executable and saves are only read by the harness. Executable SHA-256:
 
 ```
 44b0caaac6703459f1a674ab7defc98d39613008b9254646f2543431fa9d954f
@@ -118,7 +236,7 @@ Inclusive endpoints; this table lists large injected regions, not the small nati
 | Growth curve | `047d5b8c–047d5bde` | 83 |
 | Simulator score tables | `047d5be0–047d5ffd` | 1,054 |
 | Simulator PK/fatigue/injury | `047d6030–047d6376` | 839 |
-| Growth experience hook | `047d6377–047d63fa` | 132 |
+| Growth experience hook | `047d6377–047d63f6` | 128 |
 | Transfers position need | `047d6400–047d654f` | 336 |
 | Transfers incoming offers | `047d6550–047d6d3f` | 2,032 |
 | Transfers squad pressure | `047d6d40–047d6e4f` | 272 |
@@ -126,16 +244,18 @@ Inclusive endpoints; this table lists large injected regions, not the small nati
 | Growth training | `047d6efe–047d6f4b` | 78 |
 | Sim-to-Date day loop | `047d6f60–047d6fec` | 141 |
 | Sim-to-Date calendar | `03fc8000–03fc88ff` | 2,304 |
+| News code/constants | `03fc8900–03fc92ff` | 2,560 |
 | Sim-to-Date state | `0298c0e0–0298c1ff` | 288 |
 | Growth tables | `0298c200–0298c2eb` | 236 |
+| News diagnostics (data only) | `0298c2f0–0298c31f` | 48 |
 
-In particular, `047d6d60–047d6e4f` is **not free**; it belongs to transfer squad-pressure code. No unbounded Lua collection or per-frame allocation loop was found in the eight modules. Their injected footprint is fixed, roughly 20 KB, but this is not a Windows memory/leak profile.
+In particular, `047d6d60–047d6e4f` is **not free**; it belongs to transfer squad-pressure code. No unbounded Lua collection was found in the nine checked modules. The listed fixed injected regions total about 22 KiB; News also uses a stack buffer and native-owned temporary strings on ticker rebuilds. This is not a Windows memory/leak profile.
 
 ## Deployment and remaining uncertainty
 
 1. Back up the actual installed modules, `sider.ini`, and saves. Copy the updated Lua files from this folder into Sider's `modules` folder. Do not copy Python generators/tests there.
-2. Keep Check before Money and Money before Transfers. The matching SimMatch v9/Growth v4 work in either order. Keep just one line per module; the recommended eight-ML-line order is in `README.md`.
-3. The deployed Transfers settings were invalid in the log, while this copy has `wealth = 150`. Replace the different copy or correct that setting without weakening validation. Back up custom settings before replacing a module.
+2. Keep Check before Money and Money before Transfers. The matching SimMatch v9/Growth v5 work in either order. Keep just one line per module; the recommended nine-ML-line order (News optional/experimental) is in `README.md`. News can also be tested alone; it has no module dependency.
+3. The earlier log refused Transfers settings; the latest supplied log now shows valid Galactico `wealth = 150` and successful installation. No new Transfers settings change is required. Back up custom settings before replacing Growth, Spirit and News.
 4. Fully exit and relaunch PES after each change. Removing a Lua line does not undo a running patch. Growth/money changes already persisted by the game are not reversed by disabling the module. SimToDate's default "off" still installs hooks; excluding those requires removing its module line and restarting.
 5. PlayerDump, GrowthBridge and Stadiums remain untouched. No `sider.ini`, third-party package, Sider DLL, executable or save was edited by this fix.
 6. **Switcher2 remains unrepairable from this checkout:** its source is absent. The logged `Pattern not found. Unknown game version` cannot safely be fixed by inventing an address or bypassing the version check. Its source and the actual installed configuration are needed.
@@ -145,6 +265,6 @@ Twelve logged sources are absent: `Script_CustomCup.lua`, `Script_Entrance.lua`,
 
 The original log's `DLL detaching / Unmapping from PES` is a generic detach message, not a fault address. Speed `20833.333 (0.000)` is neutral speed, not a large speed multiplier. These interpretations and Sider's decoded team-ID contract were checked against upstream Sider 3.6.0 source at commit [`45096559ec742f650d828b6e967135f35aad75a4`](https://github.com/pes-modding/sider3/tree/45096559ec742f650d828b6e967135f35aad75a4); exact equivalence to the user's DLL was not established.
 
-**Verdict:** Available-source defects are repaired and regression-tested; deploy the updated files together and test on a backup. The reported game closure still has no proven cause.
+**Verdict:** Earlier fixes and the two newly reproduced Growth/Spirit defects are repaired and regression-tested. Initialization and old emulator coverage did not establish full correctness. The new News hook is a backup-save display prototype, not a completed live-display milestone. Follow its acceptance procedure in `README.md` before relying on it. The reported game closure still has no proven cause.
 
 **Not checked:** live Windows/Sider/PES behavior, a crash dump, missing third-party sources/assets, drivers, other injected DLLs, or every native instruction/path. **Risk:** emulator success does not guarantee crash-free play or undo changes already saved by the game.
