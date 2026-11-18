@@ -8,3 +8,4 @@ node_modules/
 /sider.ini.bak-*
 /SiderX Launcher.*
 __pycache__/
+.venv/

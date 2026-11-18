@@ -1,14 +1,15 @@
--- MLNews.lua, version 3: factual world-result ticker proof (Sider 3.6.0).
+-- MLNews.lua, version 4: factual world-result ticker proof (Sider 3.6.0).
 -- For PES2017.exe SHA256 44b0caaa... only. Emulator-tested, NOT live-game verified.
 --
--- Prefixes the first temporary headline in the native Master League main-menu ticker
--- with one dated AI-v-AI league result, at most seven game days old. The newest date
--- wins, then the biggest goal margin. Keeps every original headline after the prefix.
+-- Rotates up to four dated AI-v-AI league/cup results across the native ML ticker.
+-- Results are at most fourteen game days old, ranked by newest date then goal margin.
+-- Every native ticker item keeps its original headline after its factual prefix.
 -- No stored article, popup, extra stop, RNG draw, gameplay write or history file.
 -- Version 2 adds bounded runtime diagnostics: a copy/rejection stage, not a rendering claim.
 -- Version 3 accepts the normal indexed career tables (lookup mode 2), including sparse slots.
+-- Version 4 expands to four stories, normal-time cup results and a fourteen-day window.
 -- The native ticker must already have an item; no recent eligible result means no change.
--- shortcut: league scores only, English label; expand after the in-game display is verified.
+-- shortcut: four normal-time league/cup scores, English labels; expand after live display proof.
 --
 -- Built from the current career on each ticker rebuild: reloads, earlier saves and
 -- another career cannot inherit a Lua cache. A redraw gets one prefix, not another entry.
@@ -33,47 +34,52 @@ end
 
 -- Frozen machine code from news_cave.py --lua; no assembler or unsupported Lua callbacks.
 local CODE = table.concat({
-    unhex("9cff05f0c298029d85ff75615589e581ec0001000053565789cb8d8d00ffffffe8db00000085c074318b75088d8500ff"),
-    unhex("ffff5089f1e8aaf583ff6aff6a005389f1e87336c0fe89f0ff05f8c29802c705fcc298020c000000eb0aff750889d9e8"),
-    unhex("0c9f1e005f5e5b89ec5dc20400e9fe9e1e00"),
-    string.rep(string.char(0xcc), 142),
-    unhex("5589e583ec34535657894dfcff05f4c29802c705fcc2980201000000c70500c3980200000000c70504c3980200000000"),
-    unhex("c70508c3980200000000c7050cc3980200000000c70510c3980200000000c70514c39802ffffffffc70518c398020000"),
-    unhex("0000c7051cc39802ffffffffa1e8f364023d000001000f822c0300003d0000ff7f0f8721030000c705fcc29802020000"),
-    unhex("008b5020891518c3980283fa13740983fa280f8500030000c705fcc2980203000000a1e00365023d000001000f82e602"),
-    unhex("00003d0000ff7f0f87db0200008b703081fe000001000f82cc02000081fe0000007f0f87c0020000c705fcc298020400"),
-    unhex("00008b860814ec008945cca31cc3980283f8020f879f020000c705fcc29802050000000fb786b2cbc200a300c398023d"),
-    unhex("d00700000f827e0200003d980800000f877302000069c06d0100000fb796b0cbc200891504c3980281fa6c0100000f87"),
-    unhex("5402000001d08945f8c705fcc29802060000008b86e0ec5f00a308c3980285c00f84320200003d8b0200000f87270200"),
-    unhex("00837dcc027505b88b0200008945f4c705fcc29802070000008b86e8ec5f00a30cc3980285c00f84fc0100003d2c0100"),
-    unhex("000f87f1010000837dcc027505b82c0100008945f0c705fcc2980208000000c745ec000000008dbee01b48008b5df483"),
-    unhex("3fff743d8b8714030000c1e80784c07530ff0510c39802837dec000f85a70100008b07c1e80e25ffff000085c00f8495"),
-    unhex("0100003dffff00000f848a0100008945ec81c7200500004b75b5837dec000f8474010000c705fcc2980209000000c745"),
-    unhex("e800000000c745e4000000008dbe4c156f008d9e2cd5bf0066813f28230f83d1000000f64707400f84c700000066837f"),
-    unhex("15000f85bc00000066837f18000f85b10000008b470cc1e80e25ffff00003b45ec0f849d0000008b5710c1ea0e81e2ff"),
-    unhex("ff00003b55ec0f848800000039d00f84800000008b5708e84403000085c074748b4df829c1726d83f9077768c1e0070f"),
-    unhex("b64f1483f963775c0fb6571783fa63775329d17902f7d901c83b45e476468945e00fb747048b4df0e88304000085c074"),
-    unhex("338b470c8b4df4e8f403000085c074248945dc8b47108b4df4e8e203000085c074128945d08b45dc8945d48b45e08945"),
-    unhex("e4897de881c74c02000039df0f8216ffffff8b7de885ff745f0fb707a314c39802c705fcc298020a000000ff75d00fb6"),
-    unhex("4717500fb6471450ff75d40fb74708500fb6470a500fb6470b50680092fc036800010000ff75fcff15cc757d0483c428"),
-    unhex("83f80172133dff000000770cc705fcc298020b000000eb0231c05f5e5b89ec5dc3"),
-    string.rep(string.char(0xcc), 591),
+    unhex("9cff05f0c298029d5589e581ec0001000053565789cb89fa8d8d00ffffffe8dd00000085c074318b75088d8500ffffff"),
+    unhex("5089f1e8acf583ff6aff6a005389f1e87536c0fe89f0ff05f8c29802c705fcc298020c000000eb0aff750889d9e80e9f"),
+    unhex("1e005f5e5b89ec5dc20400"),
+    string.rep(string.char(0xcc), 149),
+    unhex("5589e583ec78535657894dfc8955c88d7d8831c0b910000000f3abff05f4c29802c705fcc2980201000000c70500c398"),
+    unhex("0200000000c70504c3980200000000c70508c3980200000000c7050cc3980200000000c70510c3980200000000c70514"),
+    unhex("c39802ffffffffc70518c3980200000000c7051cc39802ffffffffa1e8f364023d000001000f82ba0300003d0000ff7f"),
+    unhex("0f87af030000c705fcc29802020000008b5020891518c3980283fa13740983fa280f858e030000c705fcc29802030000"),
+    unhex("00a1e00365023d000001000f82740300003d0000ff7f0f87690300008b703081fe000001000f825a03000081fe000000"),
+    unhex("7f0f874e030000c705fcc29802040000008b860814ec008945cca31cc3980283f8020f872d030000c705fcc298020500"),
+    unhex("00000fb786b2cbc200a300c398023dd00700000f820c0300003d980800000f870103000069c06d0100000fb796b0cbc2"),
+    unhex("00891504c3980281fa6c0100000f87e202000001d08945f8c705fcc29802060000008b86e0ec5f00a308c3980285c00f"),
+    unhex("84c00200003d8b0200000f87b5020000837dcc027505b88b0200008945f4c705fcc29802070000008b86e8ec5f00a30c"),
+    unhex("c3980285c00f848a0200003d2c0100000f877f020000837dcc027505b82c0100008945f0c705fcc2980208000000c745"),
+    unhex("ec000000008dbee01b48008b5df4833fff743d8b8714030000c1e80784c07530ff0510c39802837dec000f8535020000"),
+    unhex("8b07c1e80e25ffff000085c00f84230200003dffff00000f84180200008945ec81c7200500004b75b5837dec000f8402"),
+    unhex("020000c705fcc29802090000008dbe4c156f008d9e2cd5bf0066813f28230f831c010000f64707400f84120100006683"),
+    unhex("7f15000f850701000066837f18000f85fc0000008b470cc1e80e25ffff00003b45ec0f84e80000008b5710c1ea0e81e2"),
+    unhex("ffff00003b55ec0f84d300000039d00f84cb0000008b5708e84303000085c00f84bb0000008b4df829c10f82b0000000"),
+    unhex("83f90e0f87a7000000c1e0070fb64f1483f9630f87970000000fb6571783fa630f878a00000029d17902f7d901c83b45"),
+    unhex("b8767d8945e00fb747048b4df0e86e04000085c0746a8b470c8b4df4e8df03000085c0745b8945dc8b47108b4df4e8cd"),
+    unhex("03000085c074498945d08b45e08d55883b02770583c210ebf78d4db839d1761c8b41f089018b41f48941048b41f88941"),
+    unhex("088b41fc89410c83e910ebe08b45e08902897a048b45dc8942088b45d089420c81c74c02000039df0f82cbfeffff31c9"),
+    unhex("8d558c833a0074094183c21083f90472f285c90f849c0000008b45c831d2f7f1c1e2048d5415888b7a048b42088945d4"),
+    unhex("8b420c8945d00fb747048b4df0e8ae03000085c0746fba5092fc0383f8017405ba5892fc030fb707a314c39802c705fc"),
+    unhex("c298020a000000ff75d00fb64717500fb6471450ff75d4520fb74708500fb6470a500fb6470b50680092fc0368000100"),
+    unhex("00ff75fcff15cc757d0483c42c83f80172133dff000000770cc705fcc298020b000000eb0231c05f5e5b89ec5dc3"),
+    string.rep(string.char(0xcc), 434),
     unhex("0fb7c23dd007000072353d98080000772e69c06d01000089d1c1e91081e1ff0000004983f90b7717c1ea184a3b14cd84"),
     unhex("92fc03730a0304cd8092fc0301d0c331c0c3"),
     string.rep(string.char(0xcc), 190),
     unhex("83f8ff74138d96e01b48003b02740c81c2200500004975f331c0c38b8a14030000c1e90780f9ff75ef538d5a0489d8b9"),
     unhex("460000000fb61084d2741c80fa20721380fa7f740e80fa3c740980fa3e7404404975e131c05bc339d874f889d85bc3"),
     string.rep(string.char(0xcc), 33),
-    unhex("6683f8ff74148d96802e5500663b02740c81c2240200004975f231c0c331c0837a5c010f94c0c3"),
-    string.rep(string.char(0xcc), 89),
-    unhex("574f524c4420524553554c5420253032752f253032752f253034753a2025732025752d2575202573207c2000"),
-    string.rep(string.char(0xcc), 84),
+    unhex("516683f8ff74148d96802e5500663b02740d81c2240200004975f231c0eb3c8b425c83f803743483f80175ef66837a4e"),
+    unhex("ff74280fb7424e8b0c248d96802e5500663b02740b81c2240200004975f2ebcb837a5c0275c5b80300000059c3"),
+    string.rep(string.char(0xcc), 35),
+    unhex("574f524c4420524553554c5420253032752f253032752f25303475205b25735d3a2025732025752d2575202573207c20"),
+    unhex("00"),
+    string.rep(string.char(0xcc), 31),
+    unhex("4c454147554500cc43555000"),
+    string.rep(string.char(0xcc), 36),
     unhex("000000001f0000001f0000001c0000003b0000001f0000005a0000001e000000780000001f000000970000001e000000"),
     unhex("b50000001f000000d40000001f000000f30000001e000000110100001f000000300100001e0000004e0100001f000000"),
     string.rep(string.char(0xcc), 32)
-})
-
--- Check the whole reader: the ordinal in EDI, temporary lifetime and both UI paths matter.
+})-- Check the whole reader: the ordinal in EDI, temporary lifetime and both UI paths matter.
 local PLACES = {
     { 0x032a2b93, "5589e56aff68610c490464a1000000005081eca0000000a1501a520231e88985f0ffffff535657508d85f4ffffff64a3"
         .. "000000008b450831f6898d6cffffff898594ffffff39f00f84bc070000e89827330089c1898568ffffffe84410330089"
@@ -158,6 +164,10 @@ local PLACES = {
     { 0x03822ab9, "5589e551538b5d08b8ffff00005689ce6639c3745f83be0814ec0002750e53e87bb9ffff5e5b89ec5dc204008b96e8ec"
         .. "5f0069d224020000570fb7cb6a00c64508008b450850898dfcffffff8d8dfcffffff8dbc32802e5500518d96802e5500"
         .. "5752e806eaffff83c41439f85f740566391874068d8640e85f005e5b89ec5dc20400", "competition table layout" },
+    { 0x038566ec, "5589e55657e8ef59fcff8b48308bb1e8ec5f0031c085f6741c8b55080fb73a8d91802e550066393a74144081c2240200"
+        .. "0039f072f05fb8060000005e5dc357e889c3fcff8b405c5f5e5dc3", "competition format kind" },
+    { 0x0385662c, "5589e5535657e8ae5afcff8b48308bb1e8ec5f008b5d0831c085f674190fb73b8d91802e550066393a74134081c22402"
+        .. "000039f072f0668b035f5e5b5dc357e849c4fcff89c10fb7414ebaffff00006639d075030fb7015f5e5b5dc3", "competition parent link" },
     { 0x038ae451, "5589e583ec0856e888dcf6ff8b40300fb788b0cbc2000fb790b2cbc2008b75088d85fcffffff898dfcffffff508d8df8"
         .. "ffffff51568995f8ffffffe83bffffff83c40c89f05e89ec5dc3", "career date layout" },
     { 0x0251d454, "0c000000", "Master League mode 19" },
@@ -172,7 +182,7 @@ local REASONS = {
     [5] = "invalid career clock", [6] = "unsupported club count (1-651)",
     [7] = "unsupported competition count (1-300)",
     [8] = "primary controller-slot-0 club missing, invalid or ambiguous",
-    [9] = "no eligible recent AI league result (date/club/name/score filters)",
+    [9] = "no eligible recent AI league/cup result (0-14 days; date/club/name/score filters)",
     [10] = "text formatting failed", [11] = "result selected, copy not completed",
     [12] = "prefix copied into native string; final rendering NOT verified",
 }
@@ -190,14 +200,14 @@ function m.observe(ctx, filename)
     last_second = now
     local s = memory.read(STATE, STATE_SIZE)
     if type(s) ~= "string" or #s ~= STATE_SIZE then
-        if last_snapshot ~= "unreadable" then log("MLNews 3 runtime: diagnostic state unreadable; restart and send this log.") end
+        if last_snapshot ~= "unreadable" then log("MLNews 4 runtime: diagnostic state unreadable; restart and send this log.") end
         last_snapshot = "unreadable"
         return
     end
     if s == last_snapshot then return end
     last_snapshot = s
     local selected, lookup = u32(s, 37), u32(s, 45)
-    log(string.format("MLNews 3 runtime: copies=%u attempts=%u copied=%u; last=%s; "
+    log(string.format("MLNews 4 runtime: copies=%u attempts=%u copied=%u; last=%s; "
         .. "year=%u day-index=%u clubs=%u comps=%u primary=%u selected=%s mode=%u lookup=%s",
         u32(s, 1), u32(s, 5), u32(s, 9), REASONS[u32(s, 13)] or "unknown stage",
         u32(s, 17), u32(s, 21), u32(s, 25), u32(s, 29), u32(s, 33),
@@ -206,7 +216,7 @@ function m.observe(ctx, filename)
 end
 
 function m.init(ctx)
-    log("MLNews 3: presentation-only world-result ticker proof; emulator only")
+    log("MLNews 4: up to four league/cup results, 14 days, every native ticker item; emulator only")
     local good = true
     for _, place in ipairs(PLACES) do
         local same = memory.read(place[1], #place[2] / 2) == unhex(place[2])
@@ -249,9 +259,9 @@ function m.init(ctx)
         ctx.register("livecpk_make_key", m.observe)
         ctx.register("after_set_conditions", m.observe)
     else
-        log("MLNews 3: no runtime observer registered by this host; native hook is still installed.")
+        log("MLNews 4: no runtime observer registered by this host; native hook is still installed.")
     end
-    log("RESULT: installed. Native ML ticker prefixes one recent AI league result when available. "
+    log("RESULT: installed. Up to four recent AI league/cup results rotate across native ticker items when available. "
         .. "Runtime diagnostics enabled; a copied string is not rendering proof. Verify WORLD RESULT on a backup save.")
 end
 

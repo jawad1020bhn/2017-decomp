@@ -2,9 +2,9 @@
 
     python news_cave.py --lua
 
-Only the first temporary headline copy in MainMenuInfoFL is prefixed. The native
-news list, its shuffle/RNG calls and all career records stay untouched. Only diagnostic counters
-survive a draw, never story-selection state. PES owns and frees the temporary string.
+Up to four recent completed league/cup results rotate across temporary headlines in
+MainMenuInfoFL. The native list, shuffle/RNG and career records stay untouched. Only
+diagnostics survive a draw, never story-selection state. PES owns each temporary string.
 """
 import re
 import sys
@@ -15,10 +15,10 @@ from keystone import Ks, KS_ARCH_X86, KS_MODE_32
 # .trace is RWX; buffers/locals live on the stack, never in this code block.
 CAVE, SIZE = 0x03fc8900, 0xa00
 STATE, STATE_SIZE = 0x0298c2f0, 48  # writable diagnostic counters, after Growth tables; never story input
-COPY, BUILD, DATE, NAME, LEAGUE = CAVE, CAVE + 0x100, CAVE + 0x700, CAVE + 0x800, CAVE + 0x880
-FORMAT, MONTHS = CAVE + 0x900, CAVE + 0x980
+COPY, BUILD, DATE, NAME, COMPETITION = CAVE, CAVE + 0x100, CAVE + 0x700, CAVE + 0x800, CAVE + 0x880
+FORMAT, LEAGUE_LABEL, CUP_LABEL, MONTHS = CAVE + 0x900, CAVE + 0x950, CAVE + 0x958, CAVE + 0x980
 SITE, ORIGINAL, READER = 0x032a2dd1, 0x041b2870, 0x032a2b93
-FMT = b'WORLD RESULT %02u/%02u/%04u: %s %u-%u %s | \0'
+FMT = b'WORLD RESULT %02u/%02u/%04u [%s]: %s %u-%u %s | \0'
 BEFORE = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
 DAYS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
@@ -26,8 +26,6 @@ COPY_SOURCE = '''
     pushfd
     inc dword ptr [{state}]
     popfd
-    test edi, edi                     ; ordinal of the displayed headline, NOT its shuffled index
-    jnz original
     push ebp
     mov ebp, esp
     sub esp, 0x100
@@ -35,6 +33,7 @@ COPY_SOURCE = '''
     push esi
     push edi
     mov ebx, ecx                     ; native source string, still owned by PES
+    mov edx, edi                     ; displayed ordinal, not the shuffled source index
     lea ecx, [ebp - 0x100]
     call {build}
     test eax, eax
@@ -64,21 +63,24 @@ done:
     mov esp, ebp
     pop ebp
     ret 4
-original:
-    jmp {original}
 '''
 
-# ecx = 256-byte output buffer; eax = length, or zero (leave the native copy alone).
-# Select the newest eligible AI-v-AI league result, then largest margin, then first
-# physical record. Dates, clubs and competitions are checked before using a result.
+# ecx = 256-byte output, edx = displayed ordinal; eax = length, or zero for native text.
+# Rank eligible AI-v-AI results by date, margin, then first physical record. Keep four
+# on the stack and rotate by ordinal; no cache can leak a later/different career's news.
 BUILD_SOURCE = '''
     push ebp
     mov ebp, esp
-    sub esp, 0x34
+    sub esp, 0x78
     push ebx
     push esi
     push edi
     mov dword ptr [ebp - 4], ecx
+    mov dword ptr [ebp - 0x38], edx
+    lea edi, [ebp - 0x78]             ; shortcut: four 16-byte story slots; resize with the pool limit
+    xor eax, eax
+    mov ecx, 16
+    rep stosd
     inc dword ptr [{state} + 4]
     mov dword ptr [{state} + 12], 1
     mov dword ptr [{state} + 16], 0
@@ -186,8 +188,6 @@ next_user:
     cmp dword ptr [ebp - 0x14], 0
     je unavailable
     mov dword ptr [{state} + 12], 9
-    mov dword ptr [ebp - 0x18], 0     ; best record
-    mov dword ptr [ebp - 0x1c], 0     ; best date*128 + margin
     lea edi, [esi + 0x6f154c]
     lea ebx, [esi + 0xbfd52c]         ; exactly 9000 * 0x24c, not a read into the calendar
 match_loop:
@@ -218,8 +218,8 @@ match_loop:
     mov ecx, dword ptr [ebp - 8]
     sub ecx, eax
     jb next_match                     ; future, even if the played flag is wrong
-    cmp ecx, 7
-    ja next_match                     ; explicitly dated, at most seven game days old
+    cmp ecx, 14
+    ja next_match                     ; explicitly dated, at most fourteen game days old
     shl eax, 7
     movzx ecx, byte ptr [edi + 0x14]
     cmp ecx, 99
@@ -232,12 +232,12 @@ match_loop:
     neg ecx
 margin:
     add eax, ecx
-    cmp eax, dword ptr [ebp - 0x1c]
+    cmp eax, dword ptr [ebp - 0x48]    ; fourth-ranked story: ties keep the first stored record
     jbe next_match
     mov dword ptr [ebp - 0x20], eax
     movzx eax, word ptr [edi + 4]
     mov ecx, dword ptr [ebp - 0x10]
-    call {league}
+    call {competition}
     test eax, eax
     jz next_match
     mov eax, dword ptr [edi + 0xc]
@@ -252,18 +252,72 @@ margin:
     test eax, eax
     jz next_match
     mov dword ptr [ebp - 0x30], eax
-    mov eax, dword ptr [ebp - 0x24]
-    mov dword ptr [ebp - 0x2c], eax
     mov eax, dword ptr [ebp - 0x20]
-    mov dword ptr [ebp - 0x1c], eax
-    mov dword ptr [ebp - 0x18], edi
+    lea edx, [ebp - 0x78]
+find_slot:
+    cmp eax, dword ptr [edx]
+    ja slot_found
+    add edx, 16
+    jmp find_slot                     ; candidate is strictly better than the fourth slot
+slot_found:
+    lea ecx, [ebp - 0x48]
+shift_slot:
+    cmp ecx, edx
+    jbe insert_slot
+    mov eax, dword ptr [ecx - 16]
+    mov dword ptr [ecx], eax
+    mov eax, dword ptr [ecx - 12]
+    mov dword ptr [ecx + 4], eax
+    mov eax, dword ptr [ecx - 8]
+    mov dword ptr [ecx + 8], eax
+    mov eax, dword ptr [ecx - 4]
+    mov dword ptr [ecx + 12], eax
+    sub ecx, 16
+    jmp shift_slot
+insert_slot:
+    mov eax, dword ptr [ebp - 0x20]
+    mov dword ptr [edx], eax
+    mov dword ptr [edx + 4], edi
+    mov eax, dword ptr [ebp - 0x24]
+    mov dword ptr [edx + 8], eax
+    mov eax, dword ptr [ebp - 0x30]
+    mov dword ptr [edx + 12], eax
 next_match:
     add edi, 0x24c
     cmp edi, ebx
     jb match_loop
-    mov edi, dword ptr [ebp - 0x18]
-    test edi, edi
+    xor ecx, ecx
+    lea edx, [ebp - 0x74]
+count_stories:
+    cmp dword ptr [edx], 0
+    je counted_stories
+    inc ecx
+    add edx, 16
+    cmp ecx, 4
+    jb count_stories
+counted_stories:
+    test ecx, ecx
     jz unavailable
+    mov eax, dword ptr [ebp - 0x38]
+    xor edx, edx
+    div ecx                           ; repeat only when fewer stories than native ticker items
+    shl edx, 4
+    lea edx, [ebp + edx - 0x78]
+    mov edi, dword ptr [edx + 4]
+    mov eax, dword ptr [edx + 8]
+    mov dword ptr [ebp - 0x2c], eax
+    mov eax, dword ptr [edx + 12]
+    mov dword ptr [ebp - 0x30], eax
+    movzx eax, word ptr [edi + 4]
+    mov ecx, dword ptr [ebp - 0x10]
+    call {competition}
+    test eax, eax
+    jz unavailable
+    mov edx, {league_label}
+    cmp eax, 1
+    je story_kind
+    mov edx, {cup_label}
+story_kind:
     movzx eax, word ptr [edi]
     mov dword ptr [{state} + 36], eax
     mov dword ptr [{state} + 12], 10
@@ -273,6 +327,7 @@ next_match:
     movzx eax, byte ptr [edi + 0x14]
     push eax
     push dword ptr [ebp - 0x2c]
+    push edx                          ; factual competition category, not a winner/title claim
     movzx eax, word ptr [edi + 8]
     push eax
     movzx eax, byte ptr [edi + 0xa]
@@ -283,7 +338,7 @@ next_match:
     push 256
     push dword ptr [ebp - 4]
     call dword ptr [0x047d75cc]        ; sprintf_s; both names are NUL-terminated within 70 bytes
-    add esp, 40
+    add esp, 44
     cmp eax, 1
     jb unavailable
     cmp eax, 255
@@ -377,8 +432,10 @@ terminated:
     ret
 '''
 
-# eax = competition ID (not table index), ecx = bounded count, esi = mode.
-LEAGUE_SOURCE = '''
+# eax = competition ID, ecx = bounded count, esi = mode; returns 1 league / 3 cup / 0.
+# Native 0385662c resolves +4e; type-1 groups with a known type-2 parent are cup games.
+COMPETITION_SOURCE = '''
+    push ecx
     cmp ax, 0xffff
     je invalid
     lea edx, [esi + 0x552e80]
@@ -390,19 +447,40 @@ comp_loop:
     jnz comp_loop
 invalid:
     xor eax, eax
-    ret
+    jmp done
 found:
-    xor eax, eax
-    cmp dword ptr [edx + 0x5c], 1
-    sete al
+    mov eax, dword ptr [edx + 0x5c]
+    cmp eax, 3                        ; knockout cup format, NOT kind 4 (friendly/training)
+    je done
+    cmp eax, 1
+    jne invalid
+    cmp word ptr [edx + 0x4e], 0xffff
+    je done                           ; a standalone league, not a cup's round-robin group
+    movzx eax, word ptr [edx + 0x4e]
+    mov ecx, dword ptr [esp]
+    lea edx, [esi + 0x552e80]
+parent_loop:
+    cmp ax, word ptr [edx]
+    je parent_found
+    add edx, 0x224
+    dec ecx
+    jnz parent_loop
+    jmp invalid
+parent_found:
+    cmp dword ptr [edx + 0x5c], 2      ; only a bounded, known composite cup is accepted
+    jne invalid
+    mov eax, 3
+done:
+    pop ecx
     ret
 '''
 
 
 def assembled(source, address):
     source = '\n'.join(line.split(';')[0] for line in source.splitlines())
-    source = source.format(build=BUILD, date=DATE, name=NAME, league=LEAGUE,
-                           format=FORMAT, months=MONTHS, original=ORIGINAL, state=STATE)
+    source = source.format(build=BUILD, date=DATE, name=NAME, competition=COMPETITION,
+                           format=FORMAT, league_label=LEAGUE_LABEL, cup_label=CUP_LABEL,
+                           months=MONTHS, original=ORIGINAL, state=STATE)
     return bytes(Ks(KS_ARCH_X86, KS_MODE_32).asm(source, address)[0])
 
 
@@ -413,9 +491,11 @@ def build():
             (COPY, BUILD, assembled(COPY_SOURCE, COPY)),
             (BUILD, DATE, assembled(BUILD_SOURCE, BUILD)),
             (DATE, NAME, assembled(DATE_SOURCE, DATE)),
-            (NAME, LEAGUE, assembled(NAME_SOURCE, NAME)),
-            (LEAGUE, FORMAT, assembled(LEAGUE_SOURCE, LEAGUE)),
-            (FORMAT, MONTHS, FMT),
+            (NAME, COMPETITION, assembled(NAME_SOURCE, NAME)),
+            (COMPETITION, FORMAT, assembled(COMPETITION_SOURCE, COMPETITION)),
+            (FORMAT, LEAGUE_LABEL, FMT),
+            (LEAGUE_LABEL, CUP_LABEL, b'LEAGUE\0'),
+            (CUP_LABEL, MONTHS, b'CUP\0'),
             (MONTHS, CAVE + SIZE, b''.join(struct.pack('<II', a, n) for a, n in zip(BEFORE, DAYS)))):
         assert address + len(data) <= end, (hex(address), len(data), end - address)
         out[address - CAVE:address - CAVE + len(data)] = data

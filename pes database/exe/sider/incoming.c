@@ -318,6 +318,7 @@ static int wants(u32 mode, u32 rec, const struct player *p)
        or his rating, as a club with too small a squad does in the transfers of the computer
        clubs (money_cave.accepts) */
     need = in_need(plan_of(mode, club), p->pos, p->rating);
+    if (!need && p->rating + g[AMBITION] >= own) need = 1;
     /* prestige: he does not join a club far below him */
     if (p->rating > own + g[PRESTIGE]) return 0;
     /* scouting: a club knows a part of the players; a listed player, a good one and a

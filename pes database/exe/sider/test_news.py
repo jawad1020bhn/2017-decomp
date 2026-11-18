@@ -103,9 +103,10 @@ class World:
         put(self.g, a + 0x314, (0 if user else 255) << 7)
         return ident
 
-    def comp(self, slot, ident, kind=1):
+    def comp(self, slot, ident, kind=1, parent=0xffff):
         a = self.base + COMPS + slot * COMP_SIZE
         self.g.write(a, struct.pack('<H', ident))
+        self.g.write(a + 0x4e, struct.pack('<H', parent))
         put(self.g, a + 0x5c, kind)
 
     def match(self, slot=0, date=(2024, 9, 14), goals=(3, 1), home=1, away=2,
@@ -132,17 +133,17 @@ class World:
         assert any(b + a <= address and address + size <= b + a + count for a, count in allowed), (
             'out-of-bounds career read', hex(address - b), size)
 
-    def build(self):
+    def build(self, ordinal=0):
         self.g.write(self.buffer, b'\xa5' * 0x110)
         self.check_reads = True
-        length = self.g.call(n.BUILD, [], ecx=self.buffer, limit=1500000)
+        length = self.g.call(n.BUILD, [], ecx=self.buffer, edx=ordinal, limit=1500000)
         self.check_reads = False
         assert self.g.read(self.buffer + 256, 16) == b'\xa5' * 16
         result = cstr(self.g, self.buffer, 256) if length else b''
         assert not length or len(result) == length
         return result
 
-    def expected(self):
+    def expected(self, ordinal=0):
         g, b = self.g, self.base
         nc, np = u32(g, b + CLUB_COUNT), u32(g, b + COMP_COUNT)
         lookup = u32(g, b + 0xec1408)
@@ -166,8 +167,11 @@ class World:
                 clubs[ident] = name[0]
         if len(user) != 1 or user[0] in (0, 65535):
             return b''
-        comps = {struct.unpack_from('<H', g.read(b + COMPS + i * COMP_SIZE, 2))[0]:
-                 u32(g, b + COMPS + i * COMP_SIZE + 0x5c) for i in range(np)}
+        comps = {}
+        for i in range(np):
+            r = g.read(b + COMPS + i * COMP_SIZE, COMP_SIZE)
+            ident, parent = struct.unpack_from('<H', r)[0], struct.unpack_from('<H', r, 0x4e)[0]
+            comps[ident] = (struct.unpack_from('<I', r, 0x5c)[0], parent)
         index, year = struct.unpack('<HH', g.read(b + TODAY, 4))
         today = year * 365 + index
         choices = []
@@ -178,14 +182,21 @@ class World:
             a, z = struct.unpack_from('<II', r, 12)
             keys = a >> 14 & 65535, z >> 14 & 65535
             date, gf, ga = scalar(y, m, d), r[0x14], r[0x17]
+            kind, parent = comps.get(comp, (0, 0xffff))
+            if kind == 1 and parent != 0xffff:
+                if comps.get(parent, (0, 0xffff))[0] != 2:
+                    continue
+                kind = 3  # a round-robin group belonging to a cup, not a domestic league
             if (ident >= COUNT or not flags & 0x4000 or any(r[j] for j in (21, 22, 24, 25))
-                    or date == 0 or not 0 <= today - date <= 7 or max(gf, ga) > 99
-                    or comps.get(comp) != 1 or a not in clubs or z not in clubs
+                    or date == 0 or not 0 <= today - date <= 14 or max(gf, ga) > 99
+                    or kind not in (1, 3) or a not in clubs or z not in clubs
                     or user[0] in keys or keys[0] == keys[1]):
                 continue
-            headline = b'WORLD RESULT %02u/%02u/%04u: %s %u-%u %s | ' % (d, m, y, clubs[a], gf, ga, clubs[z])
+            kind = b'LEAGUE' if kind == 1 else b'CUP'
+            headline = b'WORLD RESULT %02u/%02u/%04u [%s]: %s %u-%u %s | ' % (d, m, y, kind, clubs[a], gf, ga, clubs[z])
             choices.append(((date, abs(gf - ga), -i), headline))
-        return max(choices)[1] if choices else b''
+        pool = [headline for _, headline in sorted(choices, reverse=True)[:4]]
+        return pool[ordinal % len(pool)] if pool else b''
 
 
 class NativeUI:
@@ -256,7 +267,7 @@ class NativeUI:
 
     def sprintf(self, a):
         assert a(1) == 256 and cstr(self.g, a(2)) == n.FMT[:-1]
-        values = tuple(cstr(self.g, a(i), 70) if i in (6, 9) else a(i) for i in range(3, 10))
+        values = tuple(cstr(self.g, a(i), 70) if i in (6, 7, 10) else a(i) for i in range(3, 11))
         result = n.FMT[:-1] % values
         assert 0 < len(result) < a(1)
         if self.format_error:
@@ -264,11 +275,12 @@ class NativeUI:
         self.g.write(a(0), result + b'\0')
         return len(result)
 
-    def news(self, count):
+    def news(self, count, headline=None):
         for i in range(self.news_count):
             self.g.call(DESTROY, [], ecx=self.records + i * 0x3c)
         for i in range(count):
-            for delta, value in ((0, b'Native headline %d' % i), (0x1c, b'Native summary %d' % i)):
+            for delta, value in ((0, headline if headline is not None else b'Native headline %d' % i),
+                                 (0x1c, b'Native summary %d' % i)):
                 self.g.call(0x03807ee4, [self.g.alloc(value + b'\0')], ecx=self.records + i * 0x3c + delta)
             put(self.g, self.records + i * 0x3c + 0x38, 0)
         put(self.g, self.work + 0x14, self.records)
@@ -291,7 +303,7 @@ class NativeUI:
         owned = dict(self.active)
         self.texts, self.rng = [], []
         w.check_reads = True
-        g.call(n.READER, [self.screen], ecx=self.menu, ebx=11, esi=22, edi=33, limit=2000000)
+        g.call(n.READER, [self.screen], ecx=self.menu, ebx=11, esi=22, edi=33, limit=15000000)
         w.check_reads = False
         assert (g.reg('ebx'), g.reg('esi'), g.reg('edi')) == (11, 22, 33)
         assert g.mu.reg_read(UC_X86_REG_ESP) == tm.STACK + tm.STACK_SIZE - 0x1000
@@ -418,7 +430,7 @@ def install_checks(g, source):
 
 def lookup_modes(w, ui, probe):
     g, b = w.g, w.base
-    expected = b'WORLD RESULT 02/10/2026: North FC 3-1 South FC | '
+    expected = b'WORLD RESULT 02/10/2026 [LEAGUE]: North FC 3-1 South FC | '
     for lookup in (2, 0, 1):
         w.reset()
         put(g, b + 0xec1408, lookup)
@@ -486,7 +498,7 @@ def diagnostics(w, ui, probe):
         put(g, address, old)
     w.reset()
     ui.draw()
-    assert u32(g, n.STATE + 12) == 9 and 'no eligible recent AI league result' in probe()
+    assert u32(g, n.STATE + 12) == 9 and 'no eligible recent AI league/cup result' in probe()
     w.match()
     ui.format_error = True
     ui.draw()
@@ -511,7 +523,7 @@ def diagnostics(w, ui, probe):
 
 def rules(w):
     g, b = w.g, w.base
-    expected = b'WORLD RESULT 14/09/2024: North FC 3-1 South FC | '
+    expected = b'WORLD RESULT 14/09/2024 [LEAGUE]: North FC 3-1 South FC | '
     w.match()
     assert w.build() == expected
     # Free/malformed, unplayed, future and extra-time/penalty records never make news.
@@ -538,10 +550,10 @@ def rules(w):
     assert w.build() == expected
     # New date > old margin; within a date margin > record order; exact tie stays first.
     w.match(1, date=(2024, 9, 15), goals=(1, 0))
-    assert w.build() == b'WORLD RESULT 15/09/2024: North FC 1-0 South FC | '
+    assert w.build() == b'WORLD RESULT 15/09/2024 [LEAGUE]: North FC 1-0 South FC | '
     w.match(2, date=(2024, 9, 15), goals=(0, 4))
     w.match(3, date=(2024, 9, 15), goals=(5, 1))
-    assert w.build() == b'WORLD RESULT 15/09/2024: North FC 0-4 South FC | '
+    assert w.build() == b'WORLD RESULT 15/09/2024 [LEAGUE]: North FC 0-4 South FC | '
     for value, a in ((0, CLUB_COUNT), (652, CLUB_COUNT), (0xffffffff, CLUB_COUNT),
                      (0, COMP_COUNT), (301, COMP_COUNT)):
         old = u32(g, b + a)
@@ -564,9 +576,9 @@ def rules(w):
         assert w.build() == b''
     w.reset()
     w.match(date=(2024, 12, 31))
-    w.today(2025, 1, 7)
+    w.today(2025, 1, 14)
     assert b'31/12/2024' in w.build()
-    w.today(2025, 1, 8)
+    w.today(2025, 1, 15)
     assert not w.build()
     # Missing/ambiguous user ownership, empty, unterminated and tagged names fail closed.
     w.reset()
@@ -592,17 +604,22 @@ def rules(w):
     w.club(650, 101, b'Last South')
     w.comp(299, 32000)
     w.match(8999, home=649, away=650, comp=32000)
-    assert w.build() == b'WORLD RESULT 14/09/2024: Last North 3-1 Last South | '
+    assert w.build() == b'WORLD RESULT 14/09/2024 [LEAGUE]: Last North 3-1 Last South | '
     print('ok 2: factual selection, AI-only ownership, dates/New Year, table ends, invalid data and safe names')
 
     rng = random.Random(2017)
     for run in range(30):
         w.reset()
+        w.comp(1, 7, kind=3)
+        w.comp(2, 8, kind=1, parent=9)
+        w.comp(3, 9, kind=2)
+        put(g, b + COMP_COUNT, 4)
         for i in range(25):
             w.match(rng.randrange(COUNT), date=(2024, 9, rng.randint(5, 19)),
                     goals=(rng.randrange(7), rng.randrange(7)), played=rng.random() > .2,
-                    home=rng.randrange(3), away=rng.randrange(3), comp=rng.choice((1001, 7)))
-        assert w.build() == w.expected(), run
+                    home=rng.randrange(3), away=rng.randrange(3), comp=rng.choice((1001, 7, 8, 9)))
+        for ordinal in range(8):
+            assert w.build(ordinal) == w.expected(ordinal), (run, ordinal)
     # Validate the native-date parser separately, including all days of February 2000.
     cases = 0
     for y in (1999, 2000, 2024, 2100, 2200, 2201):
@@ -612,6 +629,105 @@ def rules(w):
                 assert g.call(n.DATE, [], edx=raw) == scalar(y, m, d), (y, m, d)
                 cases += 1
     print('ok 3: 30 seeded fixture worlds agree with the independent selector; %d date parser cases' % cases)
+
+
+def expanded(w, ui):
+    g, b = w.g, w.base
+    # Kind 3 is knockout; kind 4 is friendly/training, NOT a cup. Kind 2 is a container.
+    w.reset()
+    w.match()
+    for kind in (0, 2, 4, 5, 6, 0xffffffff):
+        w.comp(0, 1001, kind=kind)
+        assert not w.build(), ('unsupported competition kind accepted', kind)
+    w.comp(0, 1001, kind=3)
+    assert b'[CUP]' in w.build()
+    # Native +4e is the parent competition: type-1 cup groups must be labelled CUP.
+    w.comp(0, 1001, parent=1002)
+    w.comp(1, 1002, kind=2)
+    put(g, b + COMP_COUNT, 2)
+    assert b'[CUP]' in w.build()
+    arg = g.alloc(struct.pack('<I', 1001))
+    assert g.call(0x038566ec, [arg]) == 1 and g.call(0x0385662c, [arg]) == 1002
+    for parent, kind in ((1001, 1), (1002, 3), (999, 2)):
+        w.comp(0, 1001, parent=parent)
+        w.comp(1, 1002, kind=kind)
+        assert not w.build(), 'missing, self-referencing or non-container cup parent'
+    w.comp(0, 1001, parent=1002)
+    w.comp(1, 1002, kind=2)
+    for lookup in (0, 1):
+        put(g, b + 0xec1408, lookup)
+        put(g, b + COMP_COUNT, 1)
+        assert not w.build(), 'cup parent outside counted table'
+    w.reset()
+    w.today(2026, 10, 3)
+    w.club(3, 4, b'East City')
+    w.club(4, 5, b'West United')
+    w.club(5, 6, b'River Town')
+    put(g, b + CLUB_COUNT, 6)
+    w.comp(1, 1002, kind=3)
+    w.comp(2, 1003, parent=1005)
+    w.comp(3, 1004, kind=4)
+    w.comp(4, 1005, kind=2)
+    put(g, b + COMP_COUNT, 5)
+    w.match(17, date=(2026, 10, 3), goals=(2, 2))
+    w.match(3, date=(2026, 10, 2), goals=(3, 0), home=3, away=4, comp=1002)
+    w.match(21, date=(2026, 10, 1), goals=(1, 2), home=2, away=5, comp=1003)
+    w.match(9, date=(2026, 9, 19), goals=(4, 1), home=4, away=1)
+    w.match(31, date=(2026, 9, 18), goals=(9, 0), home=3, away=5)  # day 15: expired
+    w.match(25, date=(2026, 10, 4), goals=(9, 0), home=3, away=5)  # future
+    w.match(12, date=(2026, 10, 3), goals=(9, 0), home=0)  # controlled club
+    w.match(14, date=(2026, 10, 3), goals=(9, 0), comp=1004)  # friendly, not a cup
+    w.match(18, date=(2026, 10, 3), goals=(9, 0), comp=1005)  # container, not a match format
+    w.match(15, date=(2026, 10, 3), goals=(9, 0), played=False)
+    et = w.match(16, date=(2026, 10, 3), goals=(9, 0), comp=1002)
+    g.write(et + 0x15, b'\1')  # still do not reinterpret ET/PK totals
+    expected = [b'WORLD RESULT 03/10/2026 [LEAGUE]: North FC 2-2 South FC | ',
+                b'WORLD RESULT 02/10/2026 [CUP]: East City 3-0 West United | ',
+                b'WORLD RESULT 01/10/2026 [CUP]: South FC 1-2 River Town | ',
+                b'WORLD RESULT 19/09/2026 [LEAGUE]: West United 4-1 North FC | ']
+    for ordinal in range(12):
+        got = w.build(ordinal)
+        assert got == expected[ordinal % 4], ('expanded story rotation', ordinal, got)
+    for pool_size, slot in ((3, 9), (2, 21)):
+        g.write(b + MATCHES + slot * STRIDE + 6, b'\0\0')
+        for ordinal in range(12):
+            assert w.build(ordinal) == expected[ordinal % pool_size]
+    for slot in (9, 21):
+        g.write(b + MATCHES + slot * STRIDE + 6, b'\0\x40')
+    for ready in (True, False):
+        ui.ready = ready
+        for count in (1, 2, 9, 12):
+            ui.news(count, headline='أخبار الدوري Swansea City AFC'.encode('utf-8'))
+            baseline, rng, seed = ui.draw(False)
+            actual, new_rng, new_seed = ui.draw()
+            assert len(actual) == len(baseline) and new_rng == rng and new_seed == seed
+            for shown, original in zip(actual, baseline):
+                assert shown.count(b'WORLD RESULT') == min(count, 9)
+                rest = shown
+                for i, story in enumerate(expected):
+                    assert shown.count(story) == sum(j % 4 == i for j in range(min(count, 9)))
+                    rest = rest.replace(story, b'')
+                assert rest == original, 'an Arabic/native headline was altered'
+    # A fifth eligible result displaces the oldest, rather than growing the fixed pool.
+    w.match(30, date=(2026, 9, 20), goals=(1, 0), home=3, away=5)
+    assert b'20/09/2026' in w.build(3) and w.build(4) == expected[0]
+    ui.ready = True
+    ui.news(0)
+    w.reset()
+    w.match(date=(2026, 9, 19))
+    w.today(2026, 10, 3)
+    assert w.build(8) and b'19/09/2026' in w.build(8)
+    w.today(2026, 10, 4)
+    assert not w.build(8)
+    w.reset()
+    for slot in (42, 5, 17, 1, 68):
+        w.match(slot)
+    for ordinal in range(8):
+        assert w.build(ordinal) == w.expected(ordinal)
+        assert u32(g, n.STATE + 36) == (1, 5, 17, 42)[ordinal % 4], 'unstable exact tie'
+    w.reset()
+    print('ok 3a: four distinct league/cup results rotate across every ticker item; '
+          '14-day boundary, fixed pool, Arabic source text, ownership/RNG and exclusions pass')
 
 
 def native(w, ui):
@@ -625,8 +741,8 @@ def native(w, ui):
             ui.ready = ready
             baseline, rng, seed = ui.draw(False)
             actual, new_rng, new_seed = ui.draw()
-            assert actual == [prefix + line for line in baseline]
-            assert actual and all(line.count(b'WORLD RESULT') == 1 for line in actual)
+            assert actual == [line.replace(b'Native headline', prefix + b'Native headline') for line in baseline]
+            assert actual and all(line.count(b'WORLD RESULT') == min(count, 9) for line in actual)
             assert new_rng == rng == list(range(1, count + 1)) and new_seed == seed
     ui.ready = True
     ui.news(1)
@@ -639,7 +755,7 @@ def native(w, ui):
     ui.news(2)
     for _ in range(8):
         actual, _, _ = ui.draw()
-        assert actual[0].count(b'WORLD RESULT') == 1 and actual[0].startswith(prefix)
+        assert actual[0].count(b'WORLD RESULT') == 2 and actual[0].startswith(prefix)
     ui.format_error = True
     assert ui.draw()[0] == ui.draw(False)[0]
     ui.format_error = False
@@ -647,7 +763,7 @@ def native(w, ui):
     ui.news(0)
     assert ui.draw() == ([], [], struct.pack('<H', 4242))
     ui.news(1)
-    w.today(2024, 9, 23)
+    w.today(2024, 9, 30)
     assert ui.draw() == ui.draw(False)
     w.today(2024, 9, 13)                # reload an earlier save: no future headline
     assert ui.draw() == ui.draw(False)
@@ -655,10 +771,10 @@ def native(w, ui):
     w.club(1, 2, b'Other North')
     w.match(goals=(0, 0))
     actual, _, _ = ui.draw()
-    assert actual[0].startswith(b'WORLD RESULT 14/09/2024: Other North 0-0 South FC | ')
+    assert actual[0].startswith(b'WORLD RESULT 14/09/2024 [LEAGUE]: Other North 0-0 South FC | ')
     ui.news(0)
     assert not ui.active, ui.active
-    print('ok 4: real native reader reaches UI with one prefix; redraw/reload isolation, owned strings freed, '
+    print('ok 4: real native reader prefixes every item; redraw/reload isolation, owned strings freed, '
           'native headlines and exact shuffle/RNG seed unchanged')
 
 
@@ -687,17 +803,26 @@ def saves(w, ui):
             if struct.unpack_from('<H', r)[0] < COUNT and r[7] & 0x40:
                 dates.append(struct.unpack_from('<HBB', r, 8))
         w.today(*max(dates))
-        expected = w.expected()
-        assert expected and w.build() == expected
-        ui.news(1)
-        actual, _, _ = ui.draw()
-        assert actual[0].startswith(expected)
+        prefixes = [w.expected(ordinal) for ordinal in range(9)]
+        assert len(set(prefixes)) == 4 and all(prefixes)
+        for ordinal in range(4):
+            assert w.build(ordinal) == prefixes[ordinal]
+        ui.news(9)
+        baseline, rng, seed = ui.draw(False)
+        actual, new_rng, new_seed = ui.draw()
+        assert (new_rng, new_seed) == (rng, seed) and len(actual) == len(baseline)
+        for shown, original in zip(actual, baseline):
+            rest = shown
+            for prefix in set(prefixes):
+                assert shown.count(prefix) == prefixes.count(prefix)
+                rest = rest.replace(prefix, b'')
+            assert rest == original
         assert hashlib.sha256(path.read_bytes()).digest() == original_hash
-        seen.append(expected.decode('utf-8'))
+        seen.append(prefixes[0].decode('utf-8'))
     ui.news(0)
     assert not ui.active
     assert any('Clube do Remo 4-0 SC Corinthians Paulista' in s for s in seen), seen
-    print('ok 5: two existing saves replay real club/competition/result tables through the native reader to UI:')
+    print('ok 5: two existing saves replay four-result pools through all nine native ticker items; first results:')
     for line in seen:
         print('  ' + line)
 
@@ -721,6 +846,7 @@ def main(exe):
     g.write(n.STATE, n.state())
     diagnostics(w, ui, probe)
     rules(w)
+    expanded(w, ui)
     native(w, ui)
     saves(w, ui)
     # Initialization order is covered more broadly by test_safety.py; exercise the
@@ -731,6 +857,7 @@ def main(exe):
         result = tm.results(lines)[0]
         assert result.startswith('RESULT: 6 of 6 as expected.' if name == 'MLCheck' else 'RESULT: installed'), (name, result)
     lookup_modes(w, ui, probe)
+    expanded(w, ui)
     native(w, ui)
     print('ok 6: indexed/sparse native ticker/RNG/ownership checks also pass with all nine ML modules installed')
     print('all ok (emulator only; the final UI is a stand-in, not a screenshot from PES)')

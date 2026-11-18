@@ -1,4 +1,4 @@
--- MLGrowth.lua, version 5: a moderated, adaptive age curve for every Master League
+-- MLGrowth.lua, version 6: a calibrated realistic age curve for every Master League
 -- player (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): Master League keeps growth
@@ -13,10 +13,16 @@
 -- raises only their age.
 --
 -- What the module changes, in the running game only (no file is touched):
---   Version 3 moderates the fast part of the curve without flattening its decisions:
---   the effective rates are x2.5 at 15-17, x2.0 at 18-21, x1.25 at 22-24, x0.75 at
---   25-27, x0.5 at 28-29 and x0.25 from 30. The potential and playtime checks still
---   decide which player earns that rate; the already-low 28+ rates are unchanged.
+--   Version 6 calibrates the youth rates to realistic football development paces:
+--   the effective rates are x1.75 at 15-17, x1.50 at 18-21, x1.00 at 22-24, x0.75 at
+--   25-27, x0.50 at 28-29 and x0.25 from 30. Unplayed reserve players develop slowly
+--   (20% playtime baseline), requiring regular match appearances to unlock full growth.
+--   Package D adds comprehensive development conditioning to the annual season walk:
+--   - Contract status gating: Uncontracted free agents receive zero growth.
+--   - Stochastic trajectory dithering: Knuth LCG hash produces breakout seasons vs
+--     25% plateau/slump seasons, preventing uniform development across all youth.
+--   - Non-linear diminishing headroom & prodigy resistance: Dynamic resistance tiers
+--     at 75+ and 82+ OVR prevent young players from reaching 90+ on autopilot.
 --   A. The exp award fcn_038b2fc4 now multiplies the exp by this age curve, a
 --      potential scale (how close the player is to the ceiling his age allows) and,
 --      for a player with a growth record, by his playtime of the cycle. Kind-2 awards
@@ -28,11 +34,10 @@
 --   Version 4 fixes the annual award's age-margin calculation.
 --   Version 5 restores the exp pointer and runs the full curve on a growth-record miss;
 --   the old miss branch skipped the float setup and could write through a bad pointer.
---   B. The season walk now also gives every player WITHOUT a growth record a few
---      points on the ability of his position (CF/SS finishing, DMF and defenders
---      defending, GK goalkeeping, the rest dribbling), following the same curve, so
---      young AI players develop and old ones stall.  Players with a record are left
---      to hook A.
+--   B. The season walk now gives AI players without a growth record points on their
+--      position ability according to the conditioned curve (CF/SS finishing, DMF and
+--      defenders defending, GK goalkeeping, the rest dribbling). Free agents get 0,
+--      plateau seasons are filtered, and prodigies above 75/82 face resistance.
 --   C. The two training-focus calls of the after-match step (individual and team)
 --      now run their exp through the same age curve and potential scale before the
 --      game turns it into levels, so training a 33-year-old no longer improves him
@@ -59,7 +64,7 @@ local m = {}
 local DATA = 0x0298c200
 local DATA_SIZE = 236
 local CAVE_E2 = 0x047d3f07
-local CAVE_E2_SIZE = 147
+local CAVE_E2_SIZE = 138
 local CAVE_CURVE = 0x047d5b8c
 local CAVE_CURVE_SIZE = 83
 local CAVE_B1 = 0x047d6377
@@ -70,13 +75,13 @@ local CAVE_FOCUS = 0x047d6efe
 local CAVE_FOCUS_SIZE = 78
 
 local BLOCKS = {
-    { "season award code", CAVE_E2, "8d43f10fb69058c2980285d27474528b4704c1e81c0fb690c8c298028955fc8d45f8505289f9e87e3905ff5a8b45f883f863734e89c6b96300000029c139d173198d43f10fb68010c298020fafc8c1e20289c889d199f7f9eb0d8d43f10fb68010c29802c1e80285c07e1701f083f8637605b86300000050ff75fc89f9e8274205ff89ec5d5f5e5b8b1518e54f02e9a6f7e4fe" },
+    { "season award code", CAVE_E2, "8d43f10fb69058c2980285d2746b0fb68010c29802c1e802745f83bfa8000000ff74568b4704c1e81c0fb690c8c298028955fc8d45f8505289f9e86a3905ff8b75f883fe5873328b472c69c06d4ec64101d8c1e8183c40722083fe4b720f83fe5272063cd27212eb043c80720c4656ff75fc89f9e8304205ff89ec5d5f5e5b8b1518e54f02e9aff7e4fe" },
     { "age curve code", CAVE_CURVE, "8d43f10fb68010c2980250db0424d80dd8c29802588d43f10fb68858c2980285c9742b8d469df7d883fe4b7c0883fb157f0383c00450db04245851db042458def9d9e8dbf1dbc1d9c9ddd8dec9c3ddd8d9eec3" },
     { "exp award code", CAVE_B1, "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e87d2806ff83c40c0fb6f08b551cf64203800f85100b0000c745f814000000a1e00365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c074178b4df4ff7730ff772ce8e0a394fe8b90a00100008955f88b551ce9930a0000" },
-    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f850dd1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
+    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f8504d1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
     { "season walk code 2", CAVE_E1 + 58, "d902e8fbecffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b5589e581ec3c020000e9cfc00dff" },
     { "training scale code", CAVE_FOCUS, "5356575589e583ec10894df88b5f1cc1eb0783e33f8d45fc6a00508d472c50e8f61c06ff83c40c0fb6f0e85fecffffdb4518dec983ec04db1c24ff75148b4df8e8a6a7e4fe89ec5d5f5e5bc20800" },
-    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a0808080805050503030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101010001010100000000000000000000000000000000000013131111110f1111110f0f0f101111110000803e0000a0410000003f0000003f0000803e" },
+    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0707070606060604040403030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101010001010100000000000000000000000000000000000013131111110f1111110f0f0f101111110000803e0000a041cdcc4c3fcdcc4c3e0000803e" },
 }
 
 local SITES = {

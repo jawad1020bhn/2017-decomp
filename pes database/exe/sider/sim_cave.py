@@ -490,8 +490,42 @@ def build_scorer_weights(sharpness=0.05):
     return [max(1, min(255, int(round(120.0 * math.exp(-sharpness * (4 * i)))))) for i in range(24)]
 
 
+def compute_scorer_weight(gap, sw=None):
+    """Analog linear interpolation of scorer weight by gap to top stat."""
+    if sw is None:
+        sw = build_scorer_weights()
+    i = gap >> 2
+    r = gap & 3
+    if i <= 22:
+        v0 = sw[i]
+        v1 = sw[i + 1]
+    else:
+        v0 = sw[22]
+        v1 = sw[23]
+        r = 4
+    diff = v1 - v0
+    return v0 + ((diff * r) >> 2)
+
+
 def build_assist_weights(sharpness=0.045):
     return [max(1, min(255, int(round(120.0 * math.exp(-sharpness * (4 * i)))))) for i in range(24)]
+
+
+def compute_assist_weight(gap, aw=None):
+    """Analog linear interpolation of assist weight by gap to top stat."""
+    if aw is None:
+        aw = build_assist_weights()
+    i = gap >> 2
+    r = gap & 3
+    if i <= 22:
+        v0 = aw[i]
+        v1 = aw[i + 1]
+    else:
+        v0 = aw[22]
+        v1 = aw[23]
+        r = 4
+    diff = v1 - v0
+    return v0 + ((diff * r) >> 2)
 
 
 def build_card_y_cdf(yellow_avg=1.7):
@@ -677,7 +711,9 @@ def compute_eff_ovr(players, *, settings=None):
         if 0 <= arrow <= 4:
             p += cond_ovr[arrow]
         if fit < thresh and thresh > 0:
-            p -= ((thresh - fit) * pen_max + (thresh >> 1)) // thresh
+            deficit = thresh - fit
+            pen = (deficit * deficit * pen_max + (thresh * thresh // 2)) // (thresh * thresh)
+            p -= pen
         p = max(30, min(109, p))
         scores.append(p)
     if not scores:
@@ -740,18 +776,30 @@ def compute_gk_eff_ovr(base_ovr, arrow, fitness, *, settings=None):
         thresh = int(round(s["FATIGUE_THRESHOLD"]))
         pen_max = int(round(s["FATIGUE_PENALTY"]))
         if thresh > 0 and fitness < thresh:
-            p -= ((thresh - fitness) * pen_max + (thresh >> 1)) // thresh
+            deficit = thresh - fitness
+            pen = (deficit * deficit * pen_max + (thresh * thresh // 2)) // (thresh * thresh)
+            p -= pen
     return max(30, min(109, p))
 
 
-def compute_gk_delta(gk_eff, *, settings=None):
-    """Exact Python mirror of calc_gk_delta: clamp((gk_eff - GK_BASELINE) / 3, -4, 5)."""
+def compute_gk_delta(gk_eff, *, u=None, settings=None):
+    """Exact Python mirror of calc_gk_delta with stochastic fractional rounding.
+    If u is None, returns midpoint/rounded outcome for u=1. If u in (0, 1, 2), uses that random draw.
+    """
     s = dict(DEFAULT_SETTINGS)
     if settings:
         s.update(settings)
     if not s["GK_SCORE_MOD"]:
         return 0
-    return max(-4, min(5, int((gk_eff - GK_BASELINE) / 3)))
+    if u is None:
+        u = 1
+    tot = gk_eff + u + 8
+    q = tot // 3
+    if q < 26:
+        q = 26
+    elif q > 35:
+        q = 35
+    return q - 30
 
 
 def compute_sim_vec_weights(pos, finish, atk_prowess, header, low_pass, lofted_pass, arrow, fitness, *, settings=None):
@@ -772,7 +820,9 @@ def compute_sim_vec_weights(pos, finish, atk_prowess, header, low_pass, lofted_p
         thresh = int(round(s["FATIGUE_THRESHOLD"]))
         pen_max = int(round(s["FATIGUE_PENALTY"]))
         if thresh > 0 and fitness < thresh:
-            cond_delta -= ((thresh - fitness) * (2 * pen_max) + (thresh >> 1)) // thresh
+            deficit = thresh - fitness
+            pen = (deficit * deficit * (2 * pen_max) + (thresh * thresh // 2)) // (thresh * thresh)
+            cond_delta -= pen
     w_s = (2 * finish + 2 * atk_prowess + header + 2) // 5
     w_s += DEFAULT_SCORER_POS_ADJ[p_idx] + cond_delta
     w_s = max(1, min(255, w_s))
@@ -1480,30 +1530,33 @@ def assemble():
         jz peo_clamp
         cmp eax, ecx
         jae peo_clamp
-        mov edx, ecx
-        sub edx, eax
-        imul edx, dword ptr [0x{CFG_V5_FATIGUE_PEN:08x}]
-        mov eax, ecx
-        shr eax, 1
-        add eax, edx
+        sub ecx, eax
+        imul ecx, ecx
+        imul ecx, dword ptr [0x{CFG_V5_FATIGUE_PEN:08x}]
+        mov eax, dword ptr [0x{CFG_V5_FATIGUE_THRESH:08x}]
+        imul eax, eax
+        mov edx, eax
+        shr edx, 1
+        add ecx, edx
+        xchg eax, ecx
         xor edx, edx
         div ecx
         sub ebx, eax
     peo_clamp:
         cmp ebx, 30
         jge peo_lo
-        mov ebx, 30
+        mov bl, 30
     peo_lo:
         cmp ebx, 109
         jle peo_hi
-        mov ebx, 109
+        mov bl, 109
     peo_hi:
         mov eax, ebx
-        add esp, 4
+        pop ecx
         pop edi
         pop esi
         pop ebx
-        add esp, 4
+        pop ecx
         ret
     """
     peo_bytes = asm(peo_src, peo_addr)
@@ -1663,20 +1716,18 @@ def assemble():
     chk_assist:
         cmp dword ptr [0x{CFG_S_ASSISTS_ON:08x}], 0
         je s_fallback
-        mov ecx, 100
+        push 100
+        pop ecx
         mov eax, 0x{rand_addr:08x}
         call eax
         cmp eax, dword ptr [0x{CFG_S_UNASSISTED:08x}]
-        jae do_pick
-        jmp 0x{SCORER_NONE:08x}
-
+        jb s_none
     do_pick:
         mov eax, dword ptr [ebp + 0x10]
         mov esi, dword ptr [eax]
         mov eax, dword ptr [eax + 4]
         cmp esi, eax
-        jb has_entries
-        jmp 0x{SCORER_NONE:08x}
+        jae s_none
 
     has_entries:
         movzx edx, byte ptr [esi + 8]
@@ -1697,12 +1748,11 @@ def assemble():
         cmp byte ptr [ebp + 8], 0
         jne w_calc
         mov edx, dword ptr [ebp + 0x14]
-        mov dx, word ptr [edx]
-        cmp dx, word ptr [ecx]
+        mov ax, word ptr [edx]
+        cmp ax, word ptr [ecx]
         jne w_calc
-        mov edx, dword ptr [ebp + 0x14]
-        mov edx, dword ptr [edx + 4]
-        cmp edx, dword ptr [ecx + 4]
+        mov eax, dword ptr [edx + 4]
+        cmp eax, dword ptr [ecx + 4]
         je w_zero
     w_calc:
         mov edx, dword ptr [esp + 28]
@@ -1710,17 +1760,28 @@ def assemble():
         jns gap_pos
         xor edx, edx
     gap_pos:
-        lea eax, [0x{SCORER_W:08x}]
+        push ecx
+        mov ecx, edx
         shr edx, 2
-        cmp byte ptr [ebp + 8], 0
-        jne gap_clamped
-        add eax, 24
-    gap_clamped:
-        cmp edx, 23
+        and ecx, 3
+        cmp edx, 22
         jbe idx_ok
-        mov edx, 23
+        mov edx, 22
+        mov ecx, 4
     idx_ok:
-        movzx eax, byte ptr [eax + edx]
+        mov eax, 0x{SCORER_W:08x}
+        cmp byte ptr [ebp + 8], 0
+        jne not_assist
+        mov al, 0xc4
+    not_assist:
+        add eax, edx
+        movzx edx, byte ptr [eax]
+        movzx eax, byte ptr [eax + 1]
+        sub eax, edx
+        imul eax, ecx
+        sar eax, 2
+        add eax, edx
+        pop ecx
         jmp w_add
     w_zero:
         xor eax, eax
@@ -1735,6 +1796,7 @@ def assemble():
         test edi, edi
         jnz pick_draw
         add esp, 32
+    s_none:
         jmp 0x{SCORER_NONE:08x}
 
     pick_draw:
@@ -1776,27 +1838,24 @@ def assemble():
         jz ss_vanilla
         mov ecx, dword ptr [ebp - 0x14c]
         lea edx, [ebp - 0x1a4]
-        mov eax, 13
+        push 13
+        pop eax
         call 0x{peo_addr:08x}
-        push eax
+        mov byte ptr [ebp - 0x19c], al
         mov dword ptr [ebp - 0x14c], 4
-        lea eax, [ebp - 0x145]
-        push eax
-        lea eax, [ebp - 0x14c]
-        push eax
         call 0x{MODE_RANDOM:08x}
-        add esp, 8
-        pop ecx
-        add eax, ecx
-        cmp eax, 255
-        jbe ss_ret
-        mov eax, 255
+        add al, byte ptr [ebp - 0x19c]
+        jnc ss_ret
+        mov al, 0xff
         jmp ss_ret
     ss_vanilla:
         mov dword ptr [ebp - 0x14c], 0x64
         call 0x{MODE_RANDOM:08x}
     ss_ret:
         jmp 0x{SMART_SUBS_RET:08x}
+        nop
+        nop
+        nop
     """
     smart_subs_bytes = asm(smart_subs_src, smart_subs_addr)
     cave_end_addr = smart_subs_addr + len(smart_subs_bytes)
@@ -1992,29 +2051,23 @@ def assemble():
         jmp score_ad_ready
 
     score_base_ad:
-        mov eax, esi
-        and eax, 0xff
-        mov ecx, eax
-        shl ecx, 8
-        or ecx, eax
+        mov ecx, esi
+        mov ch, cl
+        and ecx, 0xffff
         or ecx, 0x{GK_BASELINE << 16:08x}
-        mov eax, edi
-        and eax, 0xff
-        mov edx, eax
-        shl edx, 8
-        or edx, eax
+        mov edx, edi
+        mov dh, dl
+        and edx, 0xffff
         or edx, 0x{GK_BASELINE << 16:08x}
 
     score_ad_ready:
         mov eax, ecx
         shr eax, 16
-        and eax, 0xff
         push eax
         call calc_gk_delta
         push eax
         mov eax, edx
         shr eax, 16
-        and eax, 0xff
         push eax
         call calc_gk_delta
         push eax
@@ -2089,13 +2142,14 @@ def assemble():
         je cs_done
         test al, al
         jz cs_done
-        cmp edi, 82
-        jb cs_done
-        sub edi, 79
-        shl edi, 1
-        cmp edi, 25
+        sub edi, 73
+        jle cs_done
+        imul edi, edi, 49
+        shr edi, 5
+        cmp edi, 29
         jbe cs_pct_ok
-        mov edi, 25
+        push 29
+        pop edi
     cs_pct_ok:
         push eax
         push ecx
@@ -2113,12 +2167,8 @@ def assemble():
     cs_done:
         add esp, 16
         pop ebx
-        test edx, edx
-        jz go_home
-        mov edx, 0x{SCORE_DONE_A:08x}
-        jmp edx
-    go_home:
-        mov edx, 0x{SCORE_DONE_H:08x}
+        imul edx, edx, 0x49
+        add edx, 0x{SCORE_DONE_H:08x}
         jmp edx
 
     is_draw:
@@ -2141,24 +2191,29 @@ def assemble():
     draw_chk_band:
         cmp dword ptr [0x{CFG_V7_ATK_DEF_SPLIT:08x}], 0
         jne draw_map_band
-        mov ebx, 2
+        push 2
+        pop eax
         jmp draw_band_ok
     draw_map_band:
-        xor ebx, ebx
-        cmp eax, -10
-        jle draw_band_ok
-        inc ebx
-        cmp eax, -4
-        jle draw_band_ok
-        inc ebx
-        cmp eax, 3
-        jle draw_band_ok
-        inc ebx
-        cmp eax, 9
-        jle draw_band_ok
-        inc ebx
+        add eax, 12
+        jns draw_not_neg
+        xor eax, eax
+    draw_not_neg:
+        push eax
+        mov ecx, 6
+        mov eax, 0x{rand_addr:08x}
+        call eax
+        pop edx
+        lea eax, [edx + eax]
+        xor edx, edx
+        mov ecx, 6
+        div ecx
+        cmp eax, 4
+        jbe draw_band_ok
+        push 4
+        pop eax
     draw_band_ok:
-        imul ebx, ebx, 5
+        imul ebx, eax, 5
         add ebx, 0x{DRAW_CDF_BANDS_ADDR:08x}
         mov ecx, 255
         mov eax, 0x{rand_addr:08x}
@@ -2173,30 +2228,34 @@ def assemble():
         jb draw_scan
     draw_found:
         mov al, cl
-        add esp, 16
-        pop ebx
-        mov edx, 0x{SCORE_DONE_H:08x}
-        jmp edx
+        xor edx, edx
+        jmp cs_done
 
     calc_gk_delta:
         cmp dword ptr [0x{CFG_V8_GK_SCORE_MOD:08x}], 0
         je gkd_zero
         push ecx
         push edx
-        sub eax, {GK_BASELINE}
-        cdq
+        push eax
         mov ecx, 3
-        idiv ecx
+        mov eax, 0x{rand_addr:08x}
+        call eax
+        pop edx
+        lea eax, [edx + eax + 8]
+        xor edx, edx
+        mov ecx, 3
+        div ecx
+        cmp eax, 26
+        jae gkd_lo
+        mov al, 26
+    gkd_lo:
+        cmp eax, 35
+        jbe gkd_hi
+        mov al, 35
+    gkd_hi:
+        sub eax, 30
         pop edx
         pop ecx
-        cmp eax, -4
-        jge gkd_lo
-        mov eax, -4
-    gkd_lo:
-        cmp eax, 5
-        jle gkd_done
-        mov eax, 5
-    gkd_done:
         ret
     gkd_zero:
         xor eax, eax
@@ -2225,6 +2284,9 @@ def assemble():
     gb_done:
         mov eax, esi
         ret
+        nop
+        nop
+        nop
     """
     score_bytes = asm(score_src, score_addr)
 
@@ -2253,7 +2315,8 @@ def assemble():
     sv_outfield:
         cmp eax, 12
         jbe sv_pos_ok
-        mov eax, 5
+        push 5
+        pop eax
     sv_pos_ok:
         push edi
         mov edi, eax
@@ -2277,14 +2340,17 @@ def assemble():
         jz sv_no_fat
         cmp eax, ecx
         jae sv_no_fat
-        mov edx, ecx
-        sub edx, eax
+        sub ecx, eax
+        imul ecx, ecx
         mov eax, dword ptr [0x{CFG_V5_FATIGUE_PEN:08x}]
         shl eax, 1
-        imul edx, eax
-        mov eax, ecx
-        shr eax, 1
-        add eax, edx
+        imul ecx, eax
+        mov eax, dword ptr [0x{CFG_V5_FATIGUE_THRESH:08x}]
+        imul eax, eax
+        mov edx, eax
+        shr edx, 1
+        add ecx, edx
+        xchg eax, ecx
         xor edx, edx
         div ecx
         pop ecx
@@ -2317,7 +2383,8 @@ def assemble():
         add eax, ecx
         cmp eax, 1
         jge sv_s_lo
-        mov eax, 1
+        push 1
+        pop eax
     sv_s_lo:
         cmp eax, 255
         jle sv_s_hi
@@ -2354,14 +2421,13 @@ def assemble():
         add ebx, ecx
         cmp ebx, 1
         jge sv_a_lo
-        mov ebx, 1
+        push 1
+        pop ebx
     sv_a_lo:
         cmp ebx, 255
-        jle sv_a_hi
+        jle sv_va_done
         mov ebx, 255
-    sv_a_hi:
-        pop edi
-        jmp 0x{SIM_VEC_DONE:08x}
+        jmp sv_va_done
 
     sv_van_assist:
         mov eax, ebx
@@ -2959,15 +3025,16 @@ CODE_PARTS = {
     ),
     "scorer": (
         0x047d3d7c,
-        "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d0400752c"
-        "31c9894de4e99831f3fe833da4417d040074edb964000000b8603c7d04ffd0"
-        "3b05a8417d047305e91e35f3fe8b45108b308b400439c67205e90d35f3fe0f"
-        "b65608525083ec1831db31ff89f13b4c2418736383fb0b735e0fb6410884c0"
-        "7448807d080075168b5514668b12663b11750b8b55148b52043b5104742c8b"
-        "54241c29c2790231d28d05ac417d04c1ea02807d0800750383c01883fa1776"
-        "05ba170000000fb60410eb0231c001c766893c5c4383c10ceb9785ff750883"
-        "c420e98934f3fe89f9b8603c7d04ffd031c90fb7144c39d072064139d972f3"
-        "496bc90c01ce8b7e048b368975d8897ddc83c420e9b733f3fe",
+        "89ca8b4d0cb8dc3b7d04ffd084c0740f807d08007413833da0417d04007529"
+        "31c9894de4e99831f3fe833da4417d040074ed6a6459b8603c7d04ffd03b05"
+        "a8417d040f82a50000008b45108b308b400439c60f83950000000fb6560852"
+        "5083ec1831db31ff89f13b4c2418737983fb0b73740fb6410884c0745e807d"
+        "080075138b5514668b02663b0175088b42043b410474458b54241c29c27902"
+        "31d25189d1c1ea0283e10383fa16760aba16000000b904000000b8ac417d04"
+        "807d08007502b0c401d00fb6100fb6400129d00fafc1c1f80201d059eb0231"
+        "c001c766893c5c4383c10ceb8185ff750883c420e97734f3fe89f9b8603c7d"
+        "04ffd031c90fb7144c39d072064139d972f3496bc90c01ce8b7e048b368975"
+        "d8897ddc83c420e9a533f3fe",
     ),
     "eff_strength": (
         0x047d5040,
@@ -3015,17 +3082,17 @@ CODE_PARTS = {
     "player_eff_ovr": (
         0x047d55a4,
         "68b83f7d04eb0768f43f7d0431c05356575089ce89e06a025052e8553606ff83c40c0f"
-        "b6d8833da03f7d040074428b461c89c1c1e91583e10783f904770a8b7c24100fbe1439"
-        "01d383e07f8b0da43f7d0485c9741b39c8731789ca29c20faf15a83f7d0489c8d1e801"
-        "d031d2f7f129c383fb1e7d05bb1e00000083fb6d7e05bb6d00000089d883c4045f5e5b"
-        "83c404c3",
+        "b6d8833da03f7d0400744c8b461c89c1c1e91583e10783f904770a8b7c24100fbe1439"
+        "01d383e07f8b0da43f7d0485c9742539c8732129c10fafc90faf0da83f7d04a1a43f7d"
+        "040fafc089c2d1ea01d19131d2f7f129c383fb1e7d02b31e83fb6d7e02b36d89d8595f"
+        "5e5b59c3",
     ),
     "smart_subs": (
-        0x047d3e90,
-        "833dc03f7d0400745a8b4d088b95a0feffffe835fdffff84c074488b8db4feffff8d95"
-        "5cfeffffb80d000000e8e316000050c785b4feffff040000008d85bbfeffff508d85b4"
-        "feffff50e8b91a08ff83c4085901c83dff0000007616b8ff000000eb0fc785b4feffff"
-        "64000000e8961a08ffe9e141f3fe",
+        0x047d3ea0,
+        "833dc03f7d040074478b4d088b95a0feffffe825fdffff84c074358b8db4fe"
+        "ffff8d955cfeffff6a0d58e8d5160000888564feffffc785b4feffff040000"
+        "00e8b41a08ff028564feffff7313b0ffeb0fc785b4feffff64000000e8991a"
+        "08ffe9e441f3fe909090",
     ),
     "et": (
         0x047d5634,
@@ -3049,35 +3116,35 @@ CODE_PARTS = {
         0x047d57c0,
         "89d98b5030b8dc3b7d04ffd084c0750c8b45088b00b971607003ffe153a1a03f7d040b"
         "05c43f7d040b05f03f7d04741889d98b530ce846f8ffff5289d98b5310e83bf8ffff59"
-        "eb2889f025ff00000089c1c1e10809c181c90000520089f825ff00000089c2c1e20809"
-        "c281ca0000520089c8c1e81025ff00000050e88a0100005089d0c1e81025ff00000050"
-        "e879010000508b45088b0083f8020f84df0000008b3d543a7d040fb6f101fe0fb6cd01"
-        "f90fb6da0fb6d685c0751829d62b342429d9034c24088b54240c6a005289f089ceeb16"
-        "29cb2b5c240829f20314248b4c24046a015189d889d656e84c0100006bd80758e84301"
-        "000001c36bf31581c6e05b7d04b9ff000000b8603c7d04ffd031c90fb6140e39d07206"
-        "4183f91472f20fb681313b7d0488c1c0e904240f5f5a833df03f7d0400743284c0742e"
-        "83ff52722983ef4fd1e783ff197605bf19000000505152b964000000b8603c7d04ffd0"
-        "89c65a595839fe730230c083c4105b85d27407ba59617003ffe2ba10617003ffe231c0"
-        "833dc83f7d040074120fb6c10fb6f629f00fb6f201f00fb6f529f0833df03f7d040074"
-        "092b4424082b0424eb10833dc83f7d04007507bb02000000eb1a31db83f8f67e134383"
-        "f8fc7e0d4383f8037e074383f8097e01436bdb0581c3e55f7d04b9ff000000b8603c7d"
-        "04ffd031c90fb6140b39d072064183f90472f288c883c4105bba10617003ffe2833df0"
-        "3f7d04007424515283e85299b903000000f7f95a5983f8fc7d05b8fcffffff83f8057e"
-        "05b805000000c331c0c331f683f8fa7e1f4683f8ff7e194683f8037e134683f8077e0d"
-        "4683f80b7e074683f80f7e014689f0c3",
+        "eb2089f188cd81e1ffff000081c90000520089fa88d681e2ffff000081ca0000520089"
+        "c8c1e81050e8860100005089d0c1e81050e87a010000508b45088b0083f8020f84d700"
+        "00008b3d543a7d040fb6f101fe0fb6cd01f90fb6da0fb6d685c0751829d62b342429d9"
+        "034c24088b54240c6a005289f089ceeb1629cb2b5c240829f20314248b4c24046a0151"
+        "89d889d656e85a0100006bd80758e85101000001c36bf31581c6e05b7d04b9ff000000"
+        "b8603c7d04ffd031c90fb6140e39d072064183f91472f20fb681313b7d0488c1c0e904"
+        "240f5f5a833df03f7d0400743184c0742d83ef497e286bff31c1ef0583ff1d76036a1d"
+        "5f505152b964000000b8603c7d04ffd089c65a595839fe730230c083c4105b6bd24981"
+        "c210617003ffe231c0833dc83f7d040074120fb6c10fb6f629f00fb6f201f00fb6f529"
+        "f0833df03f7d040074092b4424082b0424eb0e833dc83f7d040075056a0258eb2983c0"
+        "0c790231c050b906000000b8603c7d04ffd05a8d040231d2b906000000f7f183f80476"
+        "036a04586bd80581c3e55f7d04b9ff000000b8603c7d04ffd031c90fb6140b39d07206"
+        "4183f90472f288c831d2e95dffffff833df03f7d04007431515250b903000000b8603c"
+        "7d04ffd05a8d44020831d2b903000000f7f183f81a7302b01a83f8237602b02383e81e"
+        "5a59c331c0c331f683f8fa7e1f4683f8ff7e194683f8037e134683f8077e0d4683f80b"
+        "7e074683f80f7e014689f0c3909090",
     ),
     "sim_vec": (
         0x047d5a24,
         "8b4d0c8b55e4e8ade1ffff84c075088d55d8e9272df3fe8b4604c1e81c85c0750ec745"
-        "ec0000000031dbe98e2df3fe83f80c7605b8050000005789c731c9833da03f7d040074"
-        "4a8b461c89c2c1ea1583e20783fa04770a0fbe92b83f7d048d0c1283e07f518b0da43f"
-        "7d0485c9742139c8731d89ca29c2a1a83f7d04d1e00fafd089c8d1e801d031d2f7f159"
-        "29c1eb0159833da0417d04007450518b460889c283e07fd1e00fb64e0383e17f8d0448"
-        "c1ea1583e27f01d083c00231d2b905000000f7f1590fbe97cc3f7d0401d001c883f801"
-        "7d05b8010000003dff0000007e05b8ff0000008945eceb27807df30075218b45ec83ff"
-        "01740f83ff02740583ff03750f83e805eb0383e80a85c074038945ec833da4417d0400"
-        "74280fbe97d93f7d0401d301cb83fb017d05bb0100000081fbff0000007e05bbff0000"
-        "005fe97b2cf3fe89d883ff01740f83ff02740583ff03750e83e80aeb0383e81485c07e"
+        "ec0000000031dbe98e2df3fe83f80c76036a05585789c731c9833da03f7d040074548b"
+        "461c89c2c1ea1583e20783fa04770a0fbe92b83f7d048d0c1283e07f518b0da43f7d04"
+        "85c9742b39c8732729c10fafc9a1a83f7d04d1e00fafc8a1a43f7d040fafc089c2d1ea"
+        "01d19131d2f7f15929c1eb0159833da0417d0400744e518b460889c283e07fd1e00fb6"
+        "4e0383e17f8d0448c1ea1583e27f01d083c00231d2b905000000f7f1590fbe97cc3f7d"
+        "0401d001c883f8017d036a01583dff0000007e05b8ff0000008945eceb27807df30075"
+        "218b45ec83ff01740f83ff02740583ff03750f83e805eb0383e80a85c074038945ec83"
+        "3da4417d040074220fbe97d93f7d0401d301cb83fb017d036a015b81fbff0000007e26"
+        "bbff000000eb1f89d883ff01740f83ff02740583ff03750e83e80aeb0383e81485c07e"
         "0289c35fe9562cf3fe",
     ),
     "pk": (
