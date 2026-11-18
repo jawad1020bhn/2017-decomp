@@ -11,7 +11,7 @@
                                       replay six seasons of the model on every
                                       player of the save and print the OVR bands
 
-MLGrowth.lua (version 4) gives Master League players an age curve (PES 2017,
+MLGrowth.lua (version 5) gives Master League players an age curve (PES 2017,
 sha256 44b0caaa...).  Version 3 keeps the curve adaptive but moderates its baseline
 pace, so a talented, regularly used teenager still develops faster than an established
 player without making every young player advance at the previous rate.  The vanilla game:
@@ -438,9 +438,8 @@ def _emit():
     """
     parts['B2'] = _asm(ks, b2_src, b2)
     b_neg = b2 + _find(parts['B2'], 'd9028b4518')                 # fld [edx]; mov eax, [ebp+0x18] = b_neg
-    skip = b2 + _find(parts['B2'], 'db45f8')                      # fild [ebp-8]: the playtime part
 
-    # ---- B1: the award hook (the entry of fcn_038b2fc4) ----
+    # ---- B1: restore &exp after either lookup outcome; both paths must start B2 with its fld ----
     b1_src = f"""
         push ebx
         push esi
@@ -473,13 +472,14 @@ def _emit():
         push dword ptr [edi + 0x2c]
         call {TRACKED:#x}
         test al, al
-        jz {skip:#x}
+        jz b_untracked
         mov ecx, [ebp - 12]
         push dword ptr [edi + 0x30]
         push dword ptr [edi + 0x2c]
         call {GROWTH_REC:#x}
         mov edx, [eax + 0x1a0]
         mov [ebp - 8], edx
+    b_untracked:
         mov edx, [ebp + 0x1c]
         jmp {b2:#x}
     """
@@ -583,9 +583,8 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
         0x47d6377,
         "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e8",
         "7d2806ff83c40c0fb6f08b551cf64203800f85100b0000c745f814000000a1e0",
-        "0365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c00f",
-        "84bd0a00008b4df4ff7730ff772ce8dca394fe8b90a00100008955f88b551ce9",
-        "8f0a0000",
+        "0365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c074",
+        "178b4df4ff7730ff772ce8e0a394fe8b90a00100008955f88b551ce9930a0000",
     ),
     "focus": (
         0x47d6efe,

@@ -1,4 +1,4 @@
--- MLTeamSpirit.lua, version 3: Team Spirit follows your club's form
+-- MLTeamSpirit.lua, version 4: Team Spirit follows your club's form
 -- (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): in a played match every player of
@@ -9,6 +9,7 @@
 -- too, which switches the effect off. Version 2 answers a value of the club's own, 90 to 99:
 -- the effect is there, but it never bites, and it moves with what the club is doing.
 -- Version 3 fixes Sider team IDs, date widths and the final table batches.
+-- Version 4 finds the primary controlled club in the career, not the invalid-ID placeholder.
 --
 -- Where the number comes from: the match records of the career (mode data +0x6f154c,
 -- 9,000 records of 0x24c bytes, section 5). Every match your club has played is in there
@@ -84,7 +85,7 @@ local BIG_BOTTOM = 3        -- how many are "the bottom"
 local RIVALS = {}           -- packed career club ids, for a derby the game does not name.
                             -- Copy the opponent's "RIVALS id" from sider.log, not its Sider team number.
 
-local SEASON = 372          -- days of a career year (the game has no 29 February)
+local SEASON = 372          -- date-key stride above day 364, not an elapsed-day counter
 
 -- ============================ the game ============================
 -- Addresses of MASTER_LEAGUE.md; the exe is not relocated, so they hold in the game.
@@ -92,7 +93,6 @@ local SEASON = 372          -- days of a career year (the game has no 29 Februar
 local MODE_OBJECT_AT = 0x026503e0   -- pointer to the mode object; its +0x30 is the mode data
 local SELECTOR_AT = 0x0264f3e8      -- pointer to the menu; its +0x20 is the number of the mode
 local MODE_KIND_TAB = 0x0251d408    -- kind of a mode number: 12 is Master League
-local USER_CLUB_AT = 0x024fea5c     -- the club of the user
 local MASTER_LEAGUE = 12
 
 local MATCHES_AT = 0x6f154c         -- 9,000 match records of 0x24c bytes
@@ -115,6 +115,8 @@ local C_KIND = 0x5c                 -- 1 a league, 3 and 4 the cups
 local CLUBS_AT = 0x481be0           -- the club records, 0x520 bytes each; count at +0x5fece0
 local CLUB_STRIDE = 0x520
 local CLUB_COUNT_AT = 0x5fece0
+local CLUB_LIMIT = 651              -- shortcut: saved-career slots; fail closed beyond these
+local CLUB_CONTROL = 0x314           -- (dword >> 7) & 255: primary user 0, AI 255
 local CLUB_RIVALS = 0x514           -- three club ids, the rivals (fcn_035f5c69)
 
 local TODAY_AT = 0xc2cbb0           -- u16, the day of the year, 0 to 364
@@ -135,6 +137,10 @@ local VALUE_AT = 0x038df6c2         -- the one byte that changes from match to m
 -- The place version 1 changed, five bytes above the branch. It has to be left alone:
 -- with the jump of version 1 in it, no player ever reaches the branch.
 local OLD_PLACE, OLD_VANILLA = 0x038df528, "e8b8cbf3ff"
+local LAYOUT_CHECKS = {
+    { 0x0381e39c, "8b9614030000c1ea073a550f" }, -- field read beyond Transfers' hooked entry
+    { 0x03822433, "5589e583ec085689ce8b86e0ec5f0069c020050000578b7d08578d8c30e01b4800" },
+}
 
 local BEFORE_MONTH = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 }
 
@@ -197,6 +203,30 @@ local function mode_data()
     local object = pointer_at(MODE_OBJECT_AT)
     if object == nil then return nil end
     return pointer_at(object + 0x30)
+end
+
+-- Resolve afresh on both callbacks; an unknown/ambiguous controller must never become an AI club.
+local function primary_club(base)
+    local layout = dword_at(base + 0xec1408)
+    if layout == nil or layout == 2 then return nil end
+    local count = dword_at(base + CLUB_COUNT_AT)
+    if count == nil or count < 1 or count > CLUB_LIMIT then return nil end
+    local found = nil
+    for first = 0, count - 1, 8 do
+        local n = math.min(8, count - first)
+        local blob = memory.read(base + CLUBS_AT + first * CLUB_STRIDE, n * CLUB_STRIDE)
+        if type(blob) ~= "string" or #blob ~= n * CLUB_STRIDE then return nil end
+        for i = 0, n - 1 do
+            local at = i * CLUB_STRIDE + 1
+            local id = u32(blob, at)
+            if id ~= 0xffffffff and math.floor(u32(blob, at + CLUB_CONTROL) / 128) % 256 == 0 then
+                local key = key_of(id)
+                if found ~= nil or key == nil or key == 0 or key == 65535 then return nil end
+                found = id
+            end
+        end
+    end
+    return found
 end
 
 -- The kind of the mode that is running: 12 is Master League (section 2.1).
@@ -291,7 +321,7 @@ local function rivals_of(base, club)
     end
     if club == nil then return set end
     local count = dword_at(base + CLUB_COUNT_AT)
-    if count == nil or count < 1 or count > 1000 then return set end
+    if count == nil or count < 1 or count > CLUB_LIMIT then return set end
     local addr, stride, per = base + CLUBS_AT, CLUB_STRIDE, 8
     for first = 0, count - 1, per do
         local n = math.min(per, count - first)
@@ -469,18 +499,23 @@ end
 function m.set_conditions(ctx)
     if last_value == nil then return end                     -- nothing was installed
     if mode_kind() ~= MASTER_LEAGUE then
-        if say_once("mode") then log("MLTeamSpirit 3: no career of your own in this mode; nothing changed") end
+        if say_once("mode") then log("MLTeamSpirit 4: no career of your own in this mode; nothing changed") end
         return
     end
     local base = mode_data()
     if base == nil then
-        if say_once("mode data") then log("MLTeamSpirit 3: the mode data cannot be read; the value stays where it is") end
+        if say_once("mode data") then log("MLTeamSpirit 4: the mode data cannot be read; the value stays where it is") end
         return
     end
 
     local home = tonumber(ctx and ctx.home_team)
     local away = tonumber(ctx and ctx.away_team)
-    local ours_id = dword_at(USER_CLUB_AT)
+    local ours_id = primary_club(base)
+    if ours_id == nil then
+        if say_once("user club") then log("MLTeamSpirit 4: primary controlled club unavailable or ambiguous; "
+            .. "the value stays where it is") end
+        return
+    end
     local club = key_of(ours_id)
     local opp, home_side = nil, nil
     if club ~= nil then
@@ -491,7 +526,7 @@ function m.set_conditions(ctx)
     if opp == nil then
         -- not a match of your club (or the club is not known): the value stays as it is
         if home ~= nil and away ~= nil and say_once("not ours") then
-            log(string.format("MLTeamSpirit 3: no match of your club (yours %s, home %s, away %s); "
+            log(string.format("MLTeamSpirit 4: no match of your club (yours %s, home %s, away %s); "
                 .. "the value stays where it is", tostring(ours_id), tostring(home), tostring(away)))
         end
         return
@@ -514,7 +549,7 @@ function m.set_conditions(ctx)
             if (one == club and two == opp) or (two == club and one == opp) then
                 comp, round = u16(s, 1 + M_COMP), u16(s, 1 + M_FLAGS) % 0x1000
             elseif say_once("match_id") then
-                log(string.format("MLTeamSpirit 3: match_id %d is not this match; the round of a cup "
+                log(string.format("MLTeamSpirit 4: match_id %d is not this match; the round of a cup "
                     .. "is not known, so the cup rules do not fire", record))
             end
         end
@@ -550,7 +585,7 @@ function m.set_conditions(ctx)
     if v ~= last_value then
         memory.write(VALUE_AT, string.char(v))
         if memory.read(VALUE_AT, 1) ~= string.char(v) then
-            if say_once("write") then log("MLTeamSpirit 3: the value did not go in. Quit the game, "
+            if say_once("write") then log("MLTeamSpirit 4: the value did not go in. Quit the game, "
                 .. "remove the module, send this log.") end
             return
         end
@@ -558,11 +593,11 @@ function m.set_conditions(ctx)
     end
 
     if say_once("club") then
-        log(string.format("MLTeamSpirit 3: your club is %d (Sider team %d). RIVALS uses packed "
+        log(string.format("MLTeamSpirit 4: your club is %d (Sider team %d). RIVALS uses packed "
             .. "club ids; copy the RIVALS id shown for the opponent.", ours_id, club))
     end
     -- one line for a match: Sider asks twice about the same one (set_conditions and after it)
-    local line = string.format("MLTeamSpirit 3: %s against club %d (RIVALS id %d), competition %s round %s, "
+    local line = string.format("MLTeamSpirit 4: %s against club %d (RIVALS id %d), competition %s round %s, "
         .. "form %s -> %d  [%s]", home_side and "at home" or "away", opp, opp * 16384, tostring(comp),
         tostring(round), form_text(ours), v, table.concat(why, "; "))
     if line ~= last_line then log(line) end
@@ -603,7 +638,7 @@ local function settings_fault()
 end
 
 function m.init(ctx)
-    log("MLTeamSpirit 3: Team Spirit follows the form of your club")
+    log("MLTeamSpirit 4: Team Spirit follows the form of your club")
 
     local fault = settings_fault()
     if fault ~= nil then
@@ -613,6 +648,13 @@ function m.init(ctx)
     log(string.format("     base %d, kept inside %d to %d; two losses -> %d, %d wins -> %d, "
         .. "a cup final -> %d", BASE, FLOOR, CEILING, TWO_LOSS_CAP, WIN_RUN, WIN_RUN_VALUE, FINAL_VALUE))
 
+    for _, place in ipairs(LAYOUT_CHECKS) do
+        local bytes = memory.read(place[1], #place[2] / 2)
+        if bytes ~= unhex(place[2]) then
+            log("RESULT: nothing written. This game does not hold the expected controlled-club layout; send this log.")
+            return
+        end
+    end
     local got = memory.read(PLACE, #OLD / 2)
     local same = (type(got) == "string" and hex(got) == OLD)
     log(string.format("check: the value of a player of your club at %08x  %s", PLACE,

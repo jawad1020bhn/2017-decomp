@@ -20,12 +20,15 @@ and what the rules answer for careers written out. What it does not show: Sider,
 the running game, a match. The code that multiplies the abilities by the value
 (fcn_02f903a7) is not run.
 """
+import hashlib
 import os
+from pathlib import Path
 import re
 import struct
 import sys
 
 import test_money as tm
+import savefile
 from test_money import Game, run
 from unicorn.x86_const import UC_X86_REG_ESP
 from lupa.luajit21 import LuaRuntime
@@ -35,7 +38,7 @@ PLACE, OLD = 0x038df6c1, bytes.fromhex('8b4524d985f0ffffff8b4d20')   # mov eax,[
 VALUE_AT = 0x038df6c2                       # the byte the module writes again and again
 VALUE, FILL, READER, GETTER = 0x038df4c9, 0x04177a65, 0x02f7d891, 0x038278b0
 SELECTOR, MODE_OBJECT = 0x0264f3e8, 0x026503e0      # pointers; selector +0x20 = mode number
-USER_CLUB = 0x024fea5c                      # dword: the club of the user
+USER_CLUB = 0x024fea5c                      # invalid-ID placeholder, NOT a reliable user-club locator
 MATCH = 0x537b8                             # the match in the object at mode object +0x34
 MASTER_LEAGUE, OTHERS = (0x13, 0x28), (0x12, 0x34)  # mode numbers: kind 12; League (11), kind 21
 KNOWN = (3, 30, 60, 90)                     # how well the player knows a tactic setting
@@ -54,7 +57,7 @@ COMPETITIONS_AT, COMP_STRIDE, C_KIND = 0x552e80, 0x224, 0x5c
 COMP_COUNT_AT = 0x5fece8             # how many of the competition records are in use
 CLUBS_AT, CLUB_STRIDE, CLUB_COUNT_AT, CLUB_RIVALS = 0x481be0, 0x520, 0x5fece0, 0x514
 TODAY_AT, YEAR_AT = 0xc2cbb0, 0xc2cbb2
-MODE_SIZE = 0xd00000                        # room for the match records and for the day
+MODE_SIZE = 0xf00000                        # room for the match records and for the day
 LEAGUE, CUP = 29, 30                        # the two competitions of a career of the test
 FINAL_ROUND, NEAR_ROUND, EARLY_ROUND = 53, 52, 46     # the rounds of the cup, as in a career
 OURS, OTHER, THIRD, FOURTH, FIFTH, RIVAL = 7, 8, 9, 10, 11, 12   # club numbers
@@ -240,9 +243,13 @@ def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS):
             table[comp * COMP_STRIDE + C_KIND] = 1 if kind != 1 else 3
     g.write(mode + COMPETITIONS_AT, bytes(table))
     g.write(mode + COMP_COUNT_AT, struct.pack('<I', len(kinds)))
+    clubs = list(clubs)
+    if user is not None and not any(one == user for one, _ in clubs):
+        clubs.append((user, (0, 0, 0)))
     for n, (one, rivals) in enumerate(clubs):
         at = mode + CLUBS_AT + n * CLUB_STRIDE
         g.write(at, struct.pack('<I', club(one)))
+        g.write(at + 0x314, struct.pack('<I', (0 if one == user else 255) << 7))
         g.write(at + CLUB_RIVALS, struct.pack('<3I', *[club(r) if r else 0xffffffff for r in rivals]))
     g.write(mode + CLUB_COUNT_AT, struct.pack('<I', len(clubs)))
     g.write(mode + TODAY_AT, struct.pack('<HH', today[0], today[1]))
@@ -251,7 +258,7 @@ def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS):
     g.write(SELECTOR, struct.pack('<I', selector))
     g.write(mode_object + 0x30, struct.pack('<I', mode))
     g.write(MODE_OBJECT, struct.pack('<I', mode_object))
-    g.write(USER_CLUB, struct.pack('<I', club(user)))
+    g.write(USER_CLUB, b'\xff' * 4)  # preserve the real executable/log sentinel instead of inventing a user ID
     return mode
 
 
@@ -313,7 +320,8 @@ def main(exe):
 
     lines, reads, writes = run(image, source)
     assert lines[-1].startswith(INSTALLED) and says(lines, 'as expected'), lines
-    assert writes == [(PLACE, len(OLD))] and tm.inside(reads, ((PLACE, len(OLD)), (0x038df528, 5)))
+    assert writes == [(PLACE, len(OLD))] and tm.inside(reads,
+        ((PLACE, len(OLD)), (0x038df528, 5), (0x0381e39c, 12), (0x03822433, 33)))
     after = image.read(PLACE - 0x100, 0x200)
     assert after == before[:0x100] + new + before[0x100 + len(new):], (
         after[0x100:0x100 + len(new)].hex(), new.hex())
@@ -480,11 +488,11 @@ def main(exe):
 
     # Sider publishes decoded team numbers, while memory and RIVALS use packed IDs.
     away = [record(0, LEAGUE, 5, club(OTHER), club(OURS), played=False)]
-    career(g, away + played_run([0, 1], (0, 2)))
+    mode = career(g, away + played_run([0, 1], (0, 2)))
     said = fire('set_conditions', home_team=OTHER, away_team=OURS, match_id=0)
     assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP'], said
     assert says(said, 'away against club %d' % OTHER), said
-    g.write(USER_CLUB, b'\xff' * 4)
+    g.write(mode + CLUBS_AT + 0x314, struct.pack('<I', 255 << 7))
     previous = g.read(VALUE_AT, 1)
     fire('after_set_conditions', home_team=OTHER, away_team=OURS, match_id=0)
     assert g.read(VALUE_AT, 1) == previous
@@ -496,7 +504,7 @@ def main(exe):
     said = rival_fire('after_set_conditions', home_team=OURS, away_team=RIVAL, match_id=0)
     assert rival_game.read(VALUE_AT, 1)[0] == RULES['BASE'] + RULES['DERBY_BONUS'], said
     assert says(said, 'RIVALS id %d' % (RIVAL << 14)), said
-    print('ok 11: decoded Sider IDs work at home and away on both events; an unknown user club '
+    print('ok 11: decoded Sider IDs work with the invalid-ID sentinel left intact; missing ownership '
           'is ignored, and packed RIVALS settings still work')
 
     this = [record(700, LEAGUE, 4, club(OURS), club(OTHER), month=11, day=1, played=False)]
@@ -536,6 +544,66 @@ def main(exe):
         assert (begin + last * stride, (count - last) * stride) in scanned
     print('ok 13: final match/club/competition reads stop at their counts, including the last '
           'valid match; a fake win immediately after the 9,000-record array is ignored')
+
+    for address, size in ((0x0381e39c, 12), (0x03822433, 33)):
+        old = g.read(address, size)
+        tm.poke(g, address, bytes([old[0] ^ 1]) + old[1:])
+        try:
+            failed, _, writes = run(g, source)
+            assert not writes and says(failed, 'expected controlled-club layout'), failed
+        finally:
+            tm.poke(g, address, old)
+    mode = career(g, now, clubs=[(OURS, (0, 0, 0)), (OTHER, (0, 0, 0))])
+    for address, test_value in ((mode + CLUB_COUNT_AT, 0), (mode + CLUB_COUNT_AT, 652),
+                               (mode + 0xec1408, 2), (mode + CLUBS_AT + 0x314, 1 << 7),
+                               (mode + CLUBS_AT + CLUB_STRIDE + 0x314, 0)):
+        old, previous = g.read(address, 4), g.read(VALUE_AT, 1)
+        g.write(address, struct.pack('<I', test_value))
+        fire('after_set_conditions', home_team=OURS, away_team=OTHER, match_id=0)
+        assert g.read(VALUE_AT, 1) == previous
+        g.write(address, old)
+    print('ok 14: controlled-club fingerprints, unsupported counts/layouts/controllers and ambiguous ownership fail closed')
+
+    paths = sorted(p for p in (Path(MODULE).parent.parent / 'ML saves').rglob('ML00000013*')
+                   if p.name in ('ML00000013 (before)', 'ML00000013 (after)'))
+    assert len(paths) == 4
+    for path in paths:
+        digest = hashlib.sha256(path.read_bytes()).digest()
+        clubs = savefile.read(str(path))['data'][0x50:0x50 + 651 * CLUB_STRIDE]
+        rows = [clubs[i:i + CLUB_STRIDE] for i in range(0, len(clubs), CLUB_STRIDE)]
+        primary = [r for r in rows if struct.unpack_from('<I', r)[0] != 0xffffffff
+                   and struct.unpack_from('<I', r, 0x314)[0] >> 7 & 255 == 0]
+        assert len(primary) == 1
+        ours = struct.unpack_from('<I', primary[0])[0]
+        rival_ids = struct.unpack_from('<3I', primary[0], CLUB_RIVALS)
+        other = next(struct.unpack_from('<I', r)[0] for r in rows
+                     if struct.unpack_from('<I', r)[0] not in (ours, *rival_ids, 0xffffffff)
+                     and struct.unpack_from('<I', r, 0x314)[0] >> 7 & 255 == 255)
+        matches = [record(0, LEAGUE, 5, ours, other, played=False),
+                   record(1, OTHER_COMP, 1, ours, other, 0, 2, month=1, day=2),
+                   record(2, OTHER_COMP, 2, ours, other, 0, 2, month=2, day=2)]
+        mode = career(g, matches)
+        g.write(mode + CLUBS_AT, clubs)
+        count = sum(struct.unpack_from('<I', r)[0] != 0xffffffff for r in rows)
+        g.write(mode + CLUB_COUNT_AT, struct.pack('<I', count))
+        fire('set_conditions', home_team=ours >> 14 & 65535, away_team=other >> 14 & 65535, match_id=0)
+        assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP'], path
+        assert g.read(USER_CLUB, 4) == b'\xff' * 4
+        assert hashlib.sha256(path.read_bytes()).digest() == digest
+    print('ok 15: four real-save club-table replays identify the controlled club with the sentinel unchanged; '
+          'synthetic two-loss form gives 92 (not a full save load)')
+
+    for name in ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch', 'MLSimToDate', 'MLGrowth', 'MLNews'):
+        text = (Path(MODULE).parent / (name + '.lua')).read_text(encoding='utf-8')
+        lines, _, _ = run(g, text)
+        result = tm.results(lines)[0]
+        assert result.startswith('RESULT: 6 of 6 as expected.' if name == 'MLCheck' else 'RESULT: installed'), (name, result)
+    career(g, now + played_run([0, 1], (0, 2)))
+    fire('after_set_conditions', home_team=OURS, away_team=OTHER, match_id=0)
+    assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP']
+    assert value(g, 0x13, 30, 1) == RULES['TWO_LOSS_CAP']
+    print('ok 16: dynamic callback and real native Team Spirit reader also work with all nine modules installed')
+    print('all ok')
 
 
 if __name__ == '__main__':

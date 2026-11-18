@@ -17,8 +17,12 @@ its potential and playtime rules, decline is dampened but not for the physical f
 from 31 on, and the frozen majority gains curve points a season. What it does not show:
 Sider, Windows, the running game, a season.
 """
+from pathlib import Path
 import struct
 import sys
+
+from unicorn import UC_HOOK_MEM_WRITE
+from unicorn.x86_const import UC_X86_REG_FPSW
 
 import test_money as tm
 from test_money import Game, run
@@ -107,6 +111,45 @@ def ovr(g, player):
     return g.call(PLAYER_OVR, [player + 0x2c, g.alloc(size=4), 0], limit=200000) & 0xff
 
 
+def native_awards(g):
+    """Real 50-slot lookups, including misses; UI/report publication alone is stubbed."""
+    def low_write(mu, access, address, size, value, user):
+        assert address == 0 and size == 4, ('growth wrote through a lost pointer', hex(address), size)
+
+    guard = g.mu.hook_add(UC_HOOK_MEM_WRITE, low_write, begin=0, end=0xfff)
+    init_fpu = 0x00301fe0
+    g.write(init_fpu, b'\xdb\xe3\xc3')  # fninit; ret: detect underflow rather than inherit earlier FP flags
+    checked = 0
+    try:
+        for slot in (-1, 0, 49):
+            for age in (18, 35):
+                for apps in (0, 10, 40):
+                    for kind in (0, 2):
+                        mode, _ = world(g)
+                        for address in (gc.TRACKED, gc.GROWTH_REC):
+                            del g.replaced[address]
+                        for address in (0x024b4fc0, 0x024b4fc4, 0x024b3df4, 0x024b3df8):
+                            g.write(address, b'\0' * 4)
+                        g.replace(0x0364527c, lambda game, arg: 0)  # untracked-player report publication
+                        table = mode + 0xd10140
+                        if slot >= 0:
+                            record = table + 0x493ec + slot * 0x204
+                            g.write(record, struct.pack('<II', 5, 77))
+                            g.write(record + 0x1a0, struct.pack('<I', apps))
+                        player = g.alloc(craft({0x13: 60}, age, 0))
+                        assert g.call(gc.TRACKED, [5, 77], ecx=table) & 255 == (slot >= 0)
+                        rating = ovr(g, player)
+                        g.call(init_fpu)
+                        got = award(g, player, 0x13, 1000.0, kind)
+                        want = gc.award_exp(1000, age, rating, apps if slot >= 0 else gc.PLAYTIME_FULL, kind)
+                        assert abs(got - want) < 1e-3, (slot, age, apps, kind, got, want)
+                        assert not g.mu.reg_read(UC_X86_REG_FPSW) & 0x41, 'x87 invalid/stack fault'
+                        checked += 1
+    finally:
+        g.mu.hook_del(guard)
+    return checked
+
+
 def main(exe):
     # Version 3 moderation: the cave has quarter-step rates, so this guards both the
     # intended 15-27 slowdown and the deliberately unchanged 28+ tail. The existing
@@ -154,6 +197,10 @@ def main(exe):
     print('ok 2: the module checks the nine context anchors and all four hook sites, '
           'finds its seven caves empty, writes them and the four patches, and nothing '
           'else (%d writes)' % len(writes))
+
+    checked = native_awards(image)
+    print('ok 2a: %d awards with real native growth-record scans (missing/first/last slot), '
+          'no low-memory writes or x87 underflow, and correct age/playtime/kind scaling' % checked)
 
     # -- 3: hook A with the module ----------------------------------------------
     cases = [                                          # (age, sel, exp, apps, label)
@@ -271,6 +318,7 @@ def main(exe):
         dummy = mode + 0xd10140 + 0x493ec
         return struct.unpack_from('<h', g.read(dummy + 0x16 + sel * 2, 2))[0]
 
+    focus_results = []
     for which, menu_code, sel, label in ((INDIVIDUAL, 10, 10, 'individual focus'),
                                          (INDIVIDUAL, 1, 1, 'individual focus, other menu code'),
                                          (TEAM, 10, 0x42, 'team focus')):
@@ -279,6 +327,7 @@ def main(exe):
         mode, player = training_world(image, menu_code)
         curve = gc.mult(18) * gc.scale(18, ovr(image, player))
         assert got == round(control * curve), (label, control, got, control * curve)
+        focus_results.append((which, menu_code, sel, got))
     print('ok 6: with the module the after-match training focus (individual and team) '
           'runs its exp through the same age curve before the game turns it into '
           'levels; without the module the exp is the same at every age')
@@ -320,6 +369,21 @@ def main(exe):
     lines, _, writes = run(image2, source)
     assert lines[-1].startswith(ALREADY) and not writes, lines
     print('ok 8: after installation a second run refuses to overwrite itself')
+
+    for name in ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch',
+                 'MLTeamSpirit', 'MLSimToDate', 'MLNews'):
+        text = (Path(MODULE).parent / (name + '.lua')).read_text(encoding='utf-8')
+        lines, _, _ = run(image, text)
+        result = tm.results(lines)[0]
+        assert result.startswith('RESULT: 6 of 6 as expected.' if name == 'MLCheck' else 'RESULT: installed'), (name, result)
+    checked = native_awards(image)
+    mode, _ = world(image, tracked=0)
+    after = season(image, mode, [craft({0x13: 64}, 17, 0)])
+    assert field(after[0], 0x13) == 66
+    for which, menu_code, sel, expected in focus_results:
+        assert focus_exp(image, which, menu_code, sel) == expected
+    print('ok 9: all nine modules coexist during %d native-lookup awards, the season walk '
+          'and both training-focus paths' % checked)
 
     print('all ok')
 
