@@ -62,7 +62,7 @@ def field(rec, sel):
     return (struct.unpack_from('<I', rec, off)[0] >> shift) & 0x7f
 
 
-def craft(abilities, age, pos, id_lo=5, id_hi=77):
+def craft(abilities, age, pos, id_lo=5, id_hi=77, club=0):
     """A player record with 7-bit abilities, age and position set."""
     rec = bytearray(0xe0)
     for sel, value in abilities.items():
@@ -74,6 +74,7 @@ def craft(abilities, age, pos, id_lo=5, id_hi=77):
     d = struct.unpack_from('<I', rec, 0x1c)[0]
     struct.pack_into('<I', rec, 0x1c, (d & ~0x3f80) | ((age & 0x3f) << 7))
     struct.pack_into('<II', rec, 0x2c, id_lo, id_hi)
+    struct.pack_into('<I', rec, 0xa8, club)
     return bytes(rec)
 
 
@@ -151,15 +152,14 @@ def native_awards(g):
 
 
 def main(exe):
-    # Version 3 moderation: the cave has quarter-step rates, so this guards both the
-    # intended 15-27 slowdown and the deliberately unchanged 28+ tail. The existing
-    # hook tests below prove that this one profile reaches awards, focus and season walk.
-    expected_curve = {15: 2.5, 18: 2.0, 22: 1.25, 25: 0.75, 28: 0.5, 30: 0.25}
+    # Version 6 calibrated realistic rates: quarter-step rates guarding the realistic
+    # 1.75/1.50/1.00/0.75 youth curve and 0.50/0.25 late tail, with 20% playtime baseline.
+    expected_curve = {15: 1.75, 18: 1.50, 22: 1.00, 25: 0.75, 28: 0.50, 30: 0.25}
     assert {age: gc.mult(age) for age in expected_curve} == expected_curve
-    assert gc.award_exp(1000, 18, 60) == 2000
+    assert gc.award_exp(1000, 18, 60) == 1500
     assert gc.season_levels(18, 90) == 0    # close to the ceiling: no forced extra point
-    print('ok 0: version 3 uses the moderated 2.5/2.0/1.25/0.75 youth curve, keeps '
-          'the 0.5/0.25 late tail, and still slows players near their potential ceiling')
+    print('ok 0: version 6 uses the calibrated 1.75/1.50/1.00/0.75 youth curve, keeps '
+          'the 0.50/0.25 late tail, and still slows players near their potential ceiling')
 
     source = open(MODULE, encoding='utf-8').read()
     assert gc.lua_block() in source, 'MLGrowth.lua does not hold the block of growth_cave.py'
@@ -290,6 +290,36 @@ def main(exe):
     print('ok 5a: annual awards match the age-margin reference near the ceiling across '
           '%d age/position/ability cases; assembled code matches every embedded block' % checked)
 
+    # -- 5b: Package D development conditioning ---------------------------------
+    mode, _ = world(image, tracked=0)
+    free_agent = craft({0x13: 64}, 17, 0, id_lo=5, club=0xffffffff)
+    contracted = craft({0x13: 64}, 17, 0, id_lo=5, club=100)
+    after = season(image, mode, [free_agent, contracted])
+    assert field(after[0], 0x13) == 64, 'uncontracted free agent must receive 0 growth'
+    assert field(after[1], 0x13) == 65, 'contracted youth player develops'
+
+    plateaus = 0
+    sample_ids = range(1, 101)
+    for pid in sample_ids:
+        p = craft({0x13: 60}, 17, 0, id_lo=pid, club=100)
+        res = season(image, mode, [p])
+        gained = field(res[0], 0x13) - 60
+        if gained == 0:
+            plateaus += 1
+        assert gained == gc.season_levels(18, 60, club_id=100, player_id=pid)
+    assert 20 <= plateaus <= 30, ('plateau rate must be ~25%%, got %d / 100' % plateaus)
+
+    p_sub75_gains = [gc.season_levels(18, 60, club_id=100, player_id=pid) for pid in sample_ids]
+    p_mid_gains = [gc.season_levels(18, 78, club_id=100, player_id=pid) for pid in sample_ids]
+    p_high_gains = [gc.season_levels(18, 85, club_id=100, player_id=pid) for pid in sample_ids]
+    p_cap_gains = [gc.season_levels(18, 90, club_id=100, player_id=pid) for pid in sample_ids]
+    assert sum(p_sub75_gains) == 100 - plateaus
+    assert 40 <= sum(p_mid_gains) <= 60
+    assert 10 <= sum(p_high_gains) <= 25
+    assert sum(p_cap_gains) == 0
+    print('ok 5b: Package D development conditioning verified: free agents gated (0 growth), '
+          'trajectory dithering produces %d%% plateaus, and progressive resistance dampens high OVR' % plateaus)
+
     # -- 6: the training focus runs through the curve (hook C) -------------------
     INDIVIDUAL, TEAM = 0x036225f8, 0x0362274d
 
@@ -379,7 +409,7 @@ def main(exe):
     checked = native_awards(image)
     mode, _ = world(image, tracked=0)
     after = season(image, mode, [craft({0x13: 64}, 17, 0)])
-    assert field(after[0], 0x13) == 66
+    assert field(after[0], 0x13) == 64 + gc.season_levels(18, 64)
     for which, menu_code, sel, expected in focus_results:
         assert focus_exp(image, which, menu_code, sel) == expected
     print('ok 9: all nine modules coexist during %d native-lookup awards, the season walk '

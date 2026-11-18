@@ -148,6 +148,10 @@ def settings(source):
         entries = {k: float(x) for k, x in re.findall(r'(\w+) = ([\d.]+)', text('SQUAD_PRESSURE'))}
         pressure = ([entries[k] for k in mc.GROUPS], entries['keeps_drop'])
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
+    projects = re.search(r'^local SPORTING_PROJECTS = true$', source, re.M) is not None
+    p_count = number('PROJECT_COUNT') if projects else 5
+    p_boost = number('PROJECT_CEILING_BOOST') if projects else 20
+    p_rank_max = number('PROJECT_RANK_MAX') if projects else 15
     t = mc.Tables(knots('VALUE'), knots('AGE'), position, number('SPREAD'), number('FAME'), knots('SALARY'),
                      knots('SALARY_AGE'), number('BUDGET_TRANSFER'), number('BUDGET_SALARY'), cup(),
                      numbers('LEAGUE'), numbers('LEAGUE_2'), number('PRIZE_TO_BUDGET'), number('PAY_GAP'),
@@ -155,7 +159,8 @@ def settings(source):
                      number('TALENT_MAX'), number('TALENT_CAP'), number('INCOME'), by_id(), numbers('CUP_NATIONAL'),
                      knots('CUP_TV'), number('INCOME_WAGES'), numbers('CEILING'), text('CEILING_RATING') == 'true',
                      number('CEILING_STRETCH'), number('CEILING_NEED'), number('CEILING_LISTED'), number('CEILING_FREE'),
-                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need, pressure)
+                     text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need, pressure,
+                     sporting_projects=projects, project_count=p_count, project_boost=p_boost, project_rank_max=p_rank_max)
     # version 7: the offers for the user's players (a file of version 6 has no INCOMING)
     t.incoming = re.search(r'^local INCOMING = true$', source, re.M) is not None
     if t.incoming:
@@ -1249,7 +1254,7 @@ def main(exe):
     # 3. the switches, and settings at their limits
     optional = ('SALARY', 'BUDGET_TRANSFER', 'BUDGET_SALARY', 'CUP', 'LEAGUE', 'LEAGUE_2', 'PRIZE_TO_BUDGET',
                 'PAY_GAP', 'BONUS', 'YOUNG_YEARS', 'TALENT', 'INCOME', 'LEAGUE_BY_ID', 'CUP_NATIONAL', 'CUP_TV',
-                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS', 'NEED', 'INCOMING')
+                'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS', 'NEED', 'INCOMING', 'SPORTING_PROJECTS')
 
     def only(**kept):
         """The module with every optional part off but the ones named (None: as in the file)."""

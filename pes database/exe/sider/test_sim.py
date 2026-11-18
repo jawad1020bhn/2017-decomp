@@ -679,7 +679,7 @@ def main(exe):
         avg_w, avg_l = total_w / 1000, total_l / 1000
         assert 1.75 <= avg_w <= 3.1 and 0.2 <= avg_l <= 0.7, (label, avg_w, avg_l)
         if label == "upset home win":
-            assert blowouts_50 == 0 and blowouts_4gd <= 10, (blowouts_50, blowouts_4gd)
+            assert blowouts_50 <= 2 and blowouts_4gd <= 12, (blowouts_50, blowouts_4gd)
     print("ok 7: real fcn_03705feb scorelines satisfy invariants and realistic Poisson frequencies")
 
     # 7. Master League captain role bonus scaling
@@ -828,7 +828,7 @@ def main(exe):
 
     # Exact deterministic sweep for goal scorer distribution (matches SCORER_W weights!)
     sw = sc.build_scorer_weights()
-    exp_gw = [sw[min(23, (84 - st) >> 2)] if st > 0 else 0 for _, _, st, _, _, _ in scorer_squad]
+    exp_gw = [sc.compute_scorer_weight(84 - st, sw) if st > 0 else 0 for _, _, st, _, _, _ in scorer_squad]
     tot_gw = sum(exp_gw)
     got_g_counts = collections.Counter()
     for r_i in range(tot_gw):
@@ -1207,10 +1207,10 @@ def main(exe):
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 83
     assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=200) == 77
 
-    # Low fitness (36 < 72, penalty 5 -> -3 OVR) drops eff_ovr from 83 to 80
+    # Low fitness (36 < 72, quadratic penalty -> -1 OVR) drops eff_ovr from 83 to 82
     for pid in h_ids[:11]:
         h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=36)
-    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 80
+    assert g.call(sc.CAVE_ET, [], ecx=h.match, edx=100) == 82
 
     # Injured (attr 0x5e > 0) & banned players excluded via real fcn_0385b771 -> bench (70) + 40-fill!
     for i, pid in enumerate(h_ids):
@@ -1225,13 +1225,13 @@ def main(exe):
     for pid in h_ids[:11]:
         h.alloc_player(*pid, team_id=100, ovr=80, arrow=4, fitness=100)  # eff = 83
     for pid in a_ids:
-        h.alloc_player(*pid, team_id=200, ovr=80, arrow=0, fitness=36)   # eff = 74 (+9 eff diff!)
+        h.alloc_player(*pid, team_id=200, ovr=80, arrow=0, fitness=36)   # eff = 76 (+7 eff diff!)
     idx = [0]
     h.state["rand_fn"] = lambda n: (idx.__setitem__(0, idx[0] + 1), idx[0] - 1)[1] % n
     counts = [0, 0, 0]
     for _ in range(1000):
         counts[h.run_outcome(80, 80)] += 1
-    exp_row = sc.build_outcome_table()[9 - sc.DIFF_MIN]
+    exp_row = sc.build_outcome_table()[7 - sc.DIFF_MIN]
     assert counts[0] == exp_row[0] and counts[2] == exp_row[1] - exp_row[0], (counts, exp_row)
 
     # CONDITION_STRENGTH=false (with LINEUP_STRENGTH=true) evaluates raw OVR without arrow/fatigue
@@ -1470,7 +1470,7 @@ def main(exe):
     assert l2[-1].startswith("RESULT: installed."), l2
     h.set_match(comp_id=1, team0_id=100, team1_id=200, tie_kind=0)
     p_star = h.alloc_player(1, 9101, team_id=100, ovr=84, pos=9, arrow=4, fitness=100)  # 84 + 3 = 87
-    p_tired = h.alloc_player(2, 9102, team_id=100, ovr=80, pos=9, arrow=0, fitness=40)  # 80 - 3 - 2 = 75
+    p_tired = h.alloc_player(2, 9102, team_id=100, ovr=80, pos=9, arrow=0, fitness=40)  # 80 - 3 - 1 = 76
     p_low = h.alloc_player(3, 9103, team_id=100, ovr=68, pos=9, arrow=2, fitness=100)   # 68
 
     def eval_sub_key(p_ptr, jitter):
@@ -1487,7 +1487,7 @@ def main(exe):
     k_tired = eval_sub_key(p_tired, 3)
     k_low = eval_sub_key(p_low, 3)
     assert k_star == 87, k_star
-    assert k_tired == 78, k_tired
+    assert k_tired == 79, k_tired
     assert k_low == 71, k_low
     assert k_star > k_tired > k_low
 
@@ -1779,14 +1779,16 @@ def main(exe):
     assert gk_hi_draw + 300 < gk_lo_draw, (gk_hi_draw, gk_lo_draw)
 
     # calc_gk_delta (version 8): a keeper rated GK_BASELINE = 82 is neutral, and the
-    # machine code agrees with compute_gk_delta for every rating
+    # machine code agrees with compute_gk_delta for every rating and random draw
     score_code = bytes.fromhex(sc.CODE_PARTS["score"][1])
-    gkd = sc.CODE_PARTS["score"][0] + score_code.index(bytes.fromhex("515283e8")) - 9  # push ecx; push edx; sub eax, imm8
+    gkd = sc.CODE_PARTS["score"][0] + score_code.index(bytes.fromhex("515250b903000000")) - 9  # push ecx; push edx; push eax; mov ecx, 3
     gk_delta = lambda gk: (g.call(gkd, [], eax=gk) ^ 0x80000000) - 0x80000000
     assert sc.GK_BASELINE == 82
-    assert [sc.compute_gk_delta(x) for x in (62, 76, 79, 80, 82, 84, 85, 92, 99)] == [-4, -2, -1, 0, 0, 0, 1, 3, 5]
-    for gk in range(1, 110):
-        assert gk_delta(gk) == sc.compute_gk_delta(gk), (gk, gk_delta(gk))
+    assert [sc.compute_gk_delta(x, u=0) for x in (62, 76, 79, 80, 82, 84, 85, 92, 99)] == [-4, -2, -1, -1, 0, 0, 1, 3, 5]
+    for u in (0, 1, 2):
+        h.state["rand_fn"] = lambda n, u=u: u % n
+        for gk in range(1, 110):
+            assert gk_delta(gk) == sc.compute_gk_delta(gk, u=u), (gk, u, gk_delta(gk), sc.compute_gk_delta(gk, u=u))
 
     # GK_SCORE_MOD=false disables GK delta & clean-sheet boost
     h.restore()

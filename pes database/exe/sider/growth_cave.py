@@ -136,15 +136,15 @@ POSTBL = [SEL[POSITION_FIELD[p]] for p in
            'CB', 'LB', 'RB', 'GK')] + [SEL['drib']] * 3
 
 # ---------------- settings (MLGrowth.lua holds the same) ----------------
-# The shape of the curve stays deliberately youth-first.  RATE_SCALE is applied before
-# it is packed into quarter steps: it trims the fast 15-27 bands but leaves the already
-# small 28+ bands intact after rounding.  The rating headroom and playtime rules below
-# still decide *who* gets that rate, so this is not a flat level cap.
-AGE_MULT = ((15, 3.0), (18, 2.5), (22, 1.5), (25, 1.0), (28, 0.5), (30, 0.25))
-RATE_SCALE = 0.80
+# The shape of the curve stays youth-first, but calibrated to realistic progression
+# rates: 1.75 at 15-17, 1.50 at 18-21, 1.00 at 22-24, 0.75 at 25-27, 0.50 at 28-29,
+# and 0.25 from 30. Unplayed reserve players develop slowly (20% playtime baseline),
+# requiring regular match appearances to unlock full growth.
+AGE_MULT = ((15, 1.75), (18, 1.50), (22, 1.00), (25, 0.75), (28, 0.50), (30, 0.25))
+RATE_SCALE = 1.00
 MARGIN = ((15, 25), (18, 19), (21, 12), (24, 5), (27, 1))     # age 53+: 0
 DECLINE_START, DECLINE_TECH = 31, 0.25
-PLAYTIME_WEIGHT, PLAYTIME_FULL = 0.5, 20
+PLAYTIME_WEIGHT, PLAYTIME_FULL = 0.20, 20
 
 # ---------------- the same arithmetic in Python ----------------
 def _banded(bands, age):
@@ -194,17 +194,35 @@ def decline_exp(exp, age, field):
     return exp * DECLINE_TECH
 
 
-def season_levels(age, value):
+def season_levels(age, value, club_id=0, player_id=5):
     """Hook B: the points a player without a growth record gets on his position
-    ability that now has `value`.  Integer, as the machine code computes it."""
+    ability that now has `value`.  Integer, as the machine code computes it.
+    Includes Package D conditioning: contract status gating (free agents get 0),
+    Knuth LCG trajectory dithering (25% plateau seasons), and non-linear diminishing
+    headroom resistance for ratings >= 75 and >= 82."""
+    if age < 15 or age >= 53:
+        return 0
     m = margin(age)
     if m == 0:
         return 0
     q = round(mult(age) * 4)                       # the quarter multiplier of the table
-    head = 99 - value
-    if head >= m:
-        return q >> 2
-    return head * q // (4 * m)
+    if (q >> 2) == 0:
+        return 0
+    if club_id == 0xffffffff:
+        return 0
+    if value >= 88:
+        return 0
+
+    h = ((player_id * 0x41c64e6d + age) >> 24) & 0xff
+    if h < 64:
+        return 0
+
+    if value < 75:
+        return 1
+    elif value < 82:
+        return 1 if h >= 128 else 0
+    else:
+        return 1 if h >= 210 else 0
 
 
 # ---------------- the tables and floats of the cave ----------------
@@ -255,56 +273,61 @@ def _emit():
     parts = {}
 
     # ---- E2: the season award (in: edi = player, ebx = new age, frame of E1) ----
-    # Preserve the age margin while the selector/getter use EDX.
     e2_src = f"""
         lea eax, [ebx - 15]
         movzx edx, byte ptr [eax + {MARGIN_TBL:#x}]
         test edx, edx
         jz e_out
-        push edx
+
+        movzx eax, byte ptr [eax + {MULTQ:#x}]
+        shr eax, 2
+        jz e_out
+
+        cmp dword ptr [edi + 0xa8], 0xffffffff
+        je e_out
+
         mov eax, [edi + 4]
         shr eax, 28
         movzx edx, byte ptr [eax + {POSTBL_TBL:#x}]
         mov [ebp - 4], edx
+
         lea eax, [ebp - 8]
         push eax
         push edx
         mov ecx, edi
         call {GETTER:#x}
-        pop edx
-        mov eax, [ebp - 8]
-        cmp eax, 99
+
+        mov esi, [ebp - 8]
+        cmp esi, 88
         jae e_out
-        mov esi, eax
-        mov ecx, 99
-        sub ecx, eax
-        cmp ecx, edx
-        jae e_full
-        lea eax, [ebx - 15]
-        movzx eax, byte ptr [eax + {MULTQ:#x}]
-        imul ecx, eax
-        shl edx, 2
-        mov eax, ecx
-        mov ecx, edx
-        cdq
-        idiv ecx
-        jmp e_lev
-    e_full:
-        lea eax, [ebx - 15]
-        movzx eax, byte ptr [eax + {MULTQ:#x}]
-        shr eax, 2
-    e_lev:
-        test eax, eax
-        jle e_out
-        add eax, esi
-        cmp eax, 99
-        jbe e_set
-        mov eax, 99
-    e_set:
-        push eax
+
+        mov eax, [edi + 0x2c]
+        imul eax, eax, 0x41c64e6d
+        add eax, ebx
+        shr eax, 24
+
+        cmp al, 64
+        jb e_out
+
+        cmp esi, 75
+        jb do_inc
+        cmp esi, 82
+        jb t_mid
+        cmp al, 210
+        jb e_out
+        jmp do_inc
+
+    t_mid:
+        cmp al, 128
+        jb e_out
+
+    do_inc:
+        inc esi
+        push esi
         push dword ptr [ebp - 4]
         mov ecx, edi
         call {SETTER:#x}
+
     e_out:
         mov esp, ebp
         pop ebp
@@ -568,16 +591,16 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
     ),
     "E2": (
         0x47d3f07,
-        "8d43f10fb69058c2980285d27474528b4704c1e81c0fb690c8c298028955",
-        "fc8d45f8505289f9e87e3905ff5a8b45f883f863734e89c6b96300000029",
-        "c139d173198d43f10fb68010c298020fafc8c1e20289c889d199f7f9eb0d",
-        "8d43f10fb68010c29802c1e80285c07e1701f083f8637605b86300000050",
-        "ff75fc89f9e8274205ff89ec5d5f5e5b8b1518e54f02e9a6f7e4fe",
+        "8d43f10fb69058c2980285d2746b0fb68010c29802c1e802745f83bfa8000000",
+        "ff74568b4704c1e81c0fb690c8c298028955fc8d45f8505289f9e86a3905ff8b",
+        "75f883fe5873328b472c69c06d4ec64101d8c1e8183c40722083fe4b720f83fe",
+        "5272063cd27212eb043c80720c4656ff75fc89f9e8304205ff89ec5d5f5e5b8b",
+        "1518e54f02e9aff7e4fe",
     ),
     "E1": (
         0x47d6e50,
         "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff77",
-        "2ce8414696fe84c00f850dd1ffff8b5f1cc1eb0783e33fe97dd0ffff",
+        "2ce8414696fe84c00f8504d1ffff8b5f1cc1eb0783e33fe97dd0ffff",
     ),
     "B1": (
         0x47d6377,
@@ -594,12 +617,12 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
     ),
     "data": (
         0x298c200,
-        "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0a0a0a080808080505050303030202010101010101010101",
+        "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c070707060606060404040303030202010101010101010101",
         "01010101010101010101010101010101010101010101010101010101010101010000000000000000",
         "00000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101",
         "01010101010100000000000000000000000000000000000000000000000000000000000000000000",
         "00000000000000000000000000000001010100010101000000000000000000000000000000000000",
-        "13131111110f1111110f0f0f101111110000803e0000a0410000003f0000003f0000803e",
+        "13131111110f1111110f0f0f101111110000803e0000a041cdcc4c3fcdcc4c3e0000803e",
     ),
     "B2": (
         0x47d6e8a,
@@ -726,7 +749,9 @@ def calibrate(exe_path, save_path, seasons=6):
             pos = struct.unpack_from('<I', r, 4)[0] >> 28
             sel = postbl[pos] if pos < 16 else SEL['drib']
             value = getf(r, sel)
-            gain = season_levels(age, value)
+            club_id = wr.club(bytes(r))
+            player_id = struct.unpack_from('<I', r, 0x2c)[0]
+            gain = season_levels(age, value, club_id, player_id)
             if gain:
                 risen[wr.name(bytes(r))] += gain
                 setf(r, sel, min(99, value + gain))

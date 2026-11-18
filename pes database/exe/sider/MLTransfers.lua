@@ -266,6 +266,24 @@ local NEED_GAP = 4
 -- 1 to 20.
 local NEED_BETTER = 1
 
+-- Sporting projects / rebuilds (SPORTING_PROJECTS).
+-- Independent sporting projects / rebuilds for top European AI clubs (like PSG / Man City),
+-- preserving their existing personas. Five distinct qualifying clubs are chosen per Master
+-- League career from the global top 15 clubs that belong to the top five first-division
+-- leagues (England 17, Italy 18, Spain 19, France 20, Germany 50). The selection is drawn
+-- once per career and remains strictly identical across save reloads, without mutating
+-- personas, corrupting save files, or consuming match RNG.
+-- For their priority squad need positions (their weakest positions), project clubs receive
+-- rebuild recruitment assistance (up to 20% recruitment ceiling expansion), allowing them
+-- to sign high-caliber targets for their squad gaps while preserving scouting, age bands,
+-- rivalries, and seller protection.
+-- false: off.
+local SPORTING_PROJECTS = true
+local PROJECT_COUNT = 5          -- number of project clubs per career (5)
+local PROJECT_CEILING_BOOST = 20 -- up to 20% additional recruitment ceiling for priority need positions
+local PROJECT_RANK_MAX = 15      -- global rank 1 to 15
+local TOP_FIVE_LEAGUES = { 17, 18, 19, 20, 50 } -- Premier League, Serie A, La Liga, Ligue 1, Bundesliga
+
 -- The personas. Each has a name and these numbers:
 --   free, listed, clubs   where it looks first, in percent of the positions it buys for:
 --                         players without a contract / players another club has listed
@@ -700,51 +718,51 @@ local NEED_CAVE_SIZE = 0x150
 -- the chooser of the club that makes an offer for one of your players
 local INCOMING_CAVE = 0x047d6550
 local INCOMING_CAVE_SIZE = 0x7f0
-local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e8cd05000083"
+local INCOMING_ROUTINE = "9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e8c705000083"
       .. "c40c85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec20"
       .. "89e58b5d308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86b"
       .. "d507ff83c40c0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8"
       .. "894de48b45ecf765e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565389c381ec8c00"
       .. "00008b028b155cf85102894d94b940000000894590a1c8477d0439c80f47c18d3cc5cc477d04b8cc477d0439"
-      .. "f80f84970100008b308b4804397590750839ca0f847e01000083c00839f275df394d9075dae96d0100008b3a"
-      .. "8d7210397d90740889f239c275f089ca0fb742088945840fb6420ebac0000000894588a160427d0439d00f47"
-      .. "c289c283e8010f825c0100008b0c85c8447d04394d9075e90fb68207447d046bc01431f605c8427d0489458c"
-      .. "694590b179379e898578ffffff8b458c8b0d44427d0469d6930100018b3d48427d0401f08a008845808b8578"
-      .. "ffffff31c20fb6458069d26bcaeb85c1ea180fafd7c1ea0801cab9e8030000e8c8feffff8944b5984683fe14"
-      .. "75b38b154c427d048b7d84b8090000003945880f4645880faffa8b0d50427d0489fa01ca89d60fb69064427d"
-      .. "04c1ee1039d673070fb6b064427d040fb6906e427d0439f273070fb6b06e427d04668b83b2cbc200b9530300"
-      .. "0066894580668b83b0cbc2008b933464d00066898574ffffff8b459439ca8b40040f47d1898570ffffff8b45"
-      .. "9469d2180100008b400c89857cffffff8b45948b40088945848d830cb8cc0001c239c2756031ff8b45c48b5d"
-      .. "8401f039d80f83e400000031c0e94a0300008b83a0280000ba8a0200008d8bcc84cc0039d00f47c289cac1e0"
-      .. "0401c8e976feffffb8090000003945880f464588695590b179379ec1ea1d8d84c278427d040fb600e992feff"
-      .. "ff8b188d8818010000395d90740489c8eb8b31ff85c0748b8db8100100008d481089bd6cffffffbf81000000"
-      .. "8b11f7c200c03f00741889d3c1eb0783e37f399d7cffffff7508c1ea160fa3d7723f83c110398d6cffffff75"
-      .. "d38bbd7cffffff0fb690090100008d4f0131ff39ca0f8530ffffff0fb6800a0100008b7d8439f80f92c00fb6"
-      .. "c08d3c00e916ffffffbf01000000e90cffffff8b8574ffffff0fb755808b9d78ffffffc1e01009d08b9570ff"
-      .. "ffff69c09301000131da8b5d9431c28955808b531c83fa0174328b0df84f7d04394d8473278b0de44f7d04c1"
-      .. "e914394b187319694d80b1675616c1e9186bc964c1e9083b4da80f83b7feffff8b4d8c8b5d8c8a491083c310"
-      .. "899d74fffffffec17467698d7cffffff35aeb2c28b9d78ffffff31d931c169c16bcaeb858b4d98c1e8186bc0"
-      .. "64c1e80839c8730485d2eb16034d9c39c8730583fa01eb0a034da039c8730a83fa027421e956feffff83ff02"
-      .. "0f854dfeffff8b8574ffffff0fb60039c20f853cfeffffeb7985ff0f8432feffff83ff02746c8b5d94a1fc4f"
-      .. "7d048b0dfc4f7d04034b14695d9041a11ddf01c040c1eb180fafc3c1e80829c18b458c0fb6400e39c1720b8b"
-      .. "458c0fb6400f39c873308b45ccb96400000085d275068b0de84f7d046955809335871b0fafc1c1ea186bd264"
-      .. "c1ea086bd26439c20f82c1fdffff8b55ac694d80656b54e68d0412c1e918400fafc18b4d8429d1c1e80801c1"
-      .. "83ff02740d8b45c001c839f00f8291fdffff8b5d88b80100000081c380501f018b149d00000000420f84c600"
-      .. "000050508b459451ff30e81bfbffff83c41089c68b45948b401c83f802742085c075088b153c427d04eb068b"
-      .. "1540427d0489f0b964000000e83ffbffff89c68b049d000000008b55b0b964000000e829fbffff89c383ff02"
-      .. "75198b55b8a138427d04e815fbffff8d506489d8e80bfbffff89c38b55b4a134427d04b96400000083cfffe8"
-      .. "f4faffff6955806bcaeb85b900640000c1ea180fafd089d8e8dbfaffffb9a086010001c38b45940f42df8b50"
-      .. "180faf55bc89d8e8c0faffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e557565383ec3c837d08"
-      .. "000f84a0010000a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100008b308b5804"
-      .. "51ff75085356e855faffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639f10f854e0100"
-      .. "0069db9301000131d3895dcc8b5004c1ea1c8955d452528d55d85250e8f1f9ffff8b55c883c41031c98945d0"
-      .. "8b421cc1e80783e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f4883f8017612"
-      .. "8b82b80000002500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff0300000f87cb000000"
-      .. "8b450831d28d98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b8814030000c1e9"
-      .. "070fb6c93b4d10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b85ff"
-      .. "7449397dc474448b831e03000083e0074874388b45088d4dc889dae878f9ffff85c074278b83140300008b55"
-      .. "10c1e8070fb6c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d"
-      .. "69d2200500008b45088d4dc801dae82df9ffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3"
+      .. "c774798b308b4804397590750439ca746483c00839f275e7394d9075e2eb5685c00f84380200008d50108d98"
+      .. "100100008b0af7c100c03f000f84eb01000089cfc1ef0783e77f39bd7cffffff0f85d7010000c1e916bf8100"
+      .. "0000d3ef83e7010f84c40100008b45c48b5d8801f039d80f83ff01000031c0e9660400008b83a0280000ba8a"
+      .. "0200008d8bcc84cc0039d00f47c289cac1e00401c839d0740e8b3a8d7210397d90740689f2ebee89ca0fb742"
+      .. "088945880fb6420ebac0000000894584a160427d0439d00f47c289c283e80172158b0c85c8447d04394d9075"
+      .. "ed0fb68207447d04eb20b8090000003945840f464584695590b179379ec1ea1d8d84c278427d040fb6006bc0"
+      .. "1431f605c8427d0489458c694590b179379e898578ffffff8b458c8b0d44427d0469d6930100018b3d48427d"
+      .. "0401f08a008845808b8578ffffff31c20fb6458069d26bcaeb85c1ea180fafd7c1ea0801cab9e8030000e839"
+      .. "feffff8944b5984683fe1475b38b154c427d048b7588b8090000003945840f4645840faff28b0d50427d0489"
+      .. "f201ca89d60fb69064427d04c1ee1039d673070fb6b064427d040fb6906e427d0439f273070fb6b06e427d04"
+      .. "668b83b2cbc200b95303000066894580668b83b0cbc2008b933464d00066898574ffffff8b459439ca8b4004"
+      .. "0f47d1898570ffffff8b459469d2180100008b400c89857cffffff8b45948b40088945888d830cb8cc0001c2"
+      .. "39c2744b8b188d8818010000395d900f84fafdffff89c8ebe783c21039d30f85fcfdffff8bbd7cffffff0fb6"
+      .. "90090100008d4f0139ca75170fb6800a0100008b5d88bf0200000039d80f8206feffff8b45880345c039f00f"
+      .. "93c00fb6c089c7e9f1fdffff8b9d74ffffff0fb745808b8d78ffffffc1e31009c38b8570ffffff69db930100"
+      .. "0131c831d88945808b45948b501c83fa017433a1f84f7d043945887329a1e44f7d048b4d94c1e81439411873"
+      .. "19694580b1675616c1e8186bc064c1e8083b45a80f839bfdffff8b458c83c010898574ffffff8b458c8a4010"
+      .. "fec0746769857cffffff35aeb2c28b8d78ffffff31c831d88b5d9869c06bcaeb85c1e8186bc064c1e80839d8"
+      .. "730485d2eb16035d9c39d8730583fa01eb0a035da039d8730a83fa027421e93afdffff83ff020f8531fdffff"
+      .. "8b8574ffffff0fb60039c20f8520fdffffeb7985ff0f8416fdffff83ff02746c8b5d94a1fc4f7d048b0dfc4f"
+      .. "7d04034b14695d9041a11ddf01c040c1eb180fafc3c1e80829c18b458c0fb6400e39c1720b8b458c0fb6400f"
+      .. "39c873308b45ccb96400000085d275068b0de84f7d046955809335871b0fafc1c1ea186bd264c1ea086bd264"
+      .. "39c20f82a5fcffff8b55ac694d80656b54e68d0412c1e918400fafc18b4d8829d1c1e80801c183ff02740d8b"
+      .. "45c001c839f00f8275fcffff8b5d84b80100000081c380501f018b149d00000000420f84c600000050508b45"
+      .. "9451ff30e821fbffff83c41089c68b45948b401c83f802742085c075088b153c427d04eb068b1540427d0489"
+      .. "f0b964000000e845fbffff89c68b049d000000008b55b0b964000000e82ffbffff89c383ff0275198b55b8a1"
+      .. "38427d04e81bfbffff8d506489d8e811fbffff89c38b55b4a134427d04b96400000083cfffe8fafaffff6955"
+      .. "806bcaeb85b900640000c1ea180fafd089d8e8e1faffffb9a086010001c38b45940f42df8b50180faf55bc89"
+      .. "d8e8c6faffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e557565383ec3c837d08000f84a00100"
+      .. "00a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100008b308b580451ff75085356"
+      .. "e85bfaffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639f10f854e01000069db930100"
+      .. "0131d3895dcc8b5004c1ea1c8955d452528d55d85250e8f7f9ffff8b55c883c41031c98945d08b421cc1e807"
+      .. "83e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f4883f80176128b82b8000000"
+      .. "2500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff0300000f87cb0000008b450831d28d"
+      .. "98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b8814030000c1e9070fb6c93b4d"
+      .. "10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b85ff7449397dc474"
+      .. "448b831e03000083e0074874388b45088d4dc889dae87ef9ffff85c074278b83140300008b5510c1e8070fb6"
+      .. "c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d69d220050000"
+      .. "8b45088d4dc801dae833f9ffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3"
 -- The place that is changed: the club look-up itself, in the place of its six prologue
 -- bytes, so that the club the routine that creates an offer asks for is our answer.
 local INCOMING_SITE = { "incoming", 0x0381e2eb, "5589e583ec14", "e96082fb0090" }
@@ -1249,6 +1267,22 @@ local function rivals_fault()
 end
 
 -- nil, or what is wrong with the settings
+local function projects_fault()
+    if type(SPORTING_PROJECTS) ~= "boolean" then return "SPORTING_PROJECTS is not true or false" end
+    if not is_number(PROJECT_COUNT, 1, 15) then return "PROJECT_COUNT is not a number from 1 to 15" end
+    if not is_number(PROJECT_CEILING_BOOST, 0, 100) then return "PROJECT_CEILING_BOOST is not a number from 0 to 100" end
+    if not is_number(PROJECT_RANK_MAX, 1, 50) then return "PROJECT_RANK_MAX is not a number from 1 to 50" end
+    if type(TOP_FIVE_LEAGUES) ~= "table" or #TOP_FIVE_LEAGUES < 1 then
+        return "TOP_FIVE_LEAGUES is not a list of league ids"
+    end
+    for i, lid in ipairs(TOP_FIVE_LEAGUES) do
+        if not is_number(lid, 1, 65535) or lid ~= math.floor(lid) then
+            return "TOP_FIVE_LEAGUES: entry " .. i .. " is not a valid league id"
+        end
+    end
+    return nil
+end
+
 local function settings_fault()
     if type(WRITE) ~= "boolean" then return "WRITE is not true or false" end
     if type(INCOMING) ~= "boolean" then return "INCOMING is not true or false" end
@@ -1257,7 +1291,7 @@ local function settings_fault()
     if type(NEED) ~= "boolean" then return "NEED is not true or false" end
     if not is_number(NEED_GAP, 1, 30) then return "NEED_GAP is not a number from 1 to 30" end
     if not is_number(NEED_BETTER, 1, 20) then return "NEED_BETTER is not a number from 1 to 20" end
-    return ceiling_fault() or persona_fault() or rivals_fault()
+    return ceiling_fault() or persona_fault() or rivals_fault() or projects_fault()
 end
 
 -- the highest value by club level 0 to 9 (CEILING starts with the best clubs, level 9;
@@ -1626,6 +1660,10 @@ function m.init(ctx)
         log("offers for your players: the club that makes one is the one of the nearest slot that would take "
             .. "him (no rival, its character wants him, a place in its plan, its ceiling), so none is lost")
         changed[#changed + 1] = "offers for your players"
+    end
+    if SPORTING_PROJECTS then
+        log(string.format("sporting projects: %d qualifying AI clubs from global top %d of the top five leagues receive up to %d%% recruitment ceiling assistance for priority squad need positions",
+            round(PROJECT_COUNT), round(PROJECT_RANK_MAX), round(PROJECT_CEILING_BOOST)))
     end
     log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
 end

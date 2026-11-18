@@ -352,6 +352,12 @@ WINDOW_TOP = (74, 75, 76, 77, 78, 79, 80, 83, 86, 99)
 LEVEL_PLACES = ((1, 10), (11, 20), (21, 50), (51, 80), (81, 120), (121, 170), (171, 220), (221, 260), (261, 300),
                 (301, None))
 
+# Sporting Projects (independent rebuilds of top AI clubs, preserving personas)
+PROJECT_COUNT = 5
+PROJECT_CEILING_BOOST = 20
+PROJECT_RANK_MAX = 15
+TOP_FIVE_LEAGUES = { 17, 18, 19, 20, 50 }
+
 FEE_SITE = 0x038ab8db
 FEE_SITE_OLD = bytes.fromhex('83f844760c8db8bcffffff69ff28230000')
 SALARY_SITE = 0x038ac875
@@ -1640,11 +1646,19 @@ class Tables:
                  young_years=None, talent=None, talent_step=0, talent_max=0, talent_cap=0, income=None,
                  league_by_id=None, cup_national=None, cup_tv=None, income_wages=None, ceiling=None,
                  ceiling_rating=True, ceiling_stretch=0, ceiling_need=0, ceiling_listed=100, ceiling_free=100,
-                 sell=False, scouting=False, persona=None, rivals=None, need=None, pressure=None):
+                 sell=False, scouting=False, persona=None, rivals=None, need=None, pressure=None,
+                 sporting_projects=True, project_count=5, project_boost=20, project_rank_max=15,
+                 top_five_leagues=None, project_clubs=None):
         # need: None, or (gap, better): NEED_GAP and NEED_BETTER of MLTransfers.lua with NEED on
         # pressure: None, or ((GK, DF, MF, FW), drop): SQUAD_PRESSURE of MLTransfers.lua; counts with PERSONA only
         # persona may also hold: keep (from, step, bigger), known, shift (KEEP_BEST, KNOWN_FROM, AGE_SHIFT) and
         # fame, strict_free (KNOWN_FAME, STRICT_FREE)
+        self.sporting_projects = bool(sporting_projects)
+        self.project_count = clamp(int(project_count + 0.5), 1, 15) if sporting_projects else 0
+        self.project_boost = clamp(int(project_boost + 0.5), 0, 100) if sporting_projects else 0
+        self.project_rank_max = clamp(int(project_rank_max + 0.5), 1, 50) if sporting_projects else 15
+        self.top_five_leagues = set(top_five_leagues or TOP_FIVE_LEAGUES)
+        self.project_clubs = set(project_clubs or ())
         self.value = [clamp(amount(m), 1, CAP) for m in curve(value, 0, 99, True)]
         self.age = [clamp(int(p + 0.5), 0, MAX_AGE_PERCENT) for p in curve(age, 0, 63, False)]
         self.position = [clamp(int(position[n] + 0.5), 0, MAX_POSITION_PERCENT) for n in POSITIONS] + [100] * 3
@@ -1963,9 +1977,76 @@ def limit(t, level, player=(0, 0), club=0, need=False, numbers=None, popularity=
     x = muldiv(t.ceiling[level], g['wealth'], 100)
     if need:
         x = muldiv(x, (muldiv(t.ceiling_need, g['panic'], 100) + 100) & M32, 100)
+        if getattr(t, 'sporting_projects', False) and club in getattr(t, 'project_clubs', ()):
+            x = muldiv(x, 100 + getattr(t, 'project_boost', PROJECT_CEILING_BOOST), 100)
     stretch = muldiv(t.ceiling_stretch, g['premium'], 100)
     x = min(x + muldiv(x, stretch_hash(player, club) * stretch & M32, 25600), M32)
     return min(x + muldiv(x, popularity * g['fame'] & M32, 100000), M32)
+
+
+def career_hash(user_club, ranking, leagues=None):
+    """Deterministic 32-bit FNV-1a hash over invariant career state (user club, ranking table).
+    Stable across reloads and save-switches; distinct across different careers."""
+    seed = 0x811C9DC5
+    if user_club:
+        seed = ((seed ^ (user_club & 0xffffffff)) * 0x01000193) & 0xffffffff
+    if isinstance(ranking, dict):
+        rows = sorted(ranking.values(), key=lambda r: r.get('place', 0))
+    else:
+        rows = ranking
+    for r in rows[:15]:
+        cid = r.get('id', 0) if isinstance(r, dict) else r[0]
+        place = r.get('place', 0) if isinstance(r, dict) else r[1]
+        pts = r.get('points', 0) if isinstance(r, dict) else r[2]
+        seed = ((seed ^ (cid & 0xffffffff)) * 0x01000193) & 0xffffffff
+        seed = ((seed ^ (place & 0xffff)) * 0x01000193) & 0xffffffff
+        seed = ((seed ^ (pts & 0xffff)) * 0x01000193) & 0xffffffff
+    return seed & 0xffffffff
+
+
+def qualifying_clubs(ranking, in_top_five, user_club=None, rank_max=PROJECT_RANK_MAX,
+                     allowed_leagues=TOP_FIVE_LEAGUES):
+    """The AI clubs eligible for Sporting Projects:
+    In global loaded-career ranks 1 to rank_max, belonging to top five first divisions,
+    excluding the user's own club. Sorted by place."""
+    if isinstance(ranking, dict):
+        rows = sorted(ranking.values(), key=lambda r: r.get('place', 0))
+    else:
+        rows = ranking
+    allowed = set(allowed_leagues)
+    out = []
+    for r in rows:
+        cid = r.get('id') if isinstance(r, dict) else r[0]
+        place = r.get('place') if isinstance(r, dict) else r[1]
+        if 1 <= place <= rank_max and cid != user_club:
+            if isinstance(in_top_five, (set, list, tuple)):
+                if cid in in_top_five:
+                    out.append(cid)
+            elif isinstance(in_top_five, dict):
+                if in_top_five.get(cid) in allowed:
+                    out.append(cid)
+    return out
+
+
+def draw_projects(qualifying_clubs, seed, count=PROJECT_COUNT):
+    """Deterministically select up to `count` distinct clubs from `qualifying_clubs` using
+    a stable career `seed`.
+    If fewer than `count` qualify, return all qualifying clubs (never backfill)."""
+    if len(qualifying_clubs) <= count:
+        return list(qualifying_clubs)
+    pool = list(qualifying_clubs)
+    chosen = []
+    s = seed & 0xffffffff
+    for _ in range(count):
+        s = (s * 1103515245 + 12345) & 0x7fffffff
+        idx = s % len(pool)
+        chosen.append(pool.pop(idx))
+    return chosen
+
+
+def project_limit(t, level, player=(0, 0), club=0, need=False, numbers=None, popularity=0):
+    """Recruitment ceiling limit with Sporting Project rebuild assistance."""
+    return limit(t, level, player, club, need, numbers, popularity)
 
 
 def age_shift(t, club):
@@ -2154,6 +2235,8 @@ def offer_wants(t, player, buyer, plan=None, seller=None, date=(0, 0)):
     both = player_key(player['id']) ^ club_key(buyer['id']) ^ stamp
     turn = (player['position'] * HASH_POSITION & M32) ^ club_key(buyer['id']) ^ stamp
     need = offer_need(plan, player['position'], player['rating'])
+    if not need and player['rating'] + g['ambition'] >= own:
+        need = 1
     if player['rating'] > own + g['prestige']:                  # he does not join a club far below him
         return False
     status = player.get('status', 0) & 0xf
@@ -2512,49 +2595,96 @@ wants:
 	lea	edi, [75319244+eax*8]
 	mov	eax, 75319244
 L4:
-	cmp	eax, edi
-	je	L89
+	cmp	edi, eax
+	je	L91
 	mov	esi, DWORD PTR [eax]
 	mov	ecx, DWORD PTR [eax+4]
 	cmp	DWORD PTR [ebp-112], esi
-	jne	L52
+	jne	L51
 	cmp	edx, ecx
 	je	L5
-L52:
+L51:
 	add	eax, 8
 	cmp	edx, esi
 	jne	L4
 	cmp	DWORD PTR [ebp-112], ecx
 	jne	L4
 	jmp	L5
-L12:
+L20:
+	test	eax, eax
+	je	L22
+	lea	edx, [eax+16]
+	lea	ebx, [eax+272]
+L25:
+	mov	ecx, DWORD PTR [edx]
+	test	ecx, 4177920
+	je	L23
+	mov	edi, ecx
+	shr	edi, 7
+	and	edi, 127
+	cmp	DWORD PTR [ebp-132], edi
+	jne	L23
+	shr	ecx, 22
+	mov	edi, 129
+	shr	edi, cl
+	and	edi, 1
+	je	L23
+L24:
+	mov	eax, DWORD PTR [ebp-60]
+	mov	ebx, DWORD PTR [ebp-120]
+	add	eax, esi
+	cmp	eax, ebx
+	jnb	L92
+L5:
+	xor	eax, eax
+	jmp	L3
+L91:
+	mov	eax, DWORD PTR [ebx+10400]
+	mov	edx, 650
+	lea	ecx, [ebx+13403340]
+	cmp	eax, edx
+	cmova	eax, edx
+	mov	edx, ecx
+	sal	eax, 4
+	add	eax, ecx
+L45:
+	cmp	eax, edx
+	je	L93
 	mov	edi, DWORD PTR [edx]
 	lea	esi, [edx+16]
 	cmp	DWORD PTR [ebp-112], edi
 	je	L11
 	mov	edx, esi
-L44:
-	cmp	edx, eax
-	jne	L12
+	jmp	L45
+L93:
 	mov	edx, ecx
 L11:
 	movzx	eax, WORD PTR [edx+8]
-	mov	DWORD PTR [ebp-124], eax
+	mov	DWORD PTR [ebp-120], eax
 	movzx	eax, BYTE PTR [edx+14]
 	mov	edx, 192
-	mov	DWORD PTR [ebp-120], eax
+	mov	DWORD PTR [ebp-124], eax
 	mov	eax, DWORD PTR [75317856]
 	cmp	eax, edx
 	cmova	eax, edx
 L13:
 	mov	edx, eax
 	sub	eax, 1
-	jb	L90
+	jb	L94
 	mov	ecx, DWORD PTR [75318472+eax*4]
 	cmp	DWORD PTR [ebp-112], ecx
 	jne	L13
 	movzx	eax, BYTE PTR [edx+75318279]
-L87:
+	jmp	L89
+L94:
+	mov	eax, 9
+	cmp	DWORD PTR [ebp-124], eax
+	cmovbe	eax, DWORD PTR [ebp-124]
+	imul	edx, DWORD PTR [ebp-112], -1640531535
+	shr	edx, 29
+	lea	eax, [edx+75317880+eax*8]
+	movzx	eax, BYTE PTR [eax]
+L89:
 	imul	eax, eax, 20
 	xor	esi, esi
 	add	eax, 75317960
@@ -2584,13 +2714,13 @@ L16:
 	cmp	esi, 20
 	jne	L16
 	mov	edx, DWORD PTR [75317836]
-	mov	edi, DWORD PTR [ebp-124]
+	mov	esi, DWORD PTR [ebp-120]
 	mov	eax, 9
-	cmp	DWORD PTR [ebp-120], eax
-	cmovbe	eax, DWORD PTR [ebp-120]
-	imul	edi, edx
+	cmp	DWORD PTR [ebp-124], eax
+	cmovbe	eax, DWORD PTR [ebp-124]
+	imul	esi, edx
 	mov	ecx, DWORD PTR [75317840]
-	mov	edx, edi
+	mov	edx, esi
 	add	edx, ecx
 	mov	esi, edx
 	movzx	edx, BYTE PTR [eax+75317860]
@@ -2621,164 +2751,117 @@ L18:
 	mov	DWORD PTR [ebp-132], eax
 	mov	eax, DWORD PTR [ebp-108]
 	mov	eax, DWORD PTR [eax+8]
-	mov	DWORD PTR [ebp-124], eax
+	mov	DWORD PTR [ebp-120], eax
 	lea	eax, [ebx+13416460]
 	add	edx, eax
 L19:
 	cmp	edx, eax
-	jne	L21
-	xor	edi, edi
-L22:
-	mov	eax, DWORD PTR [ebp-60]
-	mov	ebx, DWORD PTR [ebp-124]
-	add	eax, esi
-	cmp	eax, ebx
-	jnb	L91
-L5:
-	xor	eax, eax
-	jmp	L3
-L89:
-	mov	eax, DWORD PTR [ebx+10400]
-	mov	edx, 650
-	lea	ecx, [ebx+13403340]
-	cmp	eax, edx
-	cmova	eax, edx
-	mov	edx, ecx
-	sal	eax, 4
-	add	eax, ecx
-	jmp	L44
-L90:
-	mov	eax, 9
-	cmp	DWORD PTR [ebp-120], eax
-	cmovbe	eax, DWORD PTR [ebp-120]
-	imul	edx, DWORD PTR [ebp-112], -1640531535
-	shr	edx, 29
-	lea	eax, [edx+75317880+eax*8]
-	movzx	eax, BYTE PTR [eax]
-	jmp	L87
-L21:
+	je	L22
 	mov	ebx, DWORD PTR [eax]
 	lea	ecx, [eax+280]
 	cmp	DWORD PTR [ebp-112], ebx
 	je	L20
 	mov	eax, ecx
 	jmp	L19
-L20:
-	xor	edi, edi
-	test	eax, eax
-	je	L22
-	lea	edi, [eax+272]
-	lea	ecx, [eax+16]
-	mov	DWORD PTR [ebp-148], edi
-	mov	edi, 129
-L24:
-	mov	edx, DWORD PTR [ecx]
-	test	edx, 4177920
-	je	L23
-	mov	ebx, edx
-	shr	ebx, 7
-	and	ebx, 127
-	cmp	DWORD PTR [ebp-132], ebx
-	jne	L23
-	shr	edx, 22
-	bt	edi, edx
-	jc	L46
 L23:
-	add	ecx, 16
-	cmp	DWORD PTR [ebp-148], ecx
-	jne	L24
+	add	edx, 16
+	cmp	ebx, edx
+	jne	L25
 	mov	edi, DWORD PTR [ebp-132]
 	movzx	edx, BYTE PTR [eax+265]
 	lea	ecx, [edi+1]
-	xor	edi, edi
 	cmp	edx, ecx
 	jne	L22
 	movzx	eax, BYTE PTR [eax+266]
-	mov	edi, DWORD PTR [ebp-124]
-	cmp	eax, edi
-	setb	al
+	mov	ebx, DWORD PTR [ebp-120]
+	mov	edi, 2
+	cmp	eax, ebx
+	jb	L24
+L22:
+	mov	eax, DWORD PTR [ebp-120]
+	add	eax, DWORD PTR [ebp-64]
+	cmp	eax, esi
+	setnb	al
 	movzx	eax, al
-	lea	edi, [eax+eax]
-	jmp	L22
-L46:
-	mov	edi, 1
-	jmp	L22
-L91:
-	mov	eax, DWORD PTR [ebp-140]
-	movzx	edx, WORD PTR [ebp-128]
-	mov	ebx, DWORD PTR [ebp-136]
-	sal	eax, 16
-	or	eax, edx
-	mov	edx, DWORD PTR [ebp-144]
-	imul	eax, eax, 16777619
-	xor	edx, ebx
-	mov	ebx, DWORD PTR [ebp-108]
-	xor	edx, eax
-	mov	DWORD PTR [ebp-128], edx
-	mov	edx, DWORD PTR [ebx+28]
+	mov	edi, eax
+	jmp	L24
+L92:
+	mov	ebx, DWORD PTR [ebp-140]
+	movzx	eax, WORD PTR [ebp-128]
+	mov	ecx, DWORD PTR [ebp-136]
+	sal	ebx, 16
+	or	ebx, eax
+	mov	eax, DWORD PTR [ebp-144]
+	imul	ebx, ebx, 16777619
+	xor	eax, ecx
+	xor	eax, ebx
+	mov	DWORD PTR [ebp-128], eax
+	mov	eax, DWORD PTR [ebp-108]
+	mov	edx, DWORD PTR [eax+28]
 	cmp	edx, 1
-	je	L25
-	mov	ecx, DWORD PTR [75321336]
-	cmp	DWORD PTR [ebp-124], ecx
-	jnb	L25
-	mov	ecx, DWORD PTR [75321316]
-	shr	ecx, 20
-	cmp	DWORD PTR [ebx+24], ecx
-	jnb	L25
-	imul	ecx, DWORD PTR [ebp-128], 374761393
-	shr	ecx, 24
-	imul	ecx, ecx, 100
-	shr	ecx, 8
-	cmp	ecx, DWORD PTR [ebp-88]
-	jnb	L5
-L25:
-	mov	ecx, DWORD PTR [ebp-116]
-	mov	ebx, DWORD PTR [ebp-116]
-	mov	cl, BYTE PTR [ecx+16]
-	add	ebx, 16
-	mov	DWORD PTR [ebp-140], ebx
-	inc	cl
 	je	L26
-	imul	ecx, DWORD PTR [ebp-132], -1028477387
-	mov	ebx, DWORD PTR [ebp-136]
-	xor	ecx, ebx
-	xor	ecx, eax
-	imul	eax, ecx, -2048144789
-	mov	ecx, DWORD PTR [ebp-104]
+	mov	eax, DWORD PTR [75321336]
+	cmp	DWORD PTR [ebp-120], eax
+	jnb	L26
+	mov	eax, DWORD PTR [75321316]
+	mov	ecx, DWORD PTR [ebp-108]
+	shr	eax, 20
+	cmp	DWORD PTR [ecx+24], eax
+	jnb	L26
+	imul	eax, DWORD PTR [ebp-128], 374761393
 	shr	eax, 24
 	imul	eax, eax, 100
 	shr	eax, 8
-	cmp	eax, ecx
-	jnb	L27
-	test	edx, edx
-	jmp	L85
-L27:
-	add	ecx, DWORD PTR [ebp-100]
-	cmp	eax, ecx
+	cmp	eax, DWORD PTR [ebp-88]
+	jnb	L5
+L26:
+	mov	eax, DWORD PTR [ebp-116]
+	add	eax, 16
+	mov	DWORD PTR [ebp-140], eax
+	mov	eax, DWORD PTR [ebp-116]
+	mov	al, BYTE PTR [eax+16]
+	inc	al
+	je	L27
+	imul	eax, DWORD PTR [ebp-132], -1028477387
+	mov	ecx, DWORD PTR [ebp-136]
+	xor	eax, ecx
+	xor	eax, ebx
+	mov	ebx, DWORD PTR [ebp-104]
+	imul	eax, eax, -2048144789
+	shr	eax, 24
+	imul	eax, eax, 100
+	shr	eax, 8
+	cmp	eax, ebx
 	jnb	L28
-	cmp	edx, 1
-	jmp	L85
+	test	edx, edx
+	jmp	L87
 L28:
-	add	ecx, DWORD PTR [ebp-96]
-	cmp	eax, ecx
+	add	ebx, DWORD PTR [ebp-100]
+	cmp	eax, ebx
 	jnb	L29
-	cmp	edx, 2
-L85:
-	je	L26
-	jmp	L5
+	cmp	edx, 1
+	jmp	L87
 L29:
+	add	ebx, DWORD PTR [ebp-96]
+	cmp	eax, ebx
+	jnb	L30
+	cmp	edx, 2
+L87:
+	je	L27
+	jmp	L5
+L30:
 	cmp	edi, 2
 	jne	L5
 	mov	eax, DWORD PTR [ebp-140]
 	movzx	eax, BYTE PTR [eax]
 	cmp	edx, eax
 	jne	L5
-	jmp	L30
-L26:
+	jmp	L31
+L27:
 	test	edi, edi
 	je	L5
 	cmp	edi, 2
-	je	L30
+	je	L31
 	mov	ebx, DWORD PTR [ebp-108]
 	mov	eax, DWORD PTR [75321340]
 	mov	ecx, DWORD PTR [75321340]
@@ -2793,18 +2876,18 @@ L26:
 	mov	eax, DWORD PTR [ebp-116]
 	movzx	eax, BYTE PTR [eax+14]
 	cmp	ecx, eax
-	jb	L31
+	jb	L32
 	mov	eax, DWORD PTR [ebp-116]
 	movzx	eax, BYTE PTR [eax+15]
 	cmp	eax, ecx
-	jnb	L30
-L31:
+	jnb	L31
+L32:
 	mov	eax, DWORD PTR [ebp-52]
 	mov	ecx, 100
 	test	edx, edx
-	jne	L32
+	jne	L33
 	mov	ecx, DWORD PTR [75321320]
-L32:
+L33:
 	imul	edx, DWORD PTR [ebp-128], 461845907
 	imul	eax, ecx
 	shr	edx, 24
@@ -2813,25 +2896,25 @@ L32:
 	imul	edx, edx, 100
 	cmp	edx, eax
 	jb	L5
-L30:
+L31:
 	mov	edx, DWORD PTR [ebp-84]
 	imul	ecx, DWORD PTR [ebp-128], -430675099
 	lea	eax, [edx+edx]
 	shr	ecx, 24
 	inc	eax
 	imul	eax, ecx
-	mov	ecx, DWORD PTR [ebp-124]
+	mov	ecx, DWORD PTR [ebp-120]
 	sub	ecx, edx
 	shr	eax, 8
 	add	ecx, eax
 	cmp	edi, 2
-	je	L33
+	je	L34
 	mov	eax, DWORD PTR [ebp-64]
 	add	eax, ecx
 	cmp	eax, esi
 	jb	L5
-L33:
-	mov	ebx, DWORD PTR [ebp-120]
+L34:
+	mov	ebx, DWORD PTR [ebp-124]
 	mov	eax, 1
 	add	ebx, 18829440
 	mov	edx, DWORD PTR [0+ebx*4]
@@ -2848,26 +2931,26 @@ L33:
 	mov	eax, DWORD PTR [ebp-108]
 	mov	eax, DWORD PTR [eax+28]
 	cmp	eax, 2
-	je	L34
+	je	L35
 	test	eax, eax
-	jne	L35
+	jne	L36
 	mov	edx, DWORD PTR [75317820]
-	jmp	L36
-L35:
-	mov	edx, DWORD PTR [75317824]
+	jmp	L37
 L36:
+	mov	edx, DWORD PTR [75317824]
+L37:
 	mov	eax, esi
 	mov	ecx, 100
 	call	muldiv
 	mov	esi, eax
-L34:
+L35:
 	mov	eax, DWORD PTR [0+ebx*4]
 	mov	edx, DWORD PTR [ebp-80]
 	mov	ecx, 100
 	call	muldiv
 	mov	ebx, eax
 	cmp	edi, 2
-	jne	L37
+	jne	L38
 	mov	edx, DWORD PTR [ebp-72]
 	mov	eax, DWORD PTR [75317816]
 	call	muldiv
@@ -2875,7 +2958,7 @@ L34:
 	mov	eax, ebx
 	call	muldiv
 	mov	ebx, eax
-L37:
+L38:
 	mov	edx, DWORD PTR [ebp-76]
 	mov	eax, DWORD PTR [75317812]
 	mov	ecx, 100
@@ -2915,16 +2998,16 @@ pick:
 	push	ebx
 	sub	esp, 60
 	cmp	DWORD PTR [ebp+8], 0
-	je	L93
+	je	L96
 	mov	eax, DWORD PTR [38926428]
 	mov	DWORD PTR [ebp-60], eax
 	dec	eax
 	cmp	eax, -3
-	ja	L93
+	ja	L96
 	mov	eax, DWORD PTR [ebp+12]
 	mov	eax, DWORD PTR [eax+8]
 	test	eax, eax
-	je	L93
+	je	L96
 	mov	esi, DWORD PTR [eax]
 	mov	ebx, DWORD PTR [eax+4]
 	push	ecx
@@ -2936,11 +3019,11 @@ pick:
 	lea	edx, [eax-1]
 	mov	DWORD PTR [ebp-56], eax
 	cmp	edx, -3
-	ja	L93
+	ja	L96
 	mov	cx, WORD PTR [eax+44]
 	movzx	edx, si
 	cmp	cx, si
-	jne	L93
+	jne	L96
 	imul	ebx, ebx, 16777619
 	xor	ebx, edx
 	mov	DWORD PTR [ebp-52], ebx
@@ -2969,96 +3052,96 @@ pick:
 	and	eax, 15
 	dec	eax
 	cmp	eax, 1
-	jbe	L94
+	jbe	L97
 	mov	eax, DWORD PTR [edx+184]
 	and	eax, 1610612736
 	neg	eax
 	sbb	ecx, ecx
 	add	ecx, 2
-L94:
+L97:
 	mov	eax, DWORD PTR [ebp+8]
 	mov	DWORD PTR [ebp-28], ecx
 	mov	esi, DWORD PTR [eax+6286560]
 	lea	eax, [esi-1]
 	cmp	eax, 1023
-	ja	L93
+	ja	L96
 	mov	eax, DWORD PTR [ebp+8]
 	xor	edx, edx
 	lea	ebx, [eax+4725728]
 	mov	eax, ebx
-L97:
+L100:
 	mov	ecx, DWORD PTR [eax]
 	test	ecx, ecx
-	je	L95
+	je	L98
 	cmp	DWORD PTR [ebp-60], ecx
-	je	L95
+	je	L98
 	mov	ecx, DWORD PTR [eax+798]
 	and	ecx, 7
 	dec	ecx
-	je	L95
+	je	L98
 	mov	ecx, DWORD PTR [eax+788]
 	shr	ecx, 7
 	movzx	ecx, cl
 	cmp	ecx, DWORD PTR [ebp+16]
-	je	L96
-L95:
+	je	L99
+L98:
 	inc	edx
 	add	eax, 1312
 	cmp	esi, edx
-	jne	L97
-L105:
+	jne	L100
+L108:
 	imul	esi, esi, 1312
 	mov	DWORD PTR [ebp-64], 256
 	lea	eax, [esi+ebx]
 	xor	esi, esi
 	mov	DWORD PTR [ebp-68], eax
-L103:
+L106:
 	mov	edi, DWORD PTR [ebx]
 	test	edi, edi
-	je	L100
+	je	L103
 	cmp	DWORD PTR [ebp-60], edi
-	je	L100
+	je	L103
 	mov	eax, DWORD PTR [ebx+798]
 	and	eax, 7
 	dec	eax
-	je	L100
+	je	L103
 	mov	eax, DWORD PTR [ebp+8]
 	lea	ecx, [ebp-56]
 	mov	edx, ebx
 	call	wants
 	test	eax, eax
-	je	L100
+	je	L103
 	mov	eax, DWORD PTR [ebx+788]
 	mov	edx, DWORD PTR [ebp+16]
 	shr	eax, 7
 	movzx	eax, al
 	sub	edx, eax
 	cmp	eax, DWORD PTR [ebp+16]
-	jb	L102
+	jb	L105
 	sub	eax, DWORD PTR [ebp+16]
 	mov	edx, eax
-L102:
+L105:
 	mov	eax, DWORD PTR [ebp-64]
 	cmp	edx, eax
-	jnb	L100
+	jnb	L103
 	mov	DWORD PTR [ebp-64], edx
 	mov	esi, edi
-L100:
+L103:
 	add	ebx, 1312
 	cmp	DWORD PTR [ebp-68], ebx
-	jne	L103
-	jmp	L92
-L96:
+	jne	L106
+	jmp	L95
+L99:
 	imul	edx, edx, 1312
 	mov	eax, DWORD PTR [ebp+8]
 	lea	ecx, [ebp-56]
 	add	edx, ebx
 	call	wants
 	test	eax, eax
-	je	L105
-L93:
+	je	L108
+L96:
 	xor	esi, esi
-L92:
+L95:
 	lea	esp, [ebp-12]
 	mov	eax, esi
 	pop	ebx
@@ -3072,52 +3155,49 @@ INCOMING_SOURCE = INCOMING_STUB_SOURCE + INCOMING_BODY_SOURCE
 
 
 INCOMING_BYTES = bytes.fromhex(
-    '9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250'
-    'e8cd05000083c40c85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff'
-    '55535783ec2089e58b5d308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d000000'
-    '6a025150e86bd507ff83c40c0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c'
-    '8945ec8955e8894de48b45ecf765e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e5575653'
-    '89c381ec8c0000008b028b155cf85102894d94b940000000894590a1c8477d0439c80f47c18d3cc5cc477d04'
-    'b8cc477d0439f80f84970100008b308b4804397590750839ca0f847e01000083c00839f275df394d9075dae9'
-    '6d0100008b3a8d7210397d90740889f239c275f089ca0fb742088945840fb6420ebac0000000894588a16042'
-    '7d0439d00f47c289c283e8010f825c0100008b0c85c8447d04394d9075e90fb68207447d046bc01431f605c8'
-    '427d0489458c694590b179379e898578ffffff8b458c8b0d44427d0469d6930100018b3d48427d0401f08a00'
-    '8845808b8578ffffff31c20fb6458069d26bcaeb85c1ea180fafd7c1ea0801cab9e8030000e8c8feffff8944'
-    'b5984683fe1475b38b154c427d048b7d84b8090000003945880f4645880faffa8b0d50427d0489fa01ca89d6'
-    '0fb69064427d04c1ee1039d673070fb6b064427d040fb6906e427d0439f273070fb6b06e427d04668b83b2cb'
-    'c200b95303000066894580668b83b0cbc2008b933464d00066898574ffffff8b459439ca8b40040f47d18985'
-    '70ffffff8b459469d2180100008b400c89857cffffff8b45948b40088945848d830cb8cc0001c239c2756031'
-    'ff8b45c48b5d8401f039d80f83e400000031c0e94a0300008b83a0280000ba8a0200008d8bcc84cc0039d00f'
-    '47c289cac1e00401c8e976feffffb8090000003945880f464588695590b179379ec1ea1d8d84c278427d040f'
-    'b600e992feffff8b188d8818010000395d90740489c8eb8b31ff85c0748b8db8100100008d481089bd6cffff'
-    'ffbf810000008b11f7c200c03f00741889d3c1eb0783e37f399d7cffffff7508c1ea160fa3d7723f83c11039'
-    '8d6cffffff75d38bbd7cffffff0fb690090100008d4f0131ff39ca0f8530ffffff0fb6800a0100008b7d8439'
-    'f80f92c00fb6c08d3c00e916ffffffbf01000000e90cffffff8b8574ffffff0fb755808b9d78ffffffc1e010'
-    '09d08b9570ffffff69c09301000131da8b5d9431c28955808b531c83fa0174328b0df84f7d04394d8473278b'
-    '0de44f7d04c1e914394b187319694d80b1675616c1e9186bc964c1e9083b4da80f83b7feffff8b4d8c8b5d8c'
-    '8a491083c310899d74fffffffec17467698d7cffffff35aeb2c28b9d78ffffff31d931c169c16bcaeb858b4d'
-    '98c1e8186bc064c1e80839c8730485d2eb16034d9c39c8730583fa01eb0a034da039c8730a83fa027421e956'
-    'feffff83ff020f854dfeffff8b8574ffffff0fb60039c20f853cfeffffeb7985ff0f8432feffff83ff02746c'
-    '8b5d94a1fc4f7d048b0dfc4f7d04034b14695d9041a11ddf01c040c1eb180fafc3c1e80829c18b458c0fb640'
-    '0e39c1720b8b458c0fb6400f39c873308b45ccb96400000085d275068b0de84f7d046955809335871b0fafc1'
-    'c1ea186bd264c1ea086bd26439c20f82c1fdffff8b55ac694d80656b54e68d0412c1e918400fafc18b4d8429'
-    'd1c1e80801c183ff02740d8b45c001c839f00f8291fdffff8b5d88b80100000081c380501f018b149d000000'
-    '00420f84c600000050508b459451ff30e81bfbffff83c41089c68b45948b401c83f802742085c075088b153c'
-    '427d04eb068b1540427d0489f0b964000000e83ffbffff89c68b049d000000008b55b0b964000000e829fbff'
-    'ff89c383ff0275198b55b8a138427d04e815fbffff8d506489d8e80bfbffff89c38b55b4a134427d04b96400'
-    '000083cfffe8f4faffff6955806bcaeb85b900640000c1ea180fafd089d8e8dbfaffffb9a086010001c38b45'
-    '940f42df8b50180faf55bc89d8e8c0faffff01c30f42df31c039f30f93c08d65f45b5e5f5dc35589e5575653'
-    '83ec3c837d08000f84a0010000a15cf851028945c44883f8fd0f878e0100008b450c8b400885c00f84800100'
-    '008b308b580451ff75085356e855faffff83c4108d50ff8945c883fafd0f875e010000668b482c0fb7d66639'
-    'f10f854e01000069db9301000131d3895dcc8b5004c1ea1c8955d452528d55d85250e8f1f9ffff8b55c883c4'
-    '1031c98945d08b421cc1e80783e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083e00f'
-    '4883f80176128b82b80000002500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff030000'
-    '0f87cb0000008b450831d28d98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b88'
-    '14030000c1e9070fb6c93b4d10747b42052005000039d675ce69f620050000c745c0000100008d041e31f689'
-    '45bc8b3b85ff7449397dc474448b831e03000083e0074874388b45088d4dc889dae878f9ffff85c074278b83'
-    '140300008b5510c1e8070fb6c029c23b451072052b451089c28b45c039c273058955c089fe81c32005000039'
-    '5dbc75a6eb1d69d2200500008b45088d4dc801dae82df9ffff85c00f8474ffffff31f68d65f489f05b5e5f5d'
-    'c3')
+    '9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e8c705000083c40c'
+    '85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec2089e58b5d'
+    '308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86bd507ff83c40c'
+    '0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8894de48b45ecf765'
+    'e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565389c381ec8c0000008b028b155cf85102'
+    '894d94b940000000894590a1c8477d0439c80f47c18d3cc5cc477d04b8cc477d0439c774798b308b480439759075'
+    '0439ca746483c00839f275e7394d9075e2eb5685c00f84380200008d50108d98100100008b0af7c100c03f000f84'
+    'eb01000089cfc1ef0783e77f39bd7cffffff0f85d7010000c1e916bf81000000d3ef83e7010f84c40100008b45c4'
+    '8b5d8801f039d80f83ff01000031c0e9660400008b83a0280000ba8a0200008d8bcc84cc0039d00f47c289cac1e0'
+    '0401c839d0740e8b3a8d7210397d90740689f2ebee89ca0fb742088945880fb6420ebac0000000894584a160427d'
+    '0439d00f47c289c283e80172158b0c85c8447d04394d9075ed0fb68207447d04eb20b8090000003945840f464584'
+    '695590b179379ec1ea1d8d84c278427d040fb6006bc01431f605c8427d0489458c694590b179379e898578ffffff'
+    '8b458c8b0d44427d0469d6930100018b3d48427d0401f08a008845808b8578ffffff31c20fb6458069d26bcaeb85'
+    'c1ea180fafd7c1ea0801cab9e8030000e839feffff8944b5984683fe1475b38b154c427d048b7588b80900000039'
+    '45840f4645840faff28b0d50427d0489f201ca89d60fb69064427d04c1ee1039d673070fb6b064427d040fb6906e'
+    '427d0439f273070fb6b06e427d04668b83b2cbc200b95303000066894580668b83b0cbc2008b933464d000668985'
+    '74ffffff8b459439ca8b40040f47d1898570ffffff8b459469d2180100008b400c89857cffffff8b45948b400889'
+    '45888d830cb8cc0001c239c2744b8b188d8818010000395d900f84fafdffff89c8ebe783c21039d30f85fcfdffff'
+    '8bbd7cffffff0fb690090100008d4f0139ca75170fb6800a0100008b5d88bf0200000039d80f8206feffff8b4588'
+    '0345c039f00f93c00fb6c089c7e9f1fdffff8b9d74ffffff0fb745808b8d78ffffffc1e31009c38b8570ffffff69'
+    'db9301000131c831d88945808b45948b501c83fa017433a1f84f7d043945887329a1e44f7d048b4d94c1e8143941'
+    '187319694580b1675616c1e8186bc064c1e8083b45a80f839bfdffff8b458c83c010898574ffffff8b458c8a4010'
+    'fec0746769857cffffff35aeb2c28b8d78ffffff31c831d88b5d9869c06bcaeb85c1e8186bc064c1e80839d87304'
+    '85d2eb16035d9c39d8730583fa01eb0a035da039d8730a83fa027421e93afdffff83ff020f8531fdffff8b8574ff'
+    'ffff0fb60039c20f8520fdffffeb7985ff0f8416fdffff83ff02746c8b5d94a1fc4f7d048b0dfc4f7d04034b1469'
+    '5d9041a11ddf01c040c1eb180fafc3c1e80829c18b458c0fb6400e39c1720b8b458c0fb6400f39c873308b45ccb9'
+    '6400000085d275068b0de84f7d046955809335871b0fafc1c1ea186bd264c1ea086bd26439c20f82a5fcffff8b55'
+    'ac694d80656b54e68d0412c1e918400fafc18b4d8829d1c1e80801c183ff02740d8b45c001c839f00f8275fcffff'
+    '8b5d84b80100000081c380501f018b149d00000000420f84c600000050508b459451ff30e821fbffff83c41089c6'
+    '8b45948b401c83f802742085c075088b153c427d04eb068b1540427d0489f0b964000000e845fbffff89c68b049d'
+    '000000008b55b0b964000000e82ffbffff89c383ff0275198b55b8a138427d04e81bfbffff8d506489d8e811fbff'
+    'ff89c38b55b4a134427d04b96400000083cfffe8fafaffff6955806bcaeb85b900640000c1ea180fafd089d8e8e1'
+    'faffffb9a086010001c38b45940f42df8b50180faf55bc89d8e8c6faffff01c30f42df31c039f30f93c08d65f45b'
+    '5e5f5dc35589e557565383ec3c837d08000f84a0010000a15cf851028945c44883f8fd0f878e0100008b450c8b40'
+    '0885c00f84800100008b308b580451ff75085356e85bfaffff83c4108d50ff8945c883fafd0f875e010000668b48'
+    '2c0fb7d66639f10f854e01000069db9301000131d3895dcc8b5004c1ea1c8955d452528d55d85250e8f7f9ffff8b'
+    '55c883c41031c98945d08b421cc1e80783e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083'
+    'e00f4883f80176128b82b80000002500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff030000'
+    '0f87cb0000008b450831d28d98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b881403'
+    '0000c1e9070fb6c93b4d10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b'
+    '85ff7449397dc474448b831e03000083e0074874388b45088d4dc889dae87ef9ffff85c074278b83140300008b55'
+    '10c1e8070fb6c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d69d2'
+    '200500008b45088d4dc801dae833f9ffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3')
 
 
 assert len(INCOMING_BYTES) <= INCOMING_CAVE_SIZE and INCOMING_CODE + INCOMING_CAVE_SIZE == CAVE_5
