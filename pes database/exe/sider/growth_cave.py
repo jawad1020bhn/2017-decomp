@@ -11,7 +11,7 @@
                                       replay six seasons of the model on every
                                       player of the save and print the OVR bands
 
-MLGrowth.lua (version 3) gives Master League players an age curve (PES 2017,
+MLGrowth.lua (version 4) gives Master League players an age curve (PES 2017,
 sha256 44b0caaa...).  Version 3 keeps the curve adaptive but moderates its baseline
 pace, so a talented, regularly used teenager still develops faster than an established
 player without making every young player advance at the previous rate.  The vanilla game:
@@ -112,7 +112,7 @@ RECORD_STRIDE = 0xe0                      # the player array the season walk use
 DATA = 0x0298c200                         # tables and floats, .text page tail
 CURVE = 0x047d5b8c                        # .reloc gap, 84 bytes
 E2 = 0x047d3f07                           # .xcode gap, 153 bytes
-E1 = 0x047d6e50                           # .link gap, 176 bytes: E1, then B2
+E1 = 0x047d6e50                           # .link gap, 174 bytes before FOCUS: E1, then B2
 B1 = 0x047d6377                           # .link gap, 137 bytes
 FOCUS = 0x047d6efe                        # .link gap behind E1+B2, 98 bytes
 LEVELS = 0x036216e9                       # ecx = growth record, (selector, exp) -> levels, ret 8
@@ -255,11 +255,13 @@ def _emit():
     parts = {}
 
     # ---- E2: the season award (in: edi = player, ebx = new age, frame of E1) ----
+    # Preserve the age margin while the selector/getter use EDX.
     e2_src = f"""
         lea eax, [ebx - 15]
         movzx edx, byte ptr [eax + {MARGIN_TBL:#x}]
         test edx, edx
         jz e_out
+        push edx
         mov eax, [edi + 4]
         shr eax, 28
         movzx edx, byte ptr [eax + {POSTBL_TBL:#x}]
@@ -269,7 +271,7 @@ def _emit():
         push edx
         mov ecx, edi
         call {GETTER:#x}
-        mov edx, [ebp - 4]
+        pop edx
         mov eax, [ebp - 8]
         cmp eax, 99
         jae e_out
@@ -535,7 +537,7 @@ def build():
     for k, (a, b) in out.items():
         if k in ('data', 'B2'):
             continue                                    # B2 shares E1's fragment
-        limit = 176 - len(out['B2'][1]) if k == 'E1' else room[k]
+        limit = FOCUS - E1 - len(out['B2'][1]) if k == 'E1' else room[k]
         assert len(b) <= limit, f'{k} overflows its fragment: {len(b)} > {limit}'
     return out
 
@@ -566,16 +568,16 @@ CODE_PARTS = {           # name -> (address, hex); growth_cave.py build verifies
     ),
     "E2": (
         0x47d3f07,
-        "8d43f10fb69058c2980285d274758b4704c1e81c0fb690c8c298028955fc8d45",
-        "f8505289f9e87f3905ff8b55fc8b45f883f863734e89c6b96300000029c139d1",
-        "73198d43f10fb68010c298020fafc8c1e20289c889d199f7f9eb0d8d43f10fb6",
-        "8010c29802c1e80285c07e1701f083f8637605b86300000050ff75fc89f9e826",
-        "4205ff89ec5d5f5e5b8b1518e54f02e9a5f7e4fe",
+        "8d43f10fb69058c2980285d27474528b4704c1e81c0fb690c8c298028955",
+        "fc8d45f8505289f9e87e3905ff5a8b45f883f863734e89c6b96300000029",
+        "c139d173198d43f10fb68010c298020fafc8c1e20289c889d199f7f9eb0d",
+        "8d43f10fb68010c29802c1e80285c07e1701f083f8637605b86300000050",
+        "ff75fc89f9e8274205ff89ec5d5f5e5b8b1518e54f02e9a6f7e4fe",
     ),
     "E1": (
         0x47d6e50,
-        "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8",
-        "414696fe84c00f850ed1ffff8b5f1cc1eb0783e33fe97dd0ffff",
+        "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff77",
+        "2ce8414696fe84c00f850dd1ffff8b5f1cc1eb0783e33fe97dd0ffff",
     ),
     "B1": (
         0x47d6377,
@@ -773,10 +775,10 @@ if __name__ == '__main__':
     else:
         budgets = {'curve': 84, 'E2': 153, 'B1': 137}
         used = {k: len(bytes.fromhex(part(k)[1])) for k in CODE_PARTS}
-        used['E1'] += used['B2']                            # they share the 176-byte gap
+        used['E1'] += used['B2']                            # they share the gap before FOCUS
         for k in sorted(CODE_PARTS, key=lambda k: part(k)[0]):
             a, hx = part(k)
-            room = 176 if k == 'E1' else budgets.get(k)
+            room = FOCUS - E1 if k == 'E1' else budgets.get(k)
             print(f'{k:6s} {a:#010x} +{used[k]:#05x}' + (f' of {room:#x}' if room else ''))
         for at, old, new in patches():
             print(f'patch  {at:#010x}: {old.hex()} -> {new.hex()}')

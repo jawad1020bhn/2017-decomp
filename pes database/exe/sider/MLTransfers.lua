@@ -856,6 +856,8 @@ local MONEY = {
       .. "f400000000c3" },
     { "numbers", 0x047b0654,
       "64000000e8030000" },
+    { "value hook", 0x038ab8db,
+      "e8b053f000909090909090909090909090" },
 }
 
 -- The code of the game the place and the routine rely on: name, address, bytes.
@@ -1577,13 +1579,21 @@ function m.init(ctx)
     end
 
     -- 4. the places in the game's code
-    for _, site in ipairs(sites) do
+    for i, site in ipairs(sites) do
         local new = unhex(site[4])
         memory.write(site[2], new)
         local stuck = (memory.read(site[2], #new) == new)
         log(string.format("written: %-9s at %08x  %s", site[1], site[2], stuck and "ok" or "FAILED"))
         if not stuck then
-            log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
+            local restored = true
+            for j = i, 1, -1 do
+                local site = sites[j]
+                local old = unhex(site[3])
+                memory.write(site[2], old)
+                if memory.read(site[2], #old) ~= old then restored = false end
+            end
+            log("RESULT: a change did not go in. " .. (restored and "Hooks restored. " or "Hook restore failed. ")
+                .. "Quit the game, remove the module, send this log.")
             return
         end
     end

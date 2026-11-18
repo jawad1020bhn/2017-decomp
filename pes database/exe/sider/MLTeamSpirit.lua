@@ -1,4 +1,4 @@
--- MLTeamSpirit.lua, version 2: Team Spirit follows your club's form
+-- MLTeamSpirit.lua, version 3: Team Spirit follows your club's form
 -- (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): in a played match every player of
@@ -8,6 +8,7 @@
 -- team worse, and only when you play. Version 1 of this module answered 99 for your players
 -- too, which switches the effect off. Version 2 answers a value of the club's own, 90 to 99:
 -- the effect is there, but it never bites, and it moves with what the club is doing.
+-- Version 3 fixes Sider team IDs, date widths and the final table batches.
 --
 -- Where the number comes from: the match records of the career (mode data +0x6f154c,
 -- 9,000 records of 0x24c bytes, section 5). Every match your club has played is in there
@@ -80,9 +81,8 @@ local BIG_MATCH_BONUS = 2   -- a league match of two of the best four or the wor
 local BIG_TOP = 4           -- how many places are "the top" of a league
 local BIG_BOTTOM = 3        -- how many are "the bottom"
 
-local RIVALS = {}           -- club ids of your own, for a derby the game does not name.
-                            -- The line for a match in sider.log names the two club ids,
-                            -- so a derby you want can be copied from it.
+local RIVALS = {}           -- packed career club ids, for a derby the game does not name.
+                            -- Copy the opponent's "RIVALS id" from sider.log, not its Sider team number.
 
 local SEASON = 372          -- days of a career year (the game has no 29 February)
 
@@ -166,11 +166,10 @@ local function u32(s, i)
     return (a or 0) + (b or 0) * 256 + (c or 0) * 65536 + (d or 0) * 16777216
 end
 
--- A club is known by the high part of its id: that is what the game compares
--- (fcn_03857dfb) and in a career it is different for every club.
+-- Decode packed game/RIVALS ids to the 16-bit team numbers Sider publishes.
 local function key_of(id)
-    if type(id) ~= "number" then return nil end
-    return math.floor(id / 16384)
+    if type(id) ~= "number" or id == 0xffffffff then return nil end
+    return math.floor(id / 16384) % 65536
 end
 
 local function clamp(v, lo, hi)
@@ -233,9 +232,10 @@ local function walk(base, club, comp, now)
     local ours, theirs, top_round, near_round = {}, {}, nil, nil
     local addr, stride, per = base + MATCHES_AT, MATCH_STRIDE, 32
     for first = 0, MATCH_COUNT - 1, per do
-        local blob = memory.read(addr + first * stride, per * stride)
-        if type(blob) ~= "string" or #blob < per * stride then break end
-        for i = 0, per - 1 do
+        local count = math.min(per, MATCH_COUNT - first)
+        local blob = memory.read(addr + first * stride, count * stride)
+        if type(blob) ~= "string" or #blob < count * stride then break end
+        for i = 0, count - 1 do
             local at = i * stride + 1                       -- 1-based, as Lua wants it
             if u16(blob, at + M_FREE) ~= 0xffff then        -- a match, not a free place
                 local home, away = u32(blob, at + M_HOME), u32(blob, at + M_AWAY)
@@ -243,10 +243,11 @@ local function walk(base, club, comp, now)
                 local round = flags % 0x1000                 -- bits 0 to 11
                 local played = (math.floor(flags / 0x4000) % 2) == 1     -- bit 14
                 local this = u16(blob, at + M_COMP)
+                local date = day_key(u16(blob, at + M_DATE), byte(blob, at + M_DATE + 2),
+                                     byte(blob, at + M_DATE + 3))
                 if this == comp then
                     theirs[#theirs + 1] = {
-                        date = day_key(u16(blob, at + M_DATE), byte(blob, at + M_DATE + 2),
-                                       byte(blob, at + M_DATE + 3)),
+                        date = date,
                         round = round,
                         home = key_of(home), away = key_of(away),
                         g1 = byte(blob, at + M_GOAL1), g2 = byte(blob, at + M_GOAL2),
@@ -258,7 +259,7 @@ local function walk(base, club, comp, now)
                         near_round = round          -- the rounds of a cup are not all neighbours
                     end
                 end
-                if played and club ~= nil then
+                if played and club ~= nil and date ~= nil and (now == nil or date <= now) then
                     local one, two = key_of(home), key_of(away)
                     local gf, ga, opp
                     if one == club then gf, ga, opp = byte(blob, at + M_GOAL1), byte(blob, at + M_GOAL2), two
@@ -266,8 +267,7 @@ local function walk(base, club, comp, now)
                     end
                     if gf ~= nil then
                         ours[#ours + 1] = {
-                            date = day_key(u16(blob, at + M_DATE), byte(blob, at + M_DATE + 2),
-                                           byte(blob, at + M_DATE + 3)) or 0,
+                            date = date,
                             gf = gf, ga = ga, comp = this, round = round, opp = opp,
                         }
                     end
@@ -294,11 +294,10 @@ local function rivals_of(base, club)
     if count == nil or count < 1 or count > 1000 then return set end
     local addr, stride, per = base + CLUBS_AT, CLUB_STRIDE, 8
     for first = 0, count - 1, per do
-        local blob = memory.read(addr + first * stride, per * stride)
-        if type(blob) ~= "string" or #blob < per * stride then break end
-        for i = 0, per - 1 do
-            local n = first + i
-            if n >= count then break end
+        local n = math.min(per, count - first)
+        local blob = memory.read(addr + first * stride, n * stride)
+        if type(blob) ~= "string" or #blob < n * stride then break end
+        for i = 0, n - 1 do
             if key_of(u32(blob, i * stride + 1)) == club then
                 for r = 0, 2 do
                     local id = u32(blob, i * stride + 1 + CLUB_RIVALS + r * 4)
@@ -326,10 +325,10 @@ local function kind_of(base, comp)
     if count == nil or count < 1 or count > 300 then return nil end
     local addr, stride, per = base + COMPETITIONS_AT, COMP_STRIDE, 16
     for first = 0, count - 1, per do
-        local blob = memory.read(addr + first * stride, per * stride)
-        if type(blob) ~= "string" or #blob < per * stride then break end
-        for i = 0, per - 1 do
-            if first + i >= count then break end
+        local n = math.min(per, count - first)
+        local blob = memory.read(addr + first * stride, n * stride)
+        if type(blob) ~= "string" or #blob < n * stride then break end
+        for i = 0, n - 1 do
             if u16(blob, i * stride + 1) == comp then            -- +0x00: its own number
                 local kind = byte(blob, i * stride + 1 + C_KIND)
                 if kind >= 1 and kind <= 5 then return kind end
@@ -470,12 +469,12 @@ end
 function m.set_conditions(ctx)
     if last_value == nil then return end                     -- nothing was installed
     if mode_kind() ~= MASTER_LEAGUE then
-        if say_once("mode") then log("MLTeamSpirit 2: no career of your own in this mode; nothing changed") end
+        if say_once("mode") then log("MLTeamSpirit 3: no career of your own in this mode; nothing changed") end
         return
     end
     local base = mode_data()
     if base == nil then
-        if say_once("mode data") then log("MLTeamSpirit 2: the mode data cannot be read; the value stays where it is") end
+        if say_once("mode data") then log("MLTeamSpirit 3: the mode data cannot be read; the value stays where it is") end
         return
     end
 
@@ -485,14 +484,14 @@ function m.set_conditions(ctx)
     local club = key_of(ours_id)
     local opp, home_side = nil, nil
     if club ~= nil then
-        if key_of(home) == club then opp, home_side = away, true
-        elseif key_of(away) == club then opp, home_side = home, false
+        if home == club then opp, home_side = away, true
+        elseif away == club then opp, home_side = home, false
         end
     end
     if opp == nil then
         -- not a match of your club (or the club is not known): the value stays as it is
         if home ~= nil and away ~= nil and say_once("not ours") then
-            log(string.format("MLTeamSpirit 2: no match of your club (yours %s, home %s, away %s); "
+            log(string.format("MLTeamSpirit 3: no match of your club (yours %s, home %s, away %s); "
                 .. "the value stays where it is", tostring(ours_id), tostring(home), tostring(away)))
         end
         return
@@ -512,31 +511,31 @@ function m.set_conditions(ctx)
         local s = memory.read(base + MATCHES_AT + record * MATCH_STRIDE, 0x18)
         if type(s) == "string" and #s >= 0x18 and u16(s, 1 + M_FREE) ~= 0xffff then
             local one, two = key_of(u32(s, 1 + M_HOME)), key_of(u32(s, 1 + M_AWAY))
-            if (one == club and two == key_of(opp)) or (two == club and one == key_of(opp)) then
+            if (one == club and two == opp) or (two == club and one == opp) then
                 comp, round = u16(s, 1 + M_COMP), u16(s, 1 + M_FLAGS) % 0x1000
             elseif say_once("match_id") then
-                log(string.format("MLTeamSpirit 2: match_id %d is not this match; the round of a cup "
+                log(string.format("MLTeamSpirit 3: match_id %d is not this match; the round of a cup "
                     .. "is not known, so the cup rules do not fire", record))
             end
         end
     end
 
     local now = nil
-    local day, year = dword_at(base + TODAY_AT), dword_at(base + YEAR_AT)
-    if day ~= nil and year ~= nil then now = year * SEASON + day end
+    local date = memory.read(base + TODAY_AT, YEAR_AT - TODAY_AT + 2)
+    if type(date) == "string" and #date == 4 then now = u16(date, 3) * SEASON + u16(date, 1) end
 
     local ours, theirs, top, near = walk(base, club, comp, now)
     local kind = kind_of(base, comp)
 
     -- a derby: one of the three clubs the club record names, or one of RIVALS
     local rival_set = rivals_of(base, club)
-    local derby = rival_set[key_of(opp)] == true
+    local derby = rival_set[opp] == true
 
     -- a big league match: two of the best four, or two of the worst three
     local big = false
     local place, teams = places(theirs, now)
     if kind == 1 and place ~= nil then
-        local mine, his = place[club], place[key_of(opp)]
+        local mine, his = place[club], place[opp]
         if mine ~= nil and his ~= nil then
             big = (mine <= BIG_TOP and his <= BIG_TOP)
                   or (mine > teams - BIG_BOTTOM and his > teams - BIG_BOTTOM)
@@ -551,7 +550,7 @@ function m.set_conditions(ctx)
     if v ~= last_value then
         memory.write(VALUE_AT, string.char(v))
         if memory.read(VALUE_AT, 1) ~= string.char(v) then
-            if say_once("write") then log("MLTeamSpirit 2: the value did not go in. Quit the game, "
+            if say_once("write") then log("MLTeamSpirit 3: the value did not go in. Quit the game, "
                 .. "remove the module, send this log.") end
             return
         end
@@ -559,13 +558,12 @@ function m.set_conditions(ctx)
     end
 
     if say_once("club") then
-        log(string.format("MLTeamSpirit 2: your club is %d. Every line below names the other club "
-            .. "of the match the same way; such a number in RIVALS makes that club a derby.",
-            ours_id or 0))
+        log(string.format("MLTeamSpirit 3: your club is %d (Sider team %d). RIVALS uses packed "
+            .. "club ids; copy the RIVALS id shown for the opponent.", ours_id, club))
     end
     -- one line for a match: Sider asks twice about the same one (set_conditions and after it)
-    local line = string.format("MLTeamSpirit 2: %s against club %d, competition %s round %s, "
-        .. "form %s -> %d  [%s]", home_side and "at home" or "away", opp or 0, tostring(comp),
+    local line = string.format("MLTeamSpirit 3: %s against club %d (RIVALS id %d), competition %s round %s, "
+        .. "form %s -> %d  [%s]", home_side and "at home" or "away", opp, opp * 16384, tostring(comp),
         tostring(round), form_text(ours), v, table.concat(why, "; "))
     if line ~= last_line then log(line) end
     last_line = line
@@ -605,7 +603,7 @@ local function settings_fault()
 end
 
 function m.init(ctx)
-    log("MLTeamSpirit 2: Team Spirit follows the form of your club")
+    log("MLTeamSpirit 3: Team Spirit follows the form of your club")
 
     local fault = settings_fault()
     if fault ~= nil then
@@ -634,7 +632,11 @@ function m.init(ctx)
     local new = unhex(string.format("b8%02x0000005b5fe9d8000000", BASE))
     memory.write(PLACE, new)
     if memory.read(PLACE, #new) ~= new then
-        log("RESULT: the change did not go in. Quit the game, remove the module, send this log.")
+        local old = unhex(OLD)
+        memory.write(PLACE, old)
+        local restored = (memory.read(PLACE, #old) == old)
+        log("RESULT: the change did not go in. " .. (restored and "Hook restored. " or "Hook restore failed. ")
+            .. "Quit the game, remove the module, send this log.")
         return
     end
     last_value = BASE

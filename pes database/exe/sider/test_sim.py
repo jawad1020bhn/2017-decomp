@@ -84,6 +84,8 @@ ALLOWED_CAVE = (sc.CAVE, len(sc.build_image()))
 ALLOWED_DATA_D = (sc.CAVE_D, sc.CAVE_D_SIZE)
 ALLOWED_DATA_D2 = (sc.CAVE_D2, sc.CAVE_D2_SIZE)
 ALLOWED_CAVE_ET = (sc.CAVE_ET, len(sc.build_et_image()))
+ET_WRITES = ((sc.CAVE_ET, sc.CAVE_ET_CODE_SIZE),
+             (sc.WIN_CDF_2D_ADDR, sc.CAVE_ET_SIZE - sc.WIN_CDF_2D_OFF))
 ALLOWED_CAVE_PK = (sc.CAVE_PK, len(sc.build_pk_image()))
 ALLOWED_CAVE_C = (sc.CAVE_C, len(bytes.fromhex(sc.CODE_PARTS["cards"][1])))
 ALLOWED_SITES = (
@@ -423,7 +425,7 @@ def main(exe):
     assert g.read(sc.CAVE_C, ALLOWED_CAVE_C[1]) == bytes.fromhex(sc.CODE_PARTS["cards"][1])
     assert tm.inside(
         writes,
-        (ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, ALLOWED_CAVE_ET, ALLOWED_CAVE_PK, ALLOWED_CAVE_C) + ALLOWED_SITES,
+        (ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, ALLOWED_CAVE_PK, ALLOWED_CAVE_C) + ET_WRITES + ALLOWED_SITES,
     )
     print(f"ok 3: Lua cave images ({ALLOWED_CAVE[1]}+{ALLOWED_DATA_D[1]}+{ALLOWED_DATA_D2[1]}+{ALLOWED_CAVE_ET[1]}+{ALLOWED_CAVE_PK[1]}+{ALLOWED_CAVE_C[1]} B) match Python byte-for-byte")
 
@@ -535,7 +537,7 @@ def main(exe):
     smart_only = set_lua(all_off, "SMART_SUBS", "true")
     l2, _, w2 = run(g, smart_only)
     assert l2[-1] == "RESULT: installed. Active: smart CPU subs." and set(w2) == {
-        ALLOWED_CAVE, ALLOWED_DATA_D2, ALLOWED_CAVE_ET, (sc.SMART_SUBS_SITE, 15)
+        ALLOWED_CAVE, ALLOWED_DATA_D2, *ET_WRITES, (sc.SMART_SUBS_SITE, 15)
     }, (l2, w2)
 
     h.restore()
@@ -547,14 +549,14 @@ def main(exe):
     assists_only = set_lua(all_off, "ASSISTS", "true")
     l2, _, w2 = run(g, assists_only)
     assert "assists (unassisted 28%)" in l2[-1] and set(w2) == {
-        ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, ALLOWED_CAVE_ET, (sc.SCORER_SITE, 8), (sc.SIM_VEC_SITE, 6)
+        ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, *ET_WRITES, (sc.SCORER_SITE, 8), (sc.SIM_VEC_SITE, 6)
     }, (l2, w2)
 
     h.restore()
     etpk_only = set_lua(all_off, "EXTRA_TIME_PK", "true")
     l2, _, w2 = run(g, etpk_only)
     assert "ET/PK" in l2[-1] and set(w2) == {
-        ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, ALLOWED_CAVE_ET, ALLOWED_CAVE_PK, (sc.ET_SITE, 5), (sc.PK_SITE, 6)
+        ALLOWED_CAVE, ALLOWED_DATA_D, ALLOWED_DATA_D2, *ET_WRITES, ALLOWED_CAVE_PK, (sc.ET_SITE, 5), (sc.PK_SITE, 6)
     }, (l2, w2)
 
     h.restore()
@@ -607,7 +609,7 @@ def main(exe):
     l2, _, w2 = run(g, source)
     assert "already modified" in l2[-1] and not w2, l2
 
-    for cave_addr in (sc.CAVE + 100, sc.CAVE_D + 20, sc.CAVE_D2 + 10, sc.CAVE_ET + 20, sc.CAVE_PK + 20, sc.CAVE_C + 20):
+    for cave_addr in (sc.CAVE + 100, sc.CAVE_D + 20, sc.CAVE_D2 + 10, sc.CAVE_ET + 20, sc.WIN_CDF_2D_ADDR + 20, sc.CAVE_PK + 20, sc.CAVE_C + 20):
         h.restore()
         poke(g, cave_addr, b"\xaa")
         l2, _, w2 = run(g, source)

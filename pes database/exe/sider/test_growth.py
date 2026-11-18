@@ -1,7 +1,7 @@
 """Runs MLGrowth.lua outside the game and then runs the game's own growth code with
 its changes.
 
-    python3 test_growth.py <PES2017.exe>        needs: pip install lupa unicorn capstone
+    python3 test_growth.py <PES2017.exe>        needs: pip install lupa unicorn capstone keystone-engine
 
 The exe is loaded into a CPU emulator (../tools/emu.py) and the module runs as in
 test_money.py.  Then the game's own functions run as machine code on made-up players:
@@ -227,6 +227,21 @@ def main(exe):
           'season_levels points on the position ability of every player without a '
           'growth record (CF finishing, CB defending, GK goalkeeping, the fallback of '
           'a broken position is dribbling); a tracked player is left to hook A')
+
+    checked = 0
+    for before_age in (14, 15, 16, 17, 20, 21, 22, 24, 28, 30, 51, 52, 62):
+        cases = [(pos, value) for pos in range(16) for value in (40, 75, 80, 84, 90, 98, 99)]
+        mode, _ = world(image, tracked=0)
+        players = [craft({gc.POSTBL[pos]: value}, before_age, pos) for pos, value in cases]
+        after = season(image, mode, players)
+        for rec, (pos, was) in zip(after, cases):
+            age = (struct.unpack_from('<I', rec, 0x1c)[0] >> 7) & 0x3f
+            expected = was + gc.season_levels(age, was)
+            assert field(rec, gc.POSTBL[pos]) == expected, (age, pos, was, field(rec, gc.POSTBL[pos]), expected)
+            checked += 1
+    assert gc.build() == {name: (gc.part(name)[0], bytes.fromhex(gc.part(name)[1])) for name in gc.CODE_PARTS}
+    print('ok 5a: annual awards match the age-margin reference near the ceiling across '
+          '%d age/position/ability cases; assembled code matches every embedded block' % checked)
 
     # -- 6: the training focus runs through the curve (hook C) -------------------
     INDIVIDUAL, TEAM = 0x036225f8, 0x0362274d

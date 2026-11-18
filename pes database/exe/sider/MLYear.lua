@@ -96,15 +96,20 @@ function m.init(ctx)
         return
     end
 
-    local stuck = true
-    for _, place in ipairs(PLACES) do
+    for i, place in ipairs(PLACES) do
         local new = unhex(instruction(place, START_YEAR))
         memory.write(place[1], new)
-        if memory.read(place[1], #new) ~= new then stuck = false end
-    end
-    if not stuck then
-        log("RESULT: a change did not go in. Quit the game, remove the module, send this log.")
-        return
+        if memory.read(place[1], #new) ~= new then
+            local restored = true
+            for j = i, 1, -1 do
+                local old = unhex(instruction(PLACES[j], GAME_YEAR))
+                memory.write(PLACES[j][1], old)
+                if memory.read(PLACES[j][1], #old) ~= old then restored = false end
+            end
+            log("RESULT: a change did not go in. " .. (restored and "Changes restored. " or "Change restore failed. ")
+                .. "Quit the game, remove the module, send this log.")
+            return
+        end
     end
     log(string.format("RESULT: installed. A new career starts in %d (season %d/%02d). "
         .. "A saved career keeps its year.", START_YEAR, START_YEAR, (START_YEAR + 1) % 100))
