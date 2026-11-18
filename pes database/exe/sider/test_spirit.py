@@ -220,7 +220,7 @@ def record(at, comp, round_no, home, away, g1=None, g2=None, month=1, day=10, pl
     return at, bytes(rec)
 
 
-def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS):
+def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS, lookup=2):
     """Fills a mode data block with `matches`, the kinds of the competitions, the club
     records and the day, and points the game's pointers at it."""
     g.free_all()
@@ -231,7 +231,7 @@ def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS):
     for at, rec in matches:
         table[at * MATCH_STRIDE:(at + 1) * MATCH_STRIDE] = rec
     g.write(mode + MATCHES_AT, bytes(table))
-    table = bytearray(300 * COMP_STRIDE)
+    table = bytearray(b'\xff' * (300 * COMP_STRIDE))
     kinds = kinds or {LEAGUE: 1, CUP: 3}
     for place, (comp, kind) in enumerate(sorted(kinds.items())):
         struct.pack_into('<H', table, place * COMP_STRIDE, comp)      # +0x00 its own number
@@ -243,6 +243,8 @@ def career(g, matches, kinds=None, clubs=(), today=TODAY, user=OURS):
             table[comp * COMP_STRIDE + C_KIND] = 1 if kind != 1 else 3
     g.write(mode + COMPETITIONS_AT, bytes(table))
     g.write(mode + COMP_COUNT_AT, struct.pack('<I', len(kinds)))
+    g.write(mode + 0xec1408, struct.pack('<I', lookup))
+    g.write(mode + CLUBS_AT, b'\xff' * (651 * CLUB_STRIDE))
     clubs = list(clubs)
     if user is not None and not any(one == user for one, _ in clubs):
         clubs.append((user, (0, 0, 0)))
@@ -290,6 +292,47 @@ def league():
     return out
 
 
+def indexed_form(g, fire, reads):
+    ours, other, rival = OURS << 14 | 600, OTHER << 14 | 649, RIVAL << 14 | 650
+    matches = [record(0, LEAGUE, 5, ours, rival, month=10, day=4, played=False, year=2026),
+               record(1, OTHER_COMP, 1, ours, other, 2, 0, month=10, day=2, year=2026),
+               record(2, CUP, FINAL_ROUND, ours, other, month=10, day=4, played=False, year=2026),
+               record(3, LEAGUE, 5, ours, other, month=10, day=4, played=False, year=2026)]
+    mode = career(g, matches, today=(275, 2026), user=None)
+    for slot, ident in ((600, ours), (649, other), (650, rival)):
+        address = mode + CLUBS_AT + slot * CLUB_STRIDE
+        g.write(address, struct.pack('<I', ident))
+        g.write(address + 0x314, struct.pack('<I', (0 if ident == ours else 255) << 7))
+    g.write(mode + CLUBS_AT + 600 * CLUB_STRIDE + CLUB_RIVALS, struct.pack('<I', rival))
+    g.write(mode + CLUB_COUNT_AT, struct.pack('<I', 3))
+    g.write(mode + COMPETITIONS_AT, b'\xff' * (300 * COMP_STRIDE))
+    g.write(mode + COMPETITIONS_AT + 299 * COMP_STRIDE, struct.pack('<H', CUP))
+    g.write(mode + COMPETITIONS_AT + 299 * COMP_STRIDE + C_KIND, b'\3')
+    g.write(mode + COMP_COUNT_AT, struct.pack('<I', 1))
+    assert g.call(0x03822969, [ours], ecx=mode) == mode + CLUBS_AT + 600 * CLUB_STRIDE
+    assert g.call(0x03822ab9, [CUP], ecx=mode) == mode + COMPETITIONS_AT + 299 * COMP_STRIDE
+    # A second controller and a fake competition just after the arrays must stay unread.
+    g.write(mode + CLUBS_AT + 651 * CLUB_STRIDE, struct.pack('<I', THIRD << 14 | 651))
+    g.write(mode + CLUBS_AT + 651 * CLUB_STRIDE + 0x314, b'\0' * 4)
+    g.write(mode + COMPETITIONS_AT + 300 * COMP_STRIDE, struct.pack('<H', LEAGUE))
+    g.write(mode + COMPETITIONS_AT + 300 * COMP_STRIDE + C_KIND, b'\1')
+    career_before = g.read(mode, MODE_SIZE)
+    for event, match, opponent, wanted in (('set_conditions', 3, OTHER, 96),
+                                          ('after_set_conditions', 0, RIVAL, 98),
+                                          ('set_conditions', 2, OTHER, 99)):
+        reads.clear()
+        fire(event, home_team=OURS, away_team=opponent, match_id=match)
+        assert g.read(VALUE_AT, 1)[0] == wanted, (event, match, wanted)
+        for start, size in ((CLUBS_AT, 651 * CLUB_STRIDE), (COMPETITIONS_AT, 300 * COMP_STRIDE),
+                            (MATCHES_AT, MATCH_COUNT * MATCH_STRIDE)):
+            begin, end = mode + start, mode + start + size
+            # Exclude reads belonging to another, disjoint table.
+            assert all(a + count <= end for a, count in reads if begin <= a < end)
+            assert not any(a == end for a, _ in reads), ('read outside table', hex(end))
+    assert g.read(mode, MODE_SIZE) == career_before, 'Spirit changed career/sporting records'
+    assert g.read(USER_CLUB, 4) == b'\xff' * 4
+
+
 def main(exe):
     source = open(MODULE, encoding='utf-8').read()
     got = settings(source)
@@ -321,7 +364,8 @@ def main(exe):
     lines, reads, writes = run(image, source)
     assert lines[-1].startswith(INSTALLED) and says(lines, 'as expected'), lines
     assert writes == [(PLACE, len(OLD))] and tm.inside(reads,
-        ((PLACE, len(OLD)), (0x038df528, 5), (0x0381e39c, 12), (0x03822433, 33)))
+        ((PLACE, len(OLD)), (0x038df528, 5), (0x0381e39c, 12), (0x03822433, 33),
+         (0x0381e428, 45), (0x0381e458, 64)))
     after = image.read(PLACE - 0x100, 0x200)
     assert after == before[:0x100] + new + before[0x100 + len(new):], (
         after[0x100:0x100 + len(new)].hex(), new.hex())
@@ -359,6 +403,7 @@ def main(exe):
     now = [record(0, LEAGUE, 5, club(OURS), club(OTHER), month=7, day=9, played=False)]
     cases = [
         ('a club that has played nothing', now, RULES['BASE'], ''),
+        ('one win', now + played_run([0], (2, 0)), 96, 'form +3'),
         ('one loss', now + played_run([0], (0, 2)), 94, 'form -3'),
         ('two losses one after the other', now + played_run([0, 1], (0, 2)),
          RULES['TWO_LOSS_CAP'], 'two losses'),
@@ -374,7 +419,7 @@ def main(exe):
         assert got_v == want, '%s: %d, expected %d (%s)' % (name, got_v, want, said)
         assert reason in said, '%s: the log does not say %r: %s' % (name, reason, said)
     print('ok 4: the form of the club is the last five matches (%d careers written out: nothing '
-          'played, one loss, two losses, three wins, five wins, five losses, a draw and a win), '
+          'played, one win/loss, two losses, three wins, five wins/losses, a draw and a win), '
           'and every rule that fires is named in the log' % len(cases))
 
     clubs = [(OURS, (RIVAL, 0, 0)), (OTHER, (0, 0, 0)), (THIRD, (0, 0, 0)), (RIVAL, (OURS, 0, 0))]
@@ -528,24 +573,29 @@ def main(exe):
     kinds = {i: 1 for i in range(1, 17)}
     kinds[LEAGUE] = 1
     clubs = [(THIRD + i, (0, 0, 0)) for i in range(8)] + [(OURS, (RIVAL, 0, 0))]
-    mode = career(g, edge + played_run([0, 1], (0, 2)), kinds=kinds, clubs=clubs)
-    poison = record(0, OTHER_COMP, 5, club(OURS), club(OTHER), 9, 0, month=11, day=1)[1]
-    g.write(mode + MATCHES_AT + MATCH_COUNT * MATCH_STRIDE, poison)
-    event_reads.clear()
-    said = fire('after_set_conditions', home_team=OURS, away_team=RIVAL, match_id=MATCH_COUNT - 1)
-    assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP'] + RULES['DERBY_BONUS'], said
-    for start, stride, count, batch in ((MATCHES_AT, MATCH_STRIDE, MATCH_COUNT, 32),
-                                        (CLUBS_AT, CLUB_STRIDE, len(clubs), 8),
-                                        (COMPETITIONS_AT, COMP_STRIDE, len(kinds), 16)):
-        begin, end = mode + start, mode + start + stride * count
-        scanned = [(a, n) for a, n in event_reads if begin <= a < end]
-        assert scanned and all(a + n <= end for a, n in scanned), (hex(start), scanned[-1:])
-        last = (count - 1) // batch * batch
-        assert (begin + last * stride, (count - last) * stride) in scanned
-    print('ok 13: final match/club/competition reads stop at their counts, including the last '
-          'valid match; a fake win immediately after the 9,000-record array is ignored')
+    for lookup in (0, 1, 2):
+        mode = career(g, edge + played_run([0, 1], (0, 2)), kinds=kinds, clubs=clubs, lookup=lookup)
+        if lookup == 2:
+            tail = mode + COMPETITIONS_AT + (len(kinds) - 1) * COMP_STRIDE
+            g.write(mode + COMPETITIONS_AT + 299 * COMP_STRIDE, g.read(tail, COMP_STRIDE))
+            g.write(tail, b'\xff' * COMP_STRIDE)
+        poison = record(0, OTHER_COMP, 5, club(OURS), club(OTHER), 9, 0, month=11, day=1)[1]
+        g.write(mode + MATCHES_AT + MATCH_COUNT * MATCH_STRIDE, poison)
+        event_reads.clear()
+        said = fire('after_set_conditions', home_team=OURS, away_team=RIVAL, match_id=MATCH_COUNT - 1)
+        assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP'] + RULES['DERBY_BONUS'], said
+        for start, stride, count, batch in ((MATCHES_AT, MATCH_STRIDE, MATCH_COUNT, 32),
+                                            (CLUBS_AT, CLUB_STRIDE, 651 if lookup == 2 else len(clubs), 8),
+                                            (COMPETITIONS_AT, COMP_STRIDE, 300 if lookup == 2 else len(kinds), 16)):
+            begin, end = mode + start, mode + start + stride * count
+            scanned = [(a, n) for a, n in event_reads if begin <= a < end]
+            assert scanned and all(a + n <= end for a, n in scanned), (hex(start), scanned[-1:])
+            last = (count - 1) // batch * batch
+            assert (begin + last * stride, (count - last) * stride) in scanned
+    print('ok 13: mode 0/1 counted and mode 2 indexed reads stop exactly at array/batch bounds, '
+          'including the last valid match; the fake win after 9,000 records is ignored')
 
-    for address, size in ((0x0381e39c, 12), (0x03822433, 33)):
+    for address, size in ((0x0381e39c, 12), (0x03822433, 33), (0x0381e428, 45), (0x0381e458, 64)):
         old = g.read(address, size)
         tm.poke(g, address, bytes([old[0] ^ 1]) + old[1:])
         try:
@@ -555,7 +605,7 @@ def main(exe):
             tm.poke(g, address, old)
     mode = career(g, now, clubs=[(OURS, (0, 0, 0)), (OTHER, (0, 0, 0))])
     for address, test_value in ((mode + CLUB_COUNT_AT, 0), (mode + CLUB_COUNT_AT, 652),
-                               (mode + 0xec1408, 2), (mode + CLUBS_AT + 0x314, 1 << 7),
+                               (mode + 0xec1408, 3), (mode + CLUBS_AT + 0x314, 1 << 7),
                                (mode + CLUBS_AT + CLUB_STRIDE + 0x314, 0)):
         old, previous = g.read(address, 4), g.read(VALUE_AT, 1)
         g.write(address, struct.pack('<I', test_value))
@@ -593,6 +643,17 @@ def main(exe):
     print('ok 15: four real-save club-table replays identify the controlled club with the sentinel unchanged; '
           'synthetic two-loss form gives 92 (not a full save load)')
 
+    for lookup in (0, 1):
+        career(g, now, lookup=lookup)
+        fire('set_conditions', home_team=OURS, away_team=OTHER, match_id=0)
+        assert g.read(VALUE_AT, 1)[0] == 95
+        career(g, now + played_run([0], (2, 0)), lookup=lookup)
+        fire('after_set_conditions', home_team=OURS, away_team=OTHER, match_id=0)
+        assert g.read(VALUE_AT, 1)[0] == 96
+    indexed_form(g, fire, event_reads)
+    print('ok 15a: mode 0/1 counted careers and sparse indexed mode 2 update form; '
+          '03 Oct 2026 one-win/derby/final give 96/98/99, with career records unchanged')
+
     for name in ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch', 'MLSimToDate', 'MLGrowth', 'MLNews'):
         text = (Path(MODULE).parent / (name + '.lua')).read_text(encoding='utf-8')
         lines, _, _ = run(g, text)
@@ -602,7 +663,9 @@ def main(exe):
     fire('after_set_conditions', home_team=OURS, away_team=OTHER, match_id=0)
     assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP']
     assert value(g, 0x13, 30, 1) == RULES['TWO_LOSS_CAP']
-    print('ok 16: dynamic callback and real native Team Spirit reader also work with all nine modules installed')
+    indexed_form(g, fire, event_reads)
+    assert value(g, 0x13, 30, 1) == 99
+    print('ok 16: dynamic callback, sparse indexed tables and native Team Spirit reader also work with all nine modules installed')
     print('all ok')
 
 

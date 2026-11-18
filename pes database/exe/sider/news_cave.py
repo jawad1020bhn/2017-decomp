@@ -88,6 +88,7 @@ BUILD_SOURCE = '''
     mov dword ptr [{state} + 32], 0
     mov dword ptr [{state} + 36], -1
     mov dword ptr [{state} + 40], 0
+    mov dword ptr [{state} + 44], -1
     mov eax, dword ptr [0x0264f3e8]
     cmp eax, 0x10000
     jb unavailable
@@ -113,8 +114,11 @@ master_league:
     cmp esi, 0x7f000000                ; every accessed offset must remain below 2 GB
     ja unavailable
     mov dword ptr [{state} + 12], 4
-    cmp dword ptr [esi + 0xec1408], 2  ; the alternate table layout is not supported
-    je unavailable
+    mov eax, dword ptr [esi + 0xec1408]
+    mov dword ptr [ebp - 0x34], eax
+    mov dword ptr [{state} + 44], eax
+    cmp eax, 2                        ; 0/1 counted, 2 indexed: same resident arrays
+    ja unavailable
     mov dword ptr [{state} + 12], 5
     movzx eax, word ptr [esi + 0xc2cbb2]
     mov dword ptr [{state} + 16], eax
@@ -136,6 +140,10 @@ master_league:
     jz unavailable
     cmp eax, 651
     ja unavailable
+    cmp dword ptr [ebp - 0x34], 2
+    jne counted_clubs
+    mov eax, 651                      ; shortcut: saved club slots; retrace before adding native extra slots
+counted_clubs:
     mov dword ptr [ebp - 0xc], eax
     mov dword ptr [{state} + 12], 7
     mov eax, dword ptr [esi + 0x5fece8]
@@ -144,6 +152,10 @@ master_league:
     jz unavailable
     cmp eax, 300
     ja unavailable
+    cmp dword ptr [ebp - 0x34], 2
+    jne counted_comps
+    mov eax, 300                      ; native 0381e458 scans all slots, not just the populated count
+counted_comps:
     mov dword ptr [ebp - 0x10], eax
     mov dword ptr [{state} + 12], 8
     mov dword ptr [ebp - 0x14], 0
@@ -411,7 +423,7 @@ def build():
 
 
 def state():
-    return b'\0' * 36 + b'\xff' * 4 + b'\0' * 4 + b'MLN2'
+    return b'\0' * 36 + b'\xff' * 4 + b'\0' * 4 + b'\xff' * 4
 
 
 def lua_block():

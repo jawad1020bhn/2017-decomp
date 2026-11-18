@@ -1,4 +1,4 @@
--- MLNews.lua, version 2: factual world-result ticker proof (Sider 3.6.0).
+-- MLNews.lua, version 3: factual world-result ticker proof (Sider 3.6.0).
 -- For PES2017.exe SHA256 44b0caaa... only. Emulator-tested, NOT live-game verified.
 --
 -- Prefixes the first temporary headline in the native Master League main-menu ticker
@@ -6,6 +6,7 @@
 -- wins, then the biggest goal margin. Keeps every original headline after the prefix.
 -- No stored article, popup, extra stop, RNG draw, gameplay write or history file.
 -- Version 2 adds bounded runtime diagnostics: a copy/rejection stage, not a rendering claim.
+-- Version 3 accepts the normal indexed career tables (lookup mode 2), including sparse slots.
 -- The native ticker must already have an item; no recent eligible result means no change.
 -- shortcut: league scores only, English label; expand after the in-game display is verified.
 --
@@ -38,24 +39,25 @@ local CODE = table.concat({
     string.rep(string.char(0xcc), 142),
     unhex("5589e583ec34535657894dfcff05f4c29802c705fcc2980201000000c70500c3980200000000c70504c3980200000000"),
     unhex("c70508c3980200000000c7050cc3980200000000c70510c3980200000000c70514c39802ffffffffc70518c398020000"),
-    unhex("0000a1e8f364023d000001000f820c0300003d0000ff7f0f8701030000c705fcc29802020000008b5020891518c39802"),
-    unhex("83fa13740983fa280f85e0020000c705fcc2980203000000a1e00365023d000001000f82c60200003d0000ff7f0f87bb"),
-    unhex("0200008b703081fe000001000f82ac02000081fe0000007f0f87a0020000c705fcc298020400000083be0814ec00020f"),
-    unhex("8489020000c705fcc29802050000000fb786b2cbc200a300c398023dd00700000f82680200003d980800000f875d0200"),
-    unhex("0069c06d0100000fb796b0cbc200891504c3980281fa6c0100000f873e02000001d08945f8c705fcc29802060000008b"),
-    unhex("86e0ec5f00a308c3980285c00f841c0200003d8b0200000f87110200008945f4c705fcc29802070000008b86e8ec5f00"),
-    unhex("a30cc3980285c00f84f10100003d2c0100000f87e60100008945f0c705fcc2980208000000c745ec000000008dbee01b"),
-    unhex("48008b5df4833fff743d8b8714030000c1e80784c07530ff0510c39802837dec000f85a70100008b07c1e80e25ffff00"),
-    unhex("0085c00f84950100003dffff00000f848a0100008945ec81c7200500004b75b5837dec000f8474010000c705fcc29802"),
-    unhex("09000000c745e800000000c745e4000000008dbe4c156f008d9e2cd5bf0066813f28230f83d1000000f64707400f84c7"),
-    unhex("00000066837f15000f85bc00000066837f18000f85b10000008b470cc1e80e25ffff00003b45ec0f849d0000008b5710"),
-    unhex("c1ea0e81e2ffff00003b55ec0f848800000039d00f84800000008b5708e86e03000085c074748b4df829c1726d83f907"),
-    unhex("7768c1e0070fb64f1483f963775c0fb6571783fa63775329d17902f7d901c83b45e476468945e00fb747048b4df0e8ad"),
-    unhex("04000085c074338b470c8b4df4e81e04000085c074248945dc8b47108b4df4e80c04000085c074128945d08b45dc8945"),
-    unhex("d48b45e08945e4897de881c74c02000039df0f8216ffffff8b7de885ff745f0fb707a314c39802c705fcc298020a0000"),
-    unhex("00ff75d00fb64717500fb6471450ff75d40fb74708500fb6470a500fb6470b50680092fc036800010000ff75fcff15cc"),
-    unhex("757d0483c42883f80172133dff000000770cc705fcc298020b000000eb0231c05f5e5b89ec5dc3"),
-    string.rep(string.char(0xcc), 633),
+    unhex("0000c7051cc39802ffffffffa1e8f364023d000001000f822c0300003d0000ff7f0f8721030000c705fcc29802020000"),
+    unhex("008b5020891518c3980283fa13740983fa280f8500030000c705fcc2980203000000a1e00365023d000001000f82e602"),
+    unhex("00003d0000ff7f0f87db0200008b703081fe000001000f82cc02000081fe0000007f0f87c0020000c705fcc298020400"),
+    unhex("00008b860814ec008945cca31cc3980283f8020f879f020000c705fcc29802050000000fb786b2cbc200a300c398023d"),
+    unhex("d00700000f827e0200003d980800000f877302000069c06d0100000fb796b0cbc200891504c3980281fa6c0100000f87"),
+    unhex("5402000001d08945f8c705fcc29802060000008b86e0ec5f00a308c3980285c00f84320200003d8b0200000f87270200"),
+    unhex("00837dcc027505b88b0200008945f4c705fcc29802070000008b86e8ec5f00a30cc3980285c00f84fc0100003d2c0100"),
+    unhex("000f87f1010000837dcc027505b82c0100008945f0c705fcc2980208000000c745ec000000008dbee01b48008b5df483"),
+    unhex("3fff743d8b8714030000c1e80784c07530ff0510c39802837dec000f85a70100008b07c1e80e25ffff000085c00f8495"),
+    unhex("0100003dffff00000f848a0100008945ec81c7200500004b75b5837dec000f8474010000c705fcc2980209000000c745"),
+    unhex("e800000000c745e4000000008dbe4c156f008d9e2cd5bf0066813f28230f83d1000000f64707400f84c700000066837f"),
+    unhex("15000f85bc00000066837f18000f85b10000008b470cc1e80e25ffff00003b45ec0f849d0000008b5710c1ea0e81e2ff"),
+    unhex("ff00003b55ec0f848800000039d00f84800000008b5708e84403000085c074748b4df829c1726d83f9077768c1e0070f"),
+    unhex("b64f1483f963775c0fb6571783fa63775329d17902f7d901c83b45e476468945e00fb747048b4df0e88304000085c074"),
+    unhex("338b470c8b4df4e8f403000085c074248945dc8b47108b4df4e8e203000085c074128945d08b45dc8945d48b45e08945"),
+    unhex("e4897de881c74c02000039df0f8216ffffff8b7de885ff745f0fb707a314c39802c705fcc298020a000000ff75d00fb6"),
+    unhex("4717500fb6471450ff75d40fb74708500fb6470a500fb6470b50680092fc036800010000ff75fcff15cc757d0483c428"),
+    unhex("83f80172133dff000000770cc705fcc298020b000000eb0231c05f5e5b89ec5dc3"),
+    string.rep(string.char(0xcc), 591),
     unhex("0fb7c23dd007000072353d98080000772e69c06d01000089d1c1e91081e1ff0000004983f90b7717c1ea184a3b14cd84"),
     unhex("92fc03730a0304cd8092fc0301d0c331c0c3"),
     string.rep(string.char(0xcc), 190),
@@ -144,6 +146,8 @@ local PLACES = {
         .. "b5e8ffffff8b5d0c85db741a837f141072048b07eb0289f853508b450850e806", "native string allocation" },
     -- Observe the field read, not the entry MLTransfers hooks. MLNews never calls that function.
     { 0x0381e39c, "8b9614030000c1ea073a550f", "primary-user control field" },
+    { 0x0381e428, "5589e58b450825ff3f00003d8d020000771169c0200500008d8408e01b480085c075068d8120e35f005dc20400", "indexed club slots" },
+    { 0x0381e458, "5589e556668b750831c08d91802e550066393274194081c2240200003d2c01000072ed8d8140e85f005e5dc2040069c0240200008d8408802e55005e5dc20400", "indexed competition scan" },
     { 0x038225a7, "5589e583ec0853668b5d08b828230000898df8ffffff6639c3731e0fb7d369d24c02000066399c0a4c156f008d840a4c"
         .. "156f00750485c0757356578db12cd5bf008db94c156f006a00c64508008b4d08518d95fcffffff520fb7c356578985fc"
         .. "ffffffe883efffff83c41439f07405663918743631c031c989fa66391a74184181c24c02000081f92823000072ec5f5e"
@@ -164,7 +168,7 @@ local enabled, last_snapshot, last_second = false, nil, nil
 local REASONS = {
     [0] = "waiting for a native ticker copy (empty feed or different UI path)",
     [1] = "menu pointer unavailable", [2] = "not a supported ML mode",
-    [3] = "career pointer unavailable", [4] = "alternate table layout",
+    [3] = "career pointer unavailable", [4] = "unsupported table lookup mode (expected 0/1/2)",
     [5] = "invalid career clock", [6] = "unsupported club count (1-651)",
     [7] = "unsupported competition count (1-300)",
     [8] = "primary controller-slot-0 club missing, invalid or ambiguous",
@@ -186,22 +190,23 @@ function m.observe(ctx, filename)
     last_second = now
     local s = memory.read(STATE, STATE_SIZE)
     if type(s) ~= "string" or #s ~= STATE_SIZE then
-        if last_snapshot ~= "unreadable" then log("MLNews 2 runtime: diagnostic state unreadable; restart and send this log.") end
+        if last_snapshot ~= "unreadable" then log("MLNews 3 runtime: diagnostic state unreadable; restart and send this log.") end
         last_snapshot = "unreadable"
         return
     end
     if s == last_snapshot then return end
     last_snapshot = s
-    local selected = u32(s, 37)
-    log(string.format("MLNews 2 runtime: copies=%u attempts=%u copied=%u; last=%s; "
-        .. "year=%u day-index=%u clubs=%u comps=%u primary=%u selected=%s mode=%u",
+    local selected, lookup = u32(s, 37), u32(s, 45)
+    log(string.format("MLNews 3 runtime: copies=%u attempts=%u copied=%u; last=%s; "
+        .. "year=%u day-index=%u clubs=%u comps=%u primary=%u selected=%s mode=%u lookup=%s",
         u32(s, 1), u32(s, 5), u32(s, 9), REASONS[u32(s, 13)] or "unknown stage",
         u32(s, 17), u32(s, 21), u32(s, 25), u32(s, 29), u32(s, 33),
-        selected == 4294967295 and "none" or tostring(selected), u32(s, 41)))
+        selected == 4294967295 and "none" or tostring(selected), u32(s, 41),
+        lookup == 4294967295 and "unread" or tostring(lookup)))
 end
 
 function m.init(ctx)
-    log("MLNews 2: presentation-only world-result ticker proof; emulator only")
+    log("MLNews 3: presentation-only world-result ticker proof; emulator only")
     local good = true
     for _, place in ipairs(PLACES) do
         local same = memory.read(place[1], #place[2] / 2) == unhex(place[2])
@@ -217,7 +222,8 @@ function m.init(ctx)
         log("RESULT: nothing written. Code/layout or free memory differs; restart and send this log.")
         return
     end
-    local data = string.rep("\0", 36) .. string.rep(string.char(0xff), 4) .. string.rep("\0", 4) .. "MLN2"
+    local data = string.rep("\0", 36) .. string.rep(string.char(0xff), 4) .. string.rep("\0", 4)
+        .. string.rep(string.char(0xff), 4)
     memory.write(STATE, data)
     if memory.read(STATE, STATE_SIZE) ~= data then
         log("RESULT: a change did not go in (news diagnostics). The native hook is untouched; restart and send this log.")
@@ -243,7 +249,7 @@ function m.init(ctx)
         ctx.register("livecpk_make_key", m.observe)
         ctx.register("after_set_conditions", m.observe)
     else
-        log("MLNews 2: no runtime observer registered by this host; native hook is still installed.")
+        log("MLNews 3: no runtime observer registered by this host; native hook is still installed.")
     end
     log("RESULT: installed. Native ML ticker prefixes one recent AI league result when available. "
         .. "Runtime diagnostics enabled; a copied string is not rendering proof. Verify WORLD RESULT on a backup save.")
