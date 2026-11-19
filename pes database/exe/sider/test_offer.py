@@ -199,9 +199,9 @@ def main(exe):
         assert got == (want or game or SELLER), \
             'case %d: the module answered %#x, money_cave.offer_pick says %#x (the game: %#x)' % (
                 cases, got, want, game or SELLER)
-        if want:
+        if want and want != SELLER:
             changed += 1
-        elif game:
+        elif not want and game:
             kept += 1
         else:
             nothing += 1

@@ -2209,42 +2209,35 @@ def offer_need(plan, position, rating):
 
 
 def offer_wants(t, player, buyer, plan=None, seller=None, date=(0, 0)):
-    """Would this club take this player? The rules of the chooser of the offers for the
-    user's players (incoming.c), in the order of accepts():
-
-    player: dict with rating, age, popularity, position, id (two parts), status (+0xb4 bits
-    0-3) and listed (a mark of +0xb8); buyer: dict with id, level, points (its ranking
-    record); plan: as offer_need() takes it; seller: the club the player is at (the user's,
-    `[0x0251f85c]`); date: (day of the year, year) of the day the offer is made, as the mode
-    data holds them at +0xc2cbb0.
-
-    Every draw takes the day into it, so that the club that bids is not the same club on every
-    day of the window. No part of MLTransfers.lua on: the neutral persona, the ceiling of none
-    and a plan with a free slot are what the module writes, so the rules still run on the
-    game's own numbers.
+    """Would this club take this player? (incoming.c wants)
+    1: full pass (wants him and affords him);
+    0: hard reject (rival, prestige violation, or unaffordable: price > limit);
+    2: soft reject (affordable, but failed need, channel, age, ambition or scouting).
     """
     if seller is not None and ((buyer['id'], seller) in t.rivals or (seller, buyer['id']) in t.rivals):
-        return False
+        return 0
     level = buyer['level']
     record = persona(t, buyer['id'], level)
     numbers = [gene(t, record, i, buyer['id']) for i in range(GENES)]
     g = dict(zip(GENE_NAMES, numbers))
     own = eleven(t, buyer['points'], level)
+    if player['rating'] > own + g['prestige']:                  # he does not join a club far below him
+        return 0
     day, year = date
     stamp = (year | day << 16) * HASH_A & M32
     both = player_key(player['id']) ^ club_key(buyer['id']) ^ stamp
-    turn = (player['position'] * HASH_POSITION & M32) ^ club_key(buyer['id']) ^ stamp
+    turn = (player['position'] * HASH_POSITION & M32) ^ both ^ player_key(player['id'])
+    soft = False
+
     need = offer_need(plan, player['position'], player['rating'])
     if not need and player['rating'] + g['ambition'] >= own:
         need = 1
-    if player['rating'] > own + g['prestige']:                  # he does not join a club far below him
-        return False
     status = player.get('status', 0) & 0xf
     where = 0 if status in (1, 2) else 1 if player.get('listed') else 2
     # scouting: a listed player, a good one and a famous one are known to every club
     if (where != 1 and player['rating'] < t.known and player['popularity'] < t.known_fame
             and draw(both, HASH_KNOWS) >= g['knows']):
-        return False
+        soft = True
     # where it looks for a player of that position this time
     if record[THEN_1] != NO_CHANNELS:
         d = draw(turn, HASH_C)
@@ -2257,27 +2250,30 @@ def offer_wants(t, player, buyer, plan=None, seller=None, date=(0, 0)):
         elif need == 2:
             first = record[THEN_1]
         else:
-            return False
+            soft = True
+            first = -1
         if first != where:
-            return False
+            soft = True
     if not need:                                                # it buys for that position at all
-        return False
+        soft = True
     age = player['age'] - age_shift(t, buyer['id'])
     if need != 2 and not record[AGE_FROM] <= age <= record[AGE_TO]:
         strict = g['strict'] * (t.strict_free if where == 0 else 100)
         if draw(both, HASH_AGE) * 100 < strict:
-            return False
+            soft = True
     seen = player['rating'] + (high_byte(both, HASH_FOG) * (2 * g['fog'] + 1) >> 8) - g['fog']
     if need != 2 and seen + g['ambition'] < own:                # as this club sees him
-        return False
+        soft = True
     if t.ceiling[min(level, LEVELS - 1)] == NO_CEILING:
-        return True
+        return 2 if soft else 1
     price = value(t, seen & M32, player['age'], player['popularity'], player['position'], player['id'])
     if where != 2:
         price = muldiv(price, (t.ceiling_free, t.ceiling_listed)[where], 100)
-    # only a club in want of him stretches its ceiling, as in accepts()
-    return price <= limit(t, min(level, LEVELS - 1), player['id'], buyer['id'], need == 2, numbers,
-                          player['popularity'])
+    lim = limit(t, min(level, LEVELS - 1), player['id'], buyer['id'], need == 2, numbers,
+                player['popularity'])
+    if price > lim:
+        return 0
+    return 2 if soft else 1
 
 
 def offer_pick(t, key, player, clubs, seller, date=(0, 0)):
@@ -2286,7 +2282,8 @@ def offer_pick(t, key, player, clubs, seller, date=(0, 0)):
     table; slot: [club + 0x314] >> 7 and 0xff; flagged: [club + 0x31e] & 7 == 1, a club the
     game skips; plan: as offer_need() takes it; date: as offer_wants() takes it. The game's
     own answer (the club whose slot is the key) stands when it passes; else the club whose
-    slot is nearest among those that pass; else the game's own answer again."""
+    slot is nearest among those that pass; else the game's own answer when it can afford him;
+    else the user's club (seller) to abort the offer so no insolvent club bids."""
     def buyer(club, plan):
         return dict(id=club, level=plan[3] if plan else 0, points=plan[2] if plan else 0)
 
@@ -2297,17 +2294,22 @@ def offer_pick(t, key, player, clubs, seller, date=(0, 0)):
         if slot == key:
             game = (club, plan)
             break
-    if game and offer_wants(t, player, buyer(game[0], game[1]), game[1], seller, date):
+    game_w = offer_wants(t, player, buyer(game[0], game[1]), game[1], seller, date) if game else 0
+    if game_w == 1:
         return 0
     best, best_slot = 0, 0x100
     for club, slot, flagged, plan in clubs:
         if not club or club == seller or flagged:
             continue
-        if not offer_wants(t, player, buyer(club, plan), plan, seller, date):
+        if offer_wants(t, player, buyer(club, plan), plan, seller, date) != 1:
             continue
         if abs(slot - key) < best_slot:
             best, best_slot = club, abs(slot - key)
-    return best
+    if best:
+        return best
+    if game_w == 2:
+        return 0
+    return seller
 
 
 def fee(t, rating, age, popularity, position=5, player=(0, 0), base=0, percent=0, keep=False):
@@ -2581,8 +2583,8 @@ wants:
 	mov	ebp, esp
 	push	edi
 	push	esi
+	mov	esi, eax
 	push	ebx
-	mov	ebx, eax
 	sub	esp, 140
 	mov	eax, DWORD PTR [edx]
 	mov	edx, DWORD PTR [38926428]
@@ -2596,163 +2598,237 @@ wants:
 	mov	eax, 75319244
 L4:
 	cmp	edi, eax
-	je	L91
-	mov	esi, DWORD PTR [eax]
+	je	L100
+	mov	ebx, DWORD PTR [eax]
 	mov	ecx, DWORD PTR [eax+4]
-	cmp	DWORD PTR [ebp-112], esi
-	jne	L51
+	cmp	DWORD PTR [ebp-112], ebx
+	jne	L57
 	cmp	edx, ecx
 	je	L5
-L51:
+L57:
 	add	eax, 8
-	cmp	edx, esi
+	cmp	edx, ebx
 	jne	L4
 	cmp	DWORD PTR [ebp-112], ecx
 	jne	L4
 	jmp	L5
-L20:
-	test	eax, eax
-	je	L22
-	lea	edx, [eax+16]
-	lea	ebx, [eax+272]
-L25:
-	mov	ecx, DWORD PTR [edx]
-	test	ecx, 4177920
-	je	L23
-	mov	edi, ecx
-	shr	edi, 7
-	and	edi, 127
-	cmp	DWORD PTR [ebp-132], edi
-	jne	L23
-	shr	ecx, 22
-	mov	edi, 129
-	shr	edi, cl
-	and	edi, 1
-	je	L23
-L24:
-	mov	eax, DWORD PTR [ebp-60]
-	mov	ebx, DWORD PTR [ebp-120]
-	add	eax, esi
-	cmp	eax, ebx
-	jnb	L92
+L30:
+	cmp	edi, 2
+	jne	L53
+	movzx	edx, BYTE PTR [ecx]
+	cmp	eax, edx
+	mov	eax, 1
+	cmovne	ebx, eax
+L32:
+	mov	ecx, DWORD PTR [ebp-84]
+	imul	eax, DWORD PTR [ebp-128], -430675099
+	mov	esi, DWORD PTR [ebp-132]
+	lea	edx, [ecx+ecx]
+	shr	eax, 24
+	inc	edx
+	add	esi, 18829440
+	imul	edx, eax
+	mov	eax, DWORD PTR [ebp-124]
+	sub	eax, ecx
+	shr	edx, 8
+	add	edx, eax
+	cmp	edi, 2
+	je	L35
+	mov	eax, DWORD PTR [ebp-64]
+	mov	ecx, DWORD PTR [ebp-116]
+	add	eax, edx
+	cmp	eax, ecx
+	jnb	L35
+	mov	ecx, DWORD PTR [0+esi*4]
+	mov	eax, 2
+	mov	ebx, 1
+	inc	ecx
+	je	L3
+L36:
+	push	eax
+	push	eax
+	mov	eax, DWORD PTR [ebp-108]
+	push	edx
+	push	DWORD PTR [eax]
+	call	value_oracle
+	add	esp, 16
+	mov	DWORD PTR [ebp-112], eax
+	mov	eax, DWORD PTR [ebp-108]
+	mov	eax, DWORD PTR [eax+28]
+	cmp	eax, 2
+	jne	L101
+L37:
+	mov	eax, DWORD PTR [0+esi*4]
+	mov	edx, DWORD PTR [ebp-80]
+	mov	ecx, 100
+	call	muldiv
+	mov	esi, eax
+	cmp	edi, 2
+	jne	L40
+	mov	edx, DWORD PTR [ebp-72]
+	mov	eax, DWORD PTR [75317816]
+	call	muldiv
+	lea	edx, [eax+100]
+	mov	eax, esi
+	call	muldiv
+	mov	esi, eax
+L40:
+	mov	eax, DWORD PTR [75317812]
+	mov	edx, DWORD PTR [ebp-76]
+	mov	ecx, 100
+	call	muldiv
+	imul	edx, DWORD PTR [ebp-128], -2048144789
+	mov	ecx, 25600
+	shr	edx, 24
+	imul	edx, eax
+	mov	eax, esi
+	call	muldiv
+	mov	ecx, 100000
+	add	esi, eax
+	mov	eax, -1
+	cmovc	esi, eax
+	mov	eax, DWORD PTR [ebp-108]
+	mov	edx, DWORD PTR [eax+24]
+	imul	edx, DWORD PTR [ebp-68]
+	mov	eax, esi
+	call	muldiv
+	add	esi, eax
+	jc	L58
+	mov	eax, DWORD PTR [ebp-112]
+	cmp	esi, eax
+	jnb	L58
 L5:
 	xor	eax, eax
 	jmp	L3
-L91:
-	mov	eax, DWORD PTR [ebx+10400]
-	mov	edx, 650
-	lea	ecx, [ebx+13403340]
-	cmp	eax, edx
-	cmova	eax, edx
-	mov	edx, ecx
-	sal	eax, 4
-	add	eax, ecx
-L45:
-	cmp	eax, edx
-	je	L93
-	mov	edi, DWORD PTR [edx]
-	lea	esi, [edx+16]
+L100:
+	mov	edx, DWORD PTR [esi+10400]
+	mov	eax, 650
+	lea	ebx, [esi+13403340]
+	cmp	edx, eax
+	cmovbe	eax, edx
+	xor	ecx, ecx
+	mov	DWORD PTR [ebp-120], eax
+	mov	eax, ebx
+L47:
+	cmp	DWORD PTR [ebp-120], ecx
+	je	L102
+	lea	edx, [eax+16]
+	mov	edi, DWORD PTR [eax]
+	mov	DWORD PTR [ebp-116], edx
 	cmp	DWORD PTR [ebp-112], edi
 	je	L11
-	mov	edx, esi
-	jmp	L45
-L93:
-	mov	edx, ecx
+	inc	ecx
+	mov	eax, edx
+	jmp	L47
+L102:
+	mov	eax, ebx
 L11:
-	movzx	eax, WORD PTR [edx+8]
-	mov	DWORD PTR [ebp-120], eax
-	movzx	eax, BYTE PTR [edx+14]
+	movzx	edi, WORD PTR [eax+8]
+	movzx	eax, BYTE PTR [eax+14]
 	mov	edx, 192
-	mov	DWORD PTR [ebp-124], eax
+	mov	DWORD PTR [ebp-132], eax
 	mov	eax, DWORD PTR [75317856]
 	cmp	eax, edx
 	cmova	eax, edx
 L13:
 	mov	edx, eax
 	sub	eax, 1
-	jb	L94
+	jb	L103
 	mov	ecx, DWORD PTR [75318472+eax*4]
 	cmp	DWORD PTR [ebp-112], ecx
 	jne	L13
 	movzx	eax, BYTE PTR [edx+75318279]
-	jmp	L89
-L94:
+	jmp	L97
+L103:
 	mov	eax, 9
-	cmp	DWORD PTR [ebp-124], eax
-	cmovbe	eax, DWORD PTR [ebp-124]
+	cmp	DWORD PTR [ebp-132], eax
+	cmovbe	eax, DWORD PTR [ebp-132]
 	imul	edx, DWORD PTR [ebp-112], -1640531535
 	shr	edx, 29
 	lea	eax, [edx+75317880+eax*8]
 	movzx	eax, BYTE PTR [eax]
-L89:
+L97:
 	imul	eax, eax, 20
-	xor	esi, esi
+	xor	ebx, ebx
 	add	eax, 75317960
-	mov	DWORD PTR [ebp-116], eax
+	mov	DWORD PTR [ebp-120], eax
 	imul	eax, DWORD PTR [ebp-112], -1640531535
-	mov	DWORD PTR [ebp-136], eax
+	mov	DWORD PTR [ebp-128], eax
 L16:
-	mov	eax, DWORD PTR [ebp-116]
-	mov	ecx, DWORD PTR [75317828]
-	imul	edx, esi, 16777619
-	mov	edi, DWORD PTR [75317832]
-	add	eax, esi
+	mov	eax, DWORD PTR [75317828]
+	mov	ecx, DWORD PTR [75317832]
+	imul	edx, ebx, 16777619
+	mov	DWORD PTR [ebp-116], eax
+	mov	eax, DWORD PTR [ebp-120]
+	add	eax, ebx
 	mov	al, BYTE PTR [eax]
-	mov	BYTE PTR [ebp-128], al
-	mov	eax, DWORD PTR [ebp-136]
+	mov	BYTE PTR [ebp-124], al
+	mov	eax, DWORD PTR [ebp-128]
 	xor	edx, eax
-	movzx	eax, BYTE PTR [ebp-128]
+	mov	eax, DWORD PTR [ebp-116]
 	imul	edx, edx, -2048144789
 	shr	edx, 24
-	imul	edx, edi
-	shr	edx, 8
-	add	edx, ecx
+	imul	edx, ecx
 	mov	ecx, 1000
+	shr	edx, 8
+	add	edx, eax
+	movzx	eax, BYTE PTR [ebp-124]
 	call	muldiv
-	mov	DWORD PTR [ebp-104+esi*4], eax
-	inc	esi
-	cmp	esi, 20
+	mov	DWORD PTR [ebp-104+ebx*4], eax
+	inc	ebx
+	cmp	ebx, 20
 	jne	L16
-	mov	edx, DWORD PTR [75317836]
-	mov	esi, DWORD PTR [ebp-120]
+	mov	ecx, DWORD PTR [75317836]
 	mov	eax, 9
-	cmp	DWORD PTR [ebp-124], eax
-	cmovbe	eax, DWORD PTR [ebp-124]
-	imul	esi, edx
-	mov	ecx, DWORD PTR [75317840]
-	mov	edx, esi
-	add	edx, ecx
-	mov	esi, edx
+	cmp	DWORD PTR [ebp-132], eax
+	cmovbe	eax, DWORD PTR [ebp-132]
+	mov	edx, DWORD PTR [75317840]
+	imul	edi, ecx
+	add	edi, edx
 	movzx	edx, BYTE PTR [eax+75317860]
-	shr	esi, 16
-	cmp	esi, edx
+	shr	edi, 16
+	mov	DWORD PTR [ebp-116], edi
+	cmp	edi, edx
 	jnb	L17
-	movzx	esi, BYTE PTR [eax+75317860]
+	movzx	edi, BYTE PTR [eax+75317860]
+	mov	DWORD PTR [ebp-116], edi
 L17:
 	movzx	edx, BYTE PTR [eax+75317870]
-	cmp	edx, esi
+	mov	edi, DWORD PTR [ebp-116]
+	cmp	edx, edi
 	jnb	L18
-	movzx	esi, BYTE PTR [eax+75317870]
+	movzx	eax, BYTE PTR [eax+75317870]
+	mov	DWORD PTR [ebp-116], eax
 L18:
-	mov	ax, WORD PTR [ebx+12766130]
-	mov	ecx, 851
-	mov	WORD PTR [ebp-128], ax
-	mov	ax, WORD PTR [ebx+12766128]
-	mov	edx, DWORD PTR [ebx+13657140]
-	mov	WORD PTR [ebp-140], ax
-	mov	eax, DWORD PTR [ebp-108]
-	cmp	edx, ecx
-	mov	eax, DWORD PTR [eax+4]
-	cmova	edx, ecx
-	mov	DWORD PTR [ebp-144], eax
-	mov	eax, DWORD PTR [ebp-108]
-	imul	edx, edx, 280
-	mov	eax, DWORD PTR [eax+12]
-	mov	DWORD PTR [ebp-132], eax
 	mov	eax, DWORD PTR [ebp-108]
 	mov	eax, DWORD PTR [eax+8]
-	mov	DWORD PTR [ebp-120], eax
-	lea	eax, [ebx+13416460]
+	mov	DWORD PTR [ebp-124], eax
+	mov	edi, DWORD PTR [ebp-124]
+	mov	eax, DWORD PTR [ebp-116]
+	add	eax, DWORD PTR [ebp-60]
+	cmp	eax, edi
+	jb	L5
+	movzx	edx, WORD PTR [esi+12766130]
+	mov	edi, DWORD PTR [ebp-108]
+	mov	ecx, 851
+	mov	ax, WORD PTR [esi+12766128]
+	mov	ebx, DWORD PTR [edi+4]
+	sal	eax, 16
+	or	eax, edx
+	mov	edx, DWORD PTR [ebp-128]
+	mov	DWORD PTR [ebp-140], ebx
+	imul	eax, eax, 16777619
+	xor	edx, ebx
+	xor	eax, edx
+	mov	edx, DWORD PTR [esi+13657140]
+	mov	DWORD PTR [ebp-128], eax
+	mov	eax, DWORD PTR [ebp-108]
+	cmp	edx, ecx
+	cmova	edx, ecx
+	mov	eax, DWORD PTR [eax+12]
+	imul	edx, edx, 280
+	mov	DWORD PTR [ebp-136], eax
+	lea	eax, [esi+13416460]
 	add	edx, eax
 L19:
 	cmp	edx, eax
@@ -2763,226 +2839,167 @@ L19:
 	je	L20
 	mov	eax, ecx
 	jmp	L19
+L20:
+	test	eax, eax
+	je	L22
+	lea	edx, [eax+16]
+	lea	ebx, [eax+272]
+	mov	esi, 129
+L25:
+	mov	ecx, DWORD PTR [edx]
+	test	ecx, 4177920
+	je	L23
+	mov	edi, ecx
+	shr	edi, 7
+	and	edi, 127
+	cmp	DWORD PTR [ebp-136], edi
+	jne	L23
+	shr	ecx, 22
+	mov	edi, esi
+	shr	edi, cl
+	and	edi, 1
+	jne	L24
 L23:
 	add	edx, 16
 	cmp	ebx, edx
 	jne	L25
-	mov	edi, DWORD PTR [ebp-132]
+	mov	esi, DWORD PTR [ebp-136]
 	movzx	edx, BYTE PTR [eax+265]
-	lea	ecx, [edi+1]
+	lea	ecx, [esi+1]
 	cmp	edx, ecx
 	jne	L22
 	movzx	eax, BYTE PTR [eax+266]
-	mov	ebx, DWORD PTR [ebp-120]
+	mov	esi, DWORD PTR [ebp-124]
 	mov	edi, 2
-	cmp	eax, ebx
+	cmp	eax, esi
 	jb	L24
 L22:
-	mov	eax, DWORD PTR [ebp-120]
+	mov	ebx, DWORD PTR [ebp-116]
+	mov	eax, DWORD PTR [ebp-124]
 	add	eax, DWORD PTR [ebp-64]
-	cmp	eax, esi
+	cmp	eax, ebx
 	setnb	al
 	movzx	eax, al
 	mov	edi, eax
-	jmp	L24
-L92:
-	mov	ebx, DWORD PTR [ebp-140]
-	movzx	eax, WORD PTR [ebp-128]
-	mov	ecx, DWORD PTR [ebp-136]
-	sal	ebx, 16
-	or	ebx, eax
-	mov	eax, DWORD PTR [ebp-144]
-	imul	ebx, ebx, 16777619
-	xor	eax, ecx
-	xor	eax, ebx
-	mov	DWORD PTR [ebp-128], eax
+L24:
 	mov	eax, DWORD PTR [ebp-108]
-	mov	edx, DWORD PTR [eax+28]
-	cmp	edx, 1
+	xor	ebx, ebx
+	mov	eax, DWORD PTR [eax+28]
+	cmp	eax, 1
 	je	L26
-	mov	eax, DWORD PTR [75321336]
-	cmp	DWORD PTR [ebp-120], eax
+	mov	edx, DWORD PTR [75321336]
+	cmp	DWORD PTR [ebp-124], edx
 	jnb	L26
-	mov	eax, DWORD PTR [75321316]
-	mov	ecx, DWORD PTR [ebp-108]
-	shr	eax, 20
-	cmp	DWORD PTR [ecx+24], eax
+	mov	edx, DWORD PTR [75321316]
+	mov	esi, DWORD PTR [ebp-108]
+	shr	edx, 20
+	cmp	DWORD PTR [esi+24], edx
 	jnb	L26
-	imul	eax, DWORD PTR [ebp-128], 374761393
-	shr	eax, 24
-	imul	eax, eax, 100
-	shr	eax, 8
-	cmp	eax, DWORD PTR [ebp-88]
-	jnb	L5
-L26:
-	mov	eax, DWORD PTR [ebp-116]
-	add	eax, 16
-	mov	DWORD PTR [ebp-140], eax
-	mov	eax, DWORD PTR [ebp-116]
-	mov	al, BYTE PTR [eax+16]
-	inc	al
-	je	L27
-	imul	eax, DWORD PTR [ebp-132], -1028477387
-	mov	ecx, DWORD PTR [ebp-136]
-	xor	eax, ecx
-	xor	eax, ebx
-	mov	ebx, DWORD PTR [ebp-104]
-	imul	eax, eax, -2048144789
-	shr	eax, 24
-	imul	eax, eax, 100
-	shr	eax, 8
-	cmp	eax, ebx
-	jnb	L28
-	test	edx, edx
-	jmp	L87
-L28:
-	add	ebx, DWORD PTR [ebp-100]
-	cmp	eax, ebx
-	jnb	L29
-	cmp	edx, 1
-	jmp	L87
-L29:
-	add	ebx, DWORD PTR [ebp-96]
-	cmp	eax, ebx
-	jnb	L30
-	cmp	edx, 2
-L87:
-	je	L27
-	jmp	L5
-L30:
-	cmp	edi, 2
-	jne	L5
-	mov	eax, DWORD PTR [ebp-140]
-	movzx	eax, BYTE PTR [eax]
-	cmp	edx, eax
-	jne	L5
-	jmp	L31
-L27:
-	test	edi, edi
-	je	L5
-	cmp	edi, 2
-	je	L31
-	mov	ebx, DWORD PTR [ebp-108]
-	mov	eax, DWORD PTR [75321340]
-	mov	ecx, DWORD PTR [75321340]
-	add	ecx, DWORD PTR [ebx+20]
-	imul	ebx, DWORD PTR [ebp-112], -551706303
-	add	eax, eax
-	inc	eax
-	shr	ebx, 24
-	imul	eax, ebx
-	shr	eax, 8
-	sub	ecx, eax
-	mov	eax, DWORD PTR [ebp-116]
-	movzx	eax, BYTE PTR [eax+14]
-	cmp	ecx, eax
-	jb	L32
-	mov	eax, DWORD PTR [ebp-116]
-	movzx	eax, BYTE PTR [eax+15]
-	cmp	eax, ecx
-	jnb	L31
-L32:
-	mov	eax, DWORD PTR [ebp-52]
-	mov	ecx, 100
-	test	edx, edx
-	jne	L33
-	mov	ecx, DWORD PTR [75321320]
-L33:
-	imul	edx, DWORD PTR [ebp-128], 461845907
-	imul	eax, ecx
+	imul	edx, DWORD PTR [ebp-128], 374761393
+	xor	ebx, ebx
 	shr	edx, 24
 	imul	edx, edx, 100
 	shr	edx, 8
-	imul	edx, edx, 100
-	cmp	edx, eax
-	jb	L5
-L31:
-	mov	edx, DWORD PTR [ebp-84]
-	imul	ecx, DWORD PTR [ebp-128], -430675099
-	lea	eax, [edx+edx]
-	shr	ecx, 24
-	inc	eax
-	imul	eax, ecx
-	mov	ecx, DWORD PTR [ebp-120]
-	sub	ecx, edx
-	shr	eax, 8
-	add	ecx, eax
-	cmp	edi, 2
-	je	L34
-	mov	eax, DWORD PTR [ebp-64]
-	add	eax, ecx
-	cmp	eax, esi
-	jb	L5
-L34:
-	mov	ebx, DWORD PTR [ebp-124]
-	mov	eax, 1
-	add	ebx, 18829440
-	mov	edx, DWORD PTR [0+ebx*4]
-	inc	edx
-	je	L3
-	push	eax
-	push	eax
-	mov	eax, DWORD PTR [ebp-108]
-	push	ecx
-	push	DWORD PTR [eax]
-	call	value_oracle
-	add	esp, 16
-	mov	esi, eax
-	mov	eax, DWORD PTR [ebp-108]
-	mov	eax, DWORD PTR [eax+28]
-	cmp	eax, 2
-	je	L35
-	test	eax, eax
-	jne	L36
-	mov	edx, DWORD PTR [75317820]
-	jmp	L37
-L36:
-	mov	edx, DWORD PTR [75317824]
-L37:
-	mov	eax, esi
-	mov	ecx, 100
-	call	muldiv
-	mov	esi, eax
-L35:
-	mov	eax, DWORD PTR [0+ebx*4]
-	mov	edx, DWORD PTR [ebp-80]
-	mov	ecx, 100
-	call	muldiv
-	mov	ebx, eax
-	cmp	edi, 2
-	jne	L38
-	mov	edx, DWORD PTR [ebp-72]
-	mov	eax, DWORD PTR [75317816]
-	call	muldiv
-	lea	edx, [eax+100]
-	mov	eax, ebx
-	call	muldiv
-	mov	ebx, eax
-L38:
-	mov	edx, DWORD PTR [ebp-76]
-	mov	eax, DWORD PTR [75317812]
-	mov	ecx, 100
-	or	edi, -1
-	call	muldiv
-	imul	edx, DWORD PTR [ebp-128], -2048144789
-	mov	ecx, 25600
+	cmp	edx, DWORD PTR [ebp-88]
+	setnb	bl
+L26:
+	mov	esi, DWORD PTR [ebp-120]
+	mov	dl, BYTE PTR [esi+16]
+	lea	ecx, [esi+16]
+	inc	dl
+	je	L27
+	imul	edx, DWORD PTR [ebp-136], -1028477387
+	mov	esi, DWORD PTR [ebp-140]
+	xor	edx, esi
+	mov	esi, DWORD PTR [ebp-128]
+	xor	edx, esi
+	mov	esi, DWORD PTR [ebp-104]
+	imul	edx, edx, -2048144789
 	shr	edx, 24
-	imul	edx, eax
-	mov	eax, ebx
+	imul	edx, edx, 100
+	shr	edx, 8
+	cmp	edx, esi
+	jnb	L28
+	test	eax, eax
+	jmp	L98
+L28:
+	add	esi, DWORD PTR [ebp-100]
+	cmp	edx, esi
+	jnb	L29
+	cmp	eax, 1
+	jmp	L98
+L29:
+	add	esi, DWORD PTR [ebp-96]
+	cmp	edx, esi
+	jnb	L30
+	cmp	eax, 2
+L98:
+	mov	edx, 1
+	cmovne	ebx, edx
+L27:
+	test	edi, edi
+	je	L53
+	cmp	edi, 2
+	jne	L31
+	jmp	L32
+L53:
+	mov	ebx, 1
+L31:
+	mov	esi, DWORD PTR [ebp-108]
+	mov	edx, DWORD PTR [75321340]
+	mov	ecx, DWORD PTR [75321340]
+	add	ecx, DWORD PTR [esi+20]
+	imul	esi, DWORD PTR [ebp-112], -551706303
+	add	edx, edx
+	inc	edx
+	shr	esi, 24
+	imul	edx, esi
+	mov	esi, DWORD PTR [ebp-120]
+	shr	edx, 8
+	sub	ecx, edx
+	movzx	edx, BYTE PTR [esi+14]
+	cmp	ecx, edx
+	jb	L33
+	movzx	edx, BYTE PTR [esi+15]
+	cmp	edx, ecx
+	jnb	L32
+L33:
+	mov	edx, DWORD PTR [ebp-52]
+	mov	ecx, 100
+	test	eax, eax
+	jne	L34
+	mov	ecx, DWORD PTR [75321320]
+L34:
+	imul	eax, DWORD PTR [ebp-128], 461845907
+	imul	edx, ecx
+	shr	eax, 24
+	imul	eax, eax, 100
+	shr	eax, 8
+	imul	eax, eax, 100
+	cmp	eax, edx
+	mov	eax, 1
+	cmovb	ebx, eax
+	jmp	L32
+L35:
+	mov	eax, DWORD PTR [0+esi*4]
+	inc	eax
+	jne	L36
+	jmp	L58
+L101:
+	test	eax, eax
+	jne	L38
+	mov	edx, DWORD PTR [75317820]
+	jmp	L39
+L38:
+	mov	edx, DWORD PTR [75317824]
+L39:
+	mov	eax, DWORD PTR [ebp-112]
+	mov	ecx, 100
 	call	muldiv
-	mov	ecx, 100000
-	add	ebx, eax
-	mov	eax, DWORD PTR [ebp-108]
-	cmovc	ebx, edi
-	mov	edx, DWORD PTR [eax+24]
-	imul	edx, DWORD PTR [ebp-68]
-	mov	eax, ebx
-	call	muldiv
-	add	ebx, eax
-	cmovc	ebx, edi
-	xor	eax, eax
-	cmp	ebx, esi
-	setnb	al
+	mov	DWORD PTR [ebp-112], eax
+	jmp	L37
+L58:
+	lea	eax, [ebx+1]
 L3:
 	lea	esp, [ebp-12]
 	pop	ebx
@@ -2998,16 +3015,20 @@ pick:
 	push	ebx
 	sub	esp, 60
 	cmp	DWORD PTR [ebp+8], 0
-	je	L96
+	jne	L105
+L107:
+	xor	esi, esi
+	jmp	L104
+L105:
 	mov	eax, DWORD PTR [38926428]
 	mov	DWORD PTR [ebp-60], eax
 	dec	eax
 	cmp	eax, -3
-	ja	L96
+	ja	L107
 	mov	eax, DWORD PTR [ebp+12]
 	mov	eax, DWORD PTR [eax+8]
 	test	eax, eax
-	je	L96
+	je	L107
 	mov	esi, DWORD PTR [eax]
 	mov	ebx, DWORD PTR [eax+4]
 	push	ecx
@@ -3019,11 +3040,11 @@ pick:
 	lea	edx, [eax-1]
 	mov	DWORD PTR [ebp-56], eax
 	cmp	edx, -3
-	ja	L96
+	ja	L107
 	mov	cx, WORD PTR [eax+44]
 	movzx	edx, si
 	cmp	cx, si
-	jne	L96
+	jne	L107
 	imul	ebx, ebx, 16777619
 	xor	ebx, edx
 	mov	DWORD PTR [ebp-52], ebx
@@ -3052,96 +3073,99 @@ pick:
 	and	eax, 15
 	dec	eax
 	cmp	eax, 1
-	jbe	L97
+	jbe	L108
 	mov	eax, DWORD PTR [edx+184]
 	and	eax, 1610612736
 	neg	eax
 	sbb	ecx, ecx
 	add	ecx, 2
-L97:
+L108:
 	mov	eax, DWORD PTR [ebp+8]
 	mov	DWORD PTR [ebp-28], ecx
 	mov	esi, DWORD PTR [eax+6286560]
 	lea	eax, [esi-1]
 	cmp	eax, 1023
-	ja	L96
+	ja	L107
 	mov	eax, DWORD PTR [ebp+8]
-	xor	edx, edx
+	xor	ecx, ecx
 	lea	ebx, [eax+4725728]
-	mov	eax, ebx
-L100:
-	mov	ecx, DWORD PTR [eax]
-	test	ecx, ecx
-	je	L98
-	cmp	DWORD PTR [ebp-60], ecx
-	je	L98
-	mov	ecx, DWORD PTR [eax+798]
-	and	ecx, 7
-	dec	ecx
-	je	L98
-	mov	ecx, DWORD PTR [eax+788]
-	shr	ecx, 7
-	movzx	ecx, cl
-	cmp	ecx, DWORD PTR [ebp+16]
-	je	L99
-L98:
-	inc	edx
-	add	eax, 1312
-	cmp	esi, edx
-	jne	L100
-L108:
+	mov	edx, ebx
+L111:
+	mov	eax, DWORD PTR [edx]
+	test	eax, eax
+	je	L109
+	cmp	DWORD PTR [ebp-60], eax
+	je	L109
+	mov	eax, DWORD PTR [edx+798]
+	and	eax, 7
+	dec	eax
+	je	L109
+	mov	eax, DWORD PTR [edx+788]
+	shr	eax, 7
+	movzx	eax, al
+	cmp	eax, DWORD PTR [ebp+16]
+	jne	L109
+	mov	eax, DWORD PTR [ebp+8]
+	lea	ecx, [ebp-56]
+	call	wants
+	mov	DWORD PTR [ebp-64], eax
+	dec	eax
+	je	L107
+	jmp	L110
+L109:
+	inc	ecx
+	add	edx, 1312
+	cmp	esi, ecx
+	jne	L111
+	xor	eax, eax
+	mov	DWORD PTR [ebp-64], eax
+L110:
 	imul	esi, esi, 1312
-	mov	DWORD PTR [ebp-64], 256
+	mov	DWORD PTR [ebp-68], 256
 	lea	eax, [esi+ebx]
 	xor	esi, esi
-	mov	DWORD PTR [ebp-68], eax
-L106:
+	mov	DWORD PTR [ebp-72], eax
+L117:
 	mov	edi, DWORD PTR [ebx]
 	test	edi, edi
-	je	L103
+	je	L114
 	cmp	DWORD PTR [ebp-60], edi
-	je	L103
+	je	L114
 	mov	eax, DWORD PTR [ebx+798]
 	and	eax, 7
 	dec	eax
-	je	L103
+	je	L114
 	mov	eax, DWORD PTR [ebp+8]
 	lea	ecx, [ebp-56]
 	mov	edx, ebx
 	call	wants
-	test	eax, eax
-	je	L103
+	dec	eax
+	jne	L114
 	mov	eax, DWORD PTR [ebx+788]
 	mov	edx, DWORD PTR [ebp+16]
 	shr	eax, 7
 	movzx	eax, al
 	sub	edx, eax
 	cmp	eax, DWORD PTR [ebp+16]
-	jb	L105
+	jb	L116
 	sub	eax, DWORD PTR [ebp+16]
 	mov	edx, eax
-L105:
-	mov	eax, DWORD PTR [ebp-64]
+L116:
+	mov	eax, DWORD PTR [ebp-68]
 	cmp	edx, eax
-	jnb	L103
-	mov	DWORD PTR [ebp-64], edx
+	jnb	L114
+	mov	DWORD PTR [ebp-68], edx
 	mov	esi, edi
-L103:
+L114:
 	add	ebx, 1312
-	cmp	DWORD PTR [ebp-68], ebx
-	jne	L106
-	jmp	L95
-L99:
-	imul	edx, edx, 1312
-	mov	eax, DWORD PTR [ebp+8]
-	lea	ecx, [ebp-56]
-	add	edx, ebx
-	call	wants
-	test	eax, eax
-	je	L108
-L96:
-	xor	esi, esi
-L95:
+	cmp	DWORD PTR [ebp-72], ebx
+	jne	L117
+	test	esi, esi
+	jne	L104
+	cmp	DWORD PTR [ebp-64], 2
+	je	L107
+	mov	esi, DWORD PTR [ebp-60]
+L104:
 	lea	esp, [ebp-12]
 	mov	eax, esi
 	pop	ebx
@@ -3155,49 +3179,49 @@ INCOMING_SOURCE = INCOMING_STUB_SOURCE + INCOMING_BODY_SOURCE
 
 
 INCOMING_BYTES = bytes.fromhex(
-    '9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e8c705000083c40c'
-    '85c074108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec2089e58b5d'
-    '308b4534e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86bd507ff83c40c'
-    '0fb6c05f5ec38b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8894de48b45ecf765'
-    'e83b55e47305f775e4eb05b8ffffffff8945fc8b45fcc9c35589e557565389c381ec8c0000008b028b155cf85102'
-    '894d94b940000000894590a1c8477d0439c80f47c18d3cc5cc477d04b8cc477d0439c774798b308b480439759075'
-    '0439ca746483c00839f275e7394d9075e2eb5685c00f84380200008d50108d98100100008b0af7c100c03f000f84'
-    'eb01000089cfc1ef0783e77f39bd7cffffff0f85d7010000c1e916bf81000000d3ef83e7010f84c40100008b45c4'
-    '8b5d8801f039d80f83ff01000031c0e9660400008b83a0280000ba8a0200008d8bcc84cc0039d00f47c289cac1e0'
-    '0401c839d0740e8b3a8d7210397d90740689f2ebee89ca0fb742088945880fb6420ebac0000000894584a160427d'
-    '0439d00f47c289c283e80172158b0c85c8447d04394d9075ed0fb68207447d04eb20b8090000003945840f464584'
-    '695590b179379ec1ea1d8d84c278427d040fb6006bc01431f605c8427d0489458c694590b179379e898578ffffff'
-    '8b458c8b0d44427d0469d6930100018b3d48427d0401f08a008845808b8578ffffff31c20fb6458069d26bcaeb85'
-    'c1ea180fafd7c1ea0801cab9e8030000e839feffff8944b5984683fe1475b38b154c427d048b7588b80900000039'
-    '45840f4645840faff28b0d50427d0489f201ca89d60fb69064427d04c1ee1039d673070fb6b064427d040fb6906e'
-    '427d0439f273070fb6b06e427d04668b83b2cbc200b95303000066894580668b83b0cbc2008b933464d000668985'
-    '74ffffff8b459439ca8b40040f47d1898570ffffff8b459469d2180100008b400c89857cffffff8b45948b400889'
-    '45888d830cb8cc0001c239c2744b8b188d8818010000395d900f84fafdffff89c8ebe783c21039d30f85fcfdffff'
-    '8bbd7cffffff0fb690090100008d4f0139ca75170fb6800a0100008b5d88bf0200000039d80f8206feffff8b4588'
-    '0345c039f00f93c00fb6c089c7e9f1fdffff8b9d74ffffff0fb745808b8d78ffffffc1e31009c38b8570ffffff69'
-    'db9301000131c831d88945808b45948b501c83fa017433a1f84f7d043945887329a1e44f7d048b4d94c1e8143941'
-    '187319694580b1675616c1e8186bc064c1e8083b45a80f839bfdffff8b458c83c010898574ffffff8b458c8a4010'
-    'fec0746769857cffffff35aeb2c28b8d78ffffff31c831d88b5d9869c06bcaeb85c1e8186bc064c1e80839d87304'
-    '85d2eb16035d9c39d8730583fa01eb0a035da039d8730a83fa027421e93afdffff83ff020f8531fdffff8b8574ff'
-    'ffff0fb60039c20f8520fdffffeb7985ff0f8416fdffff83ff02746c8b5d94a1fc4f7d048b0dfc4f7d04034b1469'
-    '5d9041a11ddf01c040c1eb180fafc3c1e80829c18b458c0fb6400e39c1720b8b458c0fb6400f39c873308b45ccb9'
-    '6400000085d275068b0de84f7d046955809335871b0fafc1c1ea186bd264c1ea086bd26439c20f82a5fcffff8b55'
-    'ac694d80656b54e68d0412c1e918400fafc18b4d8829d1c1e80801c183ff02740d8b45c001c839f00f8275fcffff'
-    '8b5d84b80100000081c380501f018b149d00000000420f84c600000050508b459451ff30e821fbffff83c41089c6'
-    '8b45948b401c83f802742085c075088b153c427d04eb068b1540427d0489f0b964000000e845fbffff89c68b049d'
-    '000000008b55b0b964000000e82ffbffff89c383ff0275198b55b8a138427d04e81bfbffff8d506489d8e811fbff'
-    'ff89c38b55b4a134427d04b96400000083cfffe8fafaffff6955806bcaeb85b900640000c1ea180fafd089d8e8e1'
-    'faffffb9a086010001c38b45940f42df8b50180faf55bc89d8e8c6faffff01c30f42df31c039f30f93c08d65f45b'
-    '5e5f5dc35589e557565383ec3c837d08000f84a0010000a15cf851028945c44883f8fd0f878e0100008b450c8b40'
-    '0885c00f84800100008b308b580451ff75085356e85bfaffff83c4108d50ff8945c883fafd0f875e010000668b48'
-    '2c0fb7d66639f10f854e01000069db9301000131d3895dcc8b5004c1ea1c8955d452528d55d85250e8f7f9ffff8b'
-    '55c883c41031c98945d08b421cc1e80783e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b400000083'
-    'e00f4883f80176128b82b80000002500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff030000'
-    '0f87cb0000008b450831d28d98e01b480089d88b0885c97422394dc4741d8b881e03000083e1074974118b881403'
-    '0000c1e9070fb6c93b4d10747b42052005000039d675ce69f620050000c745c0000100008d041e31f68945bc8b3b'
-    '85ff7449397dc474448b831e03000083e0074874388b45088d4dc889dae87ef9ffff85c074278b83140300008b55'
-    '10c1e8070fb6c029c23b451072052b451089c28b45c039c273058955c089fe81c320050000395dbc75a6eb1d69d2'
-    '200500008b45088d4dc801dae833f9ffff85c00f8474ffffff31f68d65f489f05b5e5f5dc3')
+    '9c6083ec188b4424443d660a100275328b44243085c0742a0fb60d660a10028b542420515250e8f005000083c40c85c0'
+    '74108b542440890289d083c418619dc20c0083c418619d5589e583ec14e94f7d04ff55535783ec2089e58b5d308b4534'
+    'e8dba6fdff89f883c4205f5b5dc356578b44240c8b4c2410c7010d0000006a025150e86bd507ff83c40c0fb6c05f5ec3'
+    '8b4424048b5424088b4c240c5250e842c204ffc35589e583ec1c8945ec8955e8894de48b45ecf765e83b55e47305f775'
+    'e4eb05b8ffffffff8945fc8b45fcc9c35589e5575689c65381ec8c0000008b028b155cf85102894d94b9400000008945'
+    '90a1c8477d0439c80f47c18d3cc5cc477d04b8cc477d0439c70f844f0100008b188b4804395d90750839ca0f84360100'
+    '0083c00839da75df394d9075dae92501000083ff020f85240400000fb61139d0b8010000000f45d88b4dac694580656b'
+    '54e68bb57cffffff8d1409c1e8184281c680501f010fafd08b458429c8c1ea0801c283ff020f845e0400008b45c08b4d'
+    '8c01d039c80f834e0400008b0cb500000000b802000000bb01000000410f847004000050508b459452ff30e8a2feffff'
+    '83c4108945908b45948b401c83f8020f85240400008b04b5000000008b55b0b964000000e8cbfeffff89c683ff027519'
+    '8b55b8a138427d04e8b7feffff8d506489f0e8adfeffff89c6a134427d048b55b4b964000000e899feffff6955806bca'
+    'eb85b900640000c1ea180fafd089f0e880feffffb9a086010001c6b8ffffffff0f42f08b45948b50180faf55bc89f0e8'
+    '60feffff01c60f82c40300008b459039c60f83b903000031c0e9b50300008b96a0280000b88a0200008d9ecc84cc0039'
+    'c20f46c231c989458889d8394d8874128d50108b3889558c397d9074074189d0ebe989d80fb778080fb6400ebac00000'
+    '0089857cffffffa160427d0439d00f47c289c283e80172158b0c85c8447d04394d9075ed0fb68207447d04eb26b80900'
+    '000039857cffffff0f46857cffffff695590b179379ec1ea1d8d84c278427d040fb6006bc01431db05c8427d04894588'
+    '694590b179379e894580a144427d048b0d48427d0469d39301000189458c8b458801d88a008845848b458031c28b458c'
+    '69d26bcaeb85c1ea180fafd1b9e8030000c1ea0801c20fb64584e855fdffff89449d984383fb1475b18b0d4c427d04b8'
+    '0900000039857cffffff0f46857cffffff8b1550427d040faff901d70fb69064427d04c1ef10897d8c39d7730a0fb6b8'
+    '64427d04897d8c0fb6906e427d048b7d8c39fa730a0fb6806e427d0489458c8b45948b40088945848b7d848b458c0345'
+    'c439f80f828efeffff0fb796b2cbc2008b7d94b953030000668b86b0cbc2008b5f04c1e01009d08b5580899d74ffffff'
+    '69c09301000131da31d08b963464d0008945808b459439ca0f47d18b400c69d218010000898578ffffff8d860cb8cc00'
+    '01c239c274778b188d8818010000395d90740489c8ebeb85c074628d50108d9810010000be810000008b0af7c100c03f'
+    '00741c89cfc1ef0783e77f39bd78ffffff750cc1e91689f7d3ef83e701754183c21039d375d38bb578ffffff0fb69009'
+    '0100008d4e0139ca75130fb6800a0100008b7584bf0200000039f072138b5d8c8b45840345c039d80f93c00fb6c089c7'
+    '8b459431db8b401c83f80174348b15f84f7d0439558473298b15e44f7d048b7594c1ea143956187318695580b1675616'
+    '31dbc1ea186bd264c1ea083b55a80f93c38b75888a56108d4e10fec27453699578ffffff35aeb2c28bb574ffffff31f2'
+    '8b758031f28b759869d26bcaeb85c1ea186bd264c1ea0839f2730485c0eb1a03759c39f2730583f801eb0e0375a039f2'
+    '0f83ecfbffff83f802ba010000000f45da85ff740a83ff02750ae9e9fbffffbb010000008b75948b15fc4f7d048b0dfc'
+    '4f7d04034e1469759041a11ddf01d242c1ee180fafd68b7588c1ea0829d10fb6560e39d1720c0fb6560f39ca0f83a6fb'
+    'ffff8b55ccb96400000085c075068b0de84f7d046945809335871b0fafd1c1e8186bc064c1e8086bc06439d0b8010000'
+    '000f42d8e96ffbffff8b04b500000000400f85bcfbffffeb2785c075088b153c427d04eb068b1540427d048b4590b964'
+    '000000e89cfaffff894590e9b5fbffff8d43018d65f45b5e5f5dc35589e557565383ec3c837d0800750731f6e9a00100'
+    '00a15cf851028945c44883f8fd77eb8b450c8b400885c074e18b308b580451ff75085356e837faffff83c4108d50ff89'
+    '45c883fafd77c3668b482c0fb7d66639f175b769db9301000131d3895dcc8b5004c1ea1c8955d452528d55d85250e8db'
+    'f9ffff8b55c883c41031c98945d08b421cc1e80783e03f8945dc8b82b4000000c1e80b25ff0f00008945e08b82b40000'
+    '0083e00f4883f80176128b82b80000002500000060f7d819c983c1028b4508894de48bb0e0ec5f008d46ff3dff030000'
+    '0f8734ffffff8b450831c98d98e01b480089da8b0285c074393945c474348b821e03000083e0074874288b8214030000'
+    'c1e8070fb6c03b451075178b45088d4dc8e89af9ffff8945c0480f84eafeffffeb104181c22005000039ce75b631c089'
+    '45c069f620050000c745bc000100008d041e31f68945b88b3b85ff7448397dc474438b831e03000083e0074874378b45'
+    '088d4dc889dae845f9ffff4875278b83140300008b5510c1e8070fb6c029c23b451072052b451089c28b45bc39c27305'
+    '8955bc89fe81c320050000395db875a785f6750d837dc0020f845cfeffff8b75c48d65f489f05b5e5f5dc3'
+)
 
 
 assert len(INCOMING_BYTES) <= INCOMING_CAVE_SIZE and INCOMING_CODE + INCOMING_CAVE_SIZE == CAVE_5

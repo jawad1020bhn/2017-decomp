@@ -294,11 +294,14 @@ static int rival(u32 a, u32 b)
     return 0;
 }
 
-/* would this club take him? (money_cave.offer_wants) rec: its record in the club table */
+/* would this club take him? (money_cave.offer_wants) rec: its record in the club table
+   1: full pass (wants him and affords him);
+   0: hard reject (rival, prestige violation, or unaffordable: price > limit);
+   2: soft reject (affordable, but failed need, channel, age, ambition or scouting) */
 static int wants(u32 mode, u32 rec, const struct player *p)
 {
     u32 club = U(rec), persona, g[PERSONA_BYTES], points, level, own, both, turn, date;
-    u32 seen, price, limit, stretch, add, age_shift, need;
+    u32 seen, price, limit, stretch, add, age_shift, need, soft = 0;
 
     if (rival(club, U(CURRENT_CLUB_AT))) return 0;
     rank_of(mode, club, &points, &level);
@@ -308,48 +311,52 @@ static int wants(u32 mode, u32 rec, const struct player *p)
         for (i = 0; i < PERSONA_BYTES; i++) g[i] = gene(persona, i, club);
     }
     own = eleven_of(points, level);
+    /* prestige: he does not join a club far below him */
+    if (p->rating > own + g[PRESTIGE]) return 0;
+
     /* the day of the career: every draw of the rules takes it, so that the club that bids
        is not the same club on every day of the window */
     date = (W_(mode + MODE_DAY + 2) | (W_(mode + MODE_DAY) << 16)) * HASH_A;
     both = p->key ^ club_key(club) ^ date;
-    turn = (p->pos * HASH_POSITION) ^ club_key(club) ^ date;
+    turn = (p->pos * HASH_POSITION) ^ both ^ p->key;
+
     /* need: it buys for that position at all; 2 when the position need marked it, that is,
        when this club is in want of him: it stretches its ceiling and does not mind his age
        or his rating, as a club with too small a squad does in the transfers of the computer
        clubs (money_cave.accepts) */
     need = in_need(plan_of(mode, club), p->pos, p->rating);
     if (!need && p->rating + g[AMBITION] >= own) need = 1;
-    /* prestige: he does not join a club far below him */
-    if (p->rating > own + g[PRESTIGE]) return 0;
+
     /* scouting: a club knows a part of the players; a listed player, a good one and a
        famous one are known to all */
     if (p->where_ != 1 && p->rating < U(KNOWN_AT) && p->pop < (U(FAME_KNOWN_AT) >> 20)
         && (high_byte(both, HASH_KNOWS) * 100) >> 8 >= g[KNOWS]) {
-        return 0;
+        soft = 1;
     }
     /* where it looks for a player of that position this time */
     if (B(persona + THEN_1) != NO_CHANNELS) {
         u32 draw = (high_byte(turn, HASH_C) * 100) >> 8;
-        if (draw < g[FREE]) { if (p->where_ != 0) return 0; }
-        else if (draw < g[FREE] + g[LISTED]) { if (p->where_ != 1) return 0; }
-        else if (draw < g[FREE] + g[LISTED] + g[CLUBS]) { if (p->where_ != 2) return 0; }
-        else if (need != 2 || B(persona + THEN_1) != p->where_) return 0;
+        if (draw < g[FREE]) { if (p->where_ != 0) soft = 1; }
+        else if (draw < g[FREE] + g[LISTED]) { if (p->where_ != 1) soft = 1; }
+        else if (draw < g[FREE] + g[LISTED] + g[CLUBS]) { if (p->where_ != 2) soft = 1; }
+        else if (need != 2 || B(persona + THEN_1) != p->where_) soft = 1;
     }
-    if (!need) return 0;
+    if (!need) soft = 1;
     /* the ages of its archetype, with `strict` weighing the draw */
     if (need != 2) {
         age_shift = ((high_byte(club_key(club), HASH_SHIFT) * (2 * U(AGE_SHIFT_AT) + 1)) >> 8) - U(AGE_SHIFT_AT);
         if (!(p->age - age_shift >= B(persona + AGE_FROM) && p->age - age_shift <= B(persona + AGE_TO))) {
             u32 strict = g[STRICT] * (p->where_ == 0 ? U(STRICT_FREE_AT) : 100);
             u32 draw = (high_byte(both, HASH_AGE) * 100) >> 8;
-            if (draw * 100 < strict) return 0;
+            if (draw * 100 < strict) soft = 1;
         }
     }
     /* ambition: as this club sees him */
     seen = p->rating + ((high_byte(both, HASH_FOG) * (2 * g[FOG] + 1)) >> 8) - g[FOG];
-    if (need != 2 && seen + g[AMBITION] < own) return 0;
+    if (need != 2 && seen + g[AMBITION] < own) soft = 1;
+
     /* what it can afford */
-    if (U(CEILING_TAB + 4 * level) == NO_CEILING) return 1;
+    if (U(CEILING_TAB + 4 * level) == NO_CEILING) return soft ? 2 : 1;
     price = value_oracle(p->rec, seen);
     if (p->where_ != 2) price = muldiv(price, p->where_ == 0 ? U(FREE_AT) : U(LISTED_AT), 100);
     limit = muldiv(U(CEILING_TAB + 4 * level), g[WEALTH], 100);
@@ -359,7 +366,7 @@ static int wants(u32 mode, u32 rec, const struct player *p)
     limit = limit + add < limit ? NO_CLUB : limit + add;
     add = muldiv(limit, p->pop * g[FAME], 100000);
     limit = limit + add < limit ? NO_CLUB : limit + add;
-    return price <= limit;
+    return price <= limit ? (soft ? 2 : 1) : 0;
 }
 
 /* ---- the chooser -------------------------------------------------------- */
@@ -367,7 +374,7 @@ static int wants(u32 mode, u32 rec, const struct player *p)
 u32 pick(u32 mode, u32 frame, u32 key)
 {
     struct player p;
-    u32 deal, idl, idh, seller, base, count, i, c, slot, game_club = 0, best = 0, best_slot = 0x100;
+    u32 deal, idl, idh, seller, base, count, i, c, slot, game_w = 0, best = 0, best_slot = 0x100;
 
     if (!mode) return 0;
     seller = U(CURRENT_CLUB_AT);
@@ -393,19 +400,24 @@ u32 pick(u32 mode, u32 frame, u32 key)
         c = U(base + CLUB_STRIDE * i);
         if (!c || c == seller) continue;
         if ((U(base + CLUB_STRIDE * i + CLUB_FLAGS) & 7) == 1) continue;
-        if (((U(base + CLUB_STRIDE * i + CLUB_SLOT) >> 7) & 0xff) == key) { game_club = c; break; }
+        if (((U(base + CLUB_STRIDE * i + CLUB_SLOT) >> 7) & 0xff) == key) {
+            game_w = wants(mode, base + CLUB_STRIDE * i, &p);
+            break;
+        }
     }
-    if (game_club && wants(mode, base + CLUB_STRIDE * i, &p)) return 0;
+    if (game_w == 1) return 0;
     for (i = 0; i < count; i++) {
         c = U(base + CLUB_STRIDE * i);
         if (!c || c == seller) continue;
         if ((U(base + CLUB_STRIDE * i + CLUB_FLAGS) & 7) == 1) continue;
-        if (!wants(mode, base + CLUB_STRIDE * i, &p)) continue;
+        if (wants(mode, base + CLUB_STRIDE * i, &p) != 1) continue;
         slot = (U(base + CLUB_STRIDE * i + CLUB_SLOT) >> 7) & 0xff;
         if ((slot >= key ? slot - key : key - slot) < best_slot) {
             best_slot = slot >= key ? slot - key : key - slot;
             best = c;
         }
     }
-    return best;
+    if (best) return best;
+    if (game_w == 2) return 0;
+    return seller;
 }
