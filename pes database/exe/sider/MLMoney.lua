@@ -888,11 +888,67 @@ local function rebalance_budgets(transfer_delta_m, salary_delta_m)
     return true, msg
 end
 
+-- ============================ INTERACTIVE BUDGET SLIDER HOTKEY HOOK ============================
+
+local HOTKEY_CAVE = 0x03fc8900
+local HOTKEY_SITE = 0x02bca62e
+local HOTKEY_SITE_OLD = "e806800000"
+local HOTKEY_SITE_NEW = "e8cde23f01"
+local HOTKEY_COUNT_ADDR = 0x03fc8b0c
+local HOTKEY_CODE = "e8349dc0fe9c60a1e8f3640285c00f84bb01000083782013740a837820280f85ab010000a1e003650285c00f849e01000089c6837e30000f8492010000ff1548797d0485c00f847d0100006a0089e25250ff1574797d045b85c00f8468010000ff1570717d0439d80f855a0100008b1d008bfc0385db752e68208bfc03ff15e4717d0485c00f844401000068308bfc0350ff15ec717d0485c00f8430010000a3008bfc0389c36a75ffd366a90080751668dd000000ffd366a9008075098025048bfc03feeb4af605048bfc03017541800d048bfc03018b86c4dfdd008b8edcdfdd0081f9102700007d09c1e10201c831c9eb0b81e91027000005409c00008986c4dfdd00898edcdfdd00ff050c8bfc036a76ffd366a90080751668db000000ffd366a9008075098025048bfc03fdeb49f605048bfc03027540800d048bfc03028b86c4dfdd008b8edcdfdd003d409c00007d09c1e80201c131c0eb0b2d409c000081c1102700008986c4dfdd00898edcdfdd00ff050c8bfc036a74ffd366a9008075098025048bfc03fbeb43f605048bfc0304753a800d048bfc03048b86c4dfdd008b8edcdfdd00c1e10201c8d1e889c2c1ea028986c4dfdd008996dcdfdd00ff050c8bfc03eb07c605048bfc0307619dc3"
+
+m.install_hotkey = function()
+    if not BUDGET_SLIDER then return false end
+    local cur = memory.read(HOTKEY_SITE, 5)
+    if cur ~= unhex(HOTKEY_SITE_OLD) then return false end
+
+    memory.write(HOTKEY_CAVE, unhex(HOTKEY_CODE))
+    memory.write(HOTKEY_CAVE + 0x200, unhex("00000000"))
+    memory.write(HOTKEY_CAVE + 0x204, unhex("00000000"))
+    memory.write(HOTKEY_CAVE + 0x208, unhex("409c0000"))
+    memory.write(HOTKEY_CAVE + 0x20c, unhex("00000000"))
+    memory.write(HOTKEY_CAVE + 0x220, "USER32.DLL\0")
+    memory.write(HOTKEY_CAVE + 0x230, "GetAsyncKeyState\0")
+    memory.write(HOTKEY_SITE, unhex(HOTKEY_SITE_NEW))
+    log("  interactive hotkeys hooked at 0x02bca62e: F6 (+Transfer), F7 (+Salary), [ / ], F5 (Reset 50/50)")
+    return true
+end
+
 local last_file_poll = 0
+local last_hotkey_count = 0
 local BUDGET_FILE = "MLBudget.txt"
+
+local function update_budget_file(ctx, cur_t, cur_s)
+    if type(io) ~= "table" or type(ctx) ~= "table" or type(ctx.sider_dir) ~= "string" then return end
+    local path = ctx.sider_dir
+    local last = string.sub(path, -1)
+    if last ~= "\\" and last ~= "/" then path = path .. "\\" end
+    path = path .. BUDGET_FILE
+    local out_file = io.open(path, "w")
+    if out_file then
+        if cur_t and cur_s then
+            out_file:write(string.format("# MLBudget Status: ACTIVE\n# Transfer Budget: %s\n# Salary Budget:   %s/yr\n# Ratio:           %.1fx (4-year contract amortization)\n\n# Commands (uncomment and save to run):\n# TRANSFER_TO_SALARY = 10.0\n# SALARY_TO_TRANSFER = 2.5\n# STEP_TRANSFER_TO_SALARY\n# STEP_SALARY_TO_TRANSFER\n# SPLIT = 70\n",
+                commas(cur_t * 100), commas(cur_s * 100), BUDGET_SLIDER_RATIO or 4.0))
+        end
+        out_file:close()
+    end
+end
 
 function m.observe(ctx, filename)
     if not BUDGET_SLIDER then return end
+
+    -- Check native hotkey trigger counter
+    local cur_count = read_u32(HOTKEY_COUNT_ADDR)
+    if cur_count and cur_count > last_hotkey_count then
+        last_hotkey_count = cur_count
+        local cur_t, cur_s = get_club_budgets()
+        if cur_t and cur_s then
+            log(string.format("MLMoney: Interactive budget hotkey executed! Transfer: %s | Salary: %s/yr",
+                commas(cur_t * 100), commas(cur_s * 100)))
+            update_budget_file(ctx, cur_t, cur_s)
+        end
+    end
+
     local now = (type(os) == "table" and type(os.time) == "function") and os.time() or 0
     if now == last_file_poll then return end
     last_file_poll = now
@@ -1287,6 +1343,7 @@ function m.init(ctx)
     if BUDGET_SLIDER then
         log(string.format("budget slider enabled: ratio %.1fx (contract amortization: £10M transfer <-> £%.1fM salary/yr, step £%.1fM)",
             BUDGET_SLIDER_RATIO or 4.0, (10.0 / (BUDGET_SLIDER_RATIO or 4.0)), BUDGET_SLIDER_STEP or 4.0))
+        m.install_hotkey()
         if type(ctx) == "table" and type(ctx.register) == "function" then
             ctx.register("livecpk_make_key", m.observe)
             ctx.register("after_set_conditions", m.observe)

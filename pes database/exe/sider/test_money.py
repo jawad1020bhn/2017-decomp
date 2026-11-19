@@ -53,11 +53,13 @@ GRANT_28, GRANT_30, TOP_FEES_SUM = (0x03642bab, 0x03642cf5), (0x03642011, 0x0364
 MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and others
 # what the module may touch: (address, size). Reads: the pieces of code it checks and
 # its memory. Writes: its memory and the places it changes.
-CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
+CAVE_HOTKEY = ((0x03fc8900, 0x400), (0x02bca62e, 5))
+READS_HOTKEY = ((0x02bca62e, 5), (0x03fc8900, 0x400))
+CAVE = ((mc.CAVE, mc.CAVE_SIZE),) + CAVE_HOTKEY
 # version 7 of MLTransfers.lua adds a fourth piece for the offers for the user's players
 # (version 8 gives it the whole 0x700 place and the site it replaces)
 INCOMING = ((mc.INCOMING_CODE, 0x700), (mc.INCOMING_SITE, 6))
-READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING
+READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING + READS_HOTKEY
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
 # (the third piece, of the position need, only with NEED on; the fifth, of SQUAD_PRESSURE, always)
 CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE),
@@ -1178,7 +1180,17 @@ def test_budget_rebalancing():
     got_t = struct.unpack('<i', mem_read(MODE_DATA + 0xdddfc4, 4))[0]
     got_s = struct.unpack('<i', mem_read(MODE_DATA + 0xdddfdc, 4))[0]
     assert (got_t, got_s) == (480137, 123735), f"Lua rebalance restore got: {got_t}, {got_s}"
-    print("ok 0: smart budget slider rebalances transfers and salaries with 4.0x contract amortization")
+    print("ok 0a: smart budget slider rebalances transfers and salaries with 4.0x contract amortization")
+
+    # Test native in-game machine-code hotkey hook installation
+    mem_write(0x02bca62e, bytes.fromhex("e806800000"))
+    assert mod.install_hotkey(), "install_hotkey returned false"
+    assert mem_read(0x02bca62e, 5) == bytes.fromhex("e8cde23f01"), "Hook detour jump not written"
+    assert mem_read(0x03fc8900, 5) == bytes.fromhex("e8349dc0fe"), "Code cave not written"
+    assert mem_read(0x03fc8b08, 4) == bytes.fromhex("409c0000"), "Budget step not initialized"
+    assert mem_read(0x03fc8b20, 11) == b"USER32.DLL\0", "USER32.DLL string missing"
+    assert mem_read(0x03fc8b30, 17) == b"GetAsyncKeyState\0", "GetAsyncKeyState string missing"
+    print("ok 0b: native machine-code cave hooked at 0x02bca62e for F6/F7/F5/[/] in-game budget hotkeys")
 
 
 def main(exe=None):
