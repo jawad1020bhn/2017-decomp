@@ -79,6 +79,7 @@ class Harness:
         self.flag = g.alloc(size=4)
         self.frame = g.alloc(size=0x20)
         self.deal = g.alloc(size=0x80)                                # what [ebp + 8] points at
+        self.buyer = g.alloc(size=4)                                  # what [ebp + 0xc] points at
         # emu.Game.call cannot set ebp, and the routine is entered from a caller that has a
         # frame: a small wrapper sets ebp and goes on to the module's routine
         self.frameglobal = g.alloc(size=4)
@@ -141,6 +142,8 @@ class Harness:
         g.write(self.rating, struct.pack('<I', player['rating']))
         g.write(self.deal, struct.pack('<IIQ', player['id'][0], player['id'][1], 0))
         g.write(self.frame + 8, struct.pack('<I', self.deal))
+        g.write(self.buyer, struct.pack('<I', 0xdeadbeef))
+        g.write(self.frame + 0xc, struct.pack('<I', self.buyer))
         g.write(self.frameglobal, struct.pack('<I', self.frame))
 
     def answer(self):
@@ -199,12 +202,18 @@ def main(exe):
         assert got == (want or game or SELLER), \
             'case %d: the module answered %#x, money_cave.offer_pick says %#x (the game: %#x)' % (
                 cases, got, want, game or SELLER)
-        if want and want != SELLER:
-            changed += 1
-        elif not want and game:
-            kept += 1
-        else:
+        d4 = struct.unpack('<I', h.g.read(h.deal + 4, 4))[0]
+        if got == SELLER:
+            assert d4 == 0, 'case %d: deal+4 was not zeroed on abort' % cases
             nothing += 1
+        elif want and want != SELLER:
+            assert d4 == (player['id'][1] & 0xffffffff), 'case %d: deal+4 was corrupted' % cases
+            b = struct.unpack('<I', h.g.read(h.buyer, 4))[0]
+            assert b == got, 'case %d: buyer pointer was not updated' % cases
+            changed += 1
+        else:
+            assert d4 == (player['id'][1] & 0xffffffff), 'case %d: deal+4 was corrupted' % cases
+            kept += 1
         cases += 1
 
     # the day: the club that bids is not the same club on every day of the window. A case is
@@ -236,6 +245,79 @@ def main(exe):
           'kept, %d another club answered, %d no club at the game\'s slot)' % (cases, kept, changed, nothing))
     print('the day: a case with %d different answers over %d days of the career, as the rules say'
           % (different, len(days)))
+    test_avs_mosconi_abort(exe)
+
+
+def test_avs_mosconi_abort(exe):
+    """Specifically checks the reported bug: Swansea City user club on July 16, 2027.
+    Mattia Mosconi (82 OVR, age 20, CF, fee ~$83M) targeted by AVS Futebol (Level 0, ceiling $3M).
+    With no elite club meeting affordability and ambition on that day, the offer must be cleanly aborted:
+    fcn_03652df0 must jump to 0x0365317e without calling fcn_036524ac (deal append) or fcn_031538bf (news)."""
+    g = Game(exe)
+    t = tm.settings(tm.two_modules())
+    mode = g.alloc(size=MODE_SIZE)
+    holder = g.alloc(size=0x40)
+    g.write(holder + 0x30, struct.pack('<I', mode))
+    g.write(mc.MODE_OBJECT_AT, struct.pack('<I', holder))
+    SWANSEA = 0x00424039
+    AVS_FUTEBOL = 0x05d08062
+    g.write(mc.CURRENT_CLUB_AT, struct.pack('<I', SWANSEA))
+    g.write(mc.CAVE, mc.image(t))
+    g.write(mc.CAVE_2, mc.image_2(t))
+    g.write(mc.INCOMING_CODE, mc.build()['INCOMING_BYTES'])
+    g.write(mc.INCOMING_SITE, mc.INCOMING_SITE_NEW)
+
+    record = g.alloc(size=0x200)
+    ptr = g.alloc(struct.pack('<I', record))
+    pos = g.alloc(struct.pack('<I', 12))
+    rat = g.alloc(struct.pack('<I', 82))
+    g.write(mc.FIND_PLAYER, b'\xa1' + struct.pack('<I', ptr) + b'\xc2\x08\x00')
+    g.write(mc.RATING, b'\x8b\x44\x24\x08\x8b\x0d' + struct.pack('<I', pos) + b'\x89\x08\xa1' + struct.pack('<I', rat) + b'\xc3')
+
+    g.write(mc.INCOMING_KEY, bytes([10]))
+    g.write(mode + MODE_DAY, struct.pack('<HH', 197, 2027))
+    g.write(mode + mc.CLUB_TABLE_COUNT, struct.pack('<I', 1))
+    g.write(mode + mc.RANK_COUNT, struct.pack('<I', 1))
+    g.write(mode + mc.PLAN_COUNT, struct.pack('<I', 1))
+
+    at = mode + mc.CLUB_TABLE
+    g.write(at, struct.pack('<I', AVS_FUTEBOL) + bytes(0x314 - 4) + struct.pack('<I', 10 << 7) + bytes(0x520 - 0x318))
+    rank = mode + mc.RANK_TABLE
+    g.write(rank, struct.pack('<IIH', AVS_FUTEBOL, 0, 100) + bytes(4) + bytes([0, 0]))
+    at = mode + mc.PLAN_RECORDS
+    rec_b = bytearray(mc.PLAN_SIZE)
+    struct.pack_into('<I', rec_b, 0, AVS_FUTEBOL)
+    struct.pack_into('<I', rec_b, 8 + 8, (12 << 7) | (1 << 14) | (0 << 22))
+    g.write(at, bytes(rec_b))
+
+    at = record
+    g.write(at, bytes(0x200))
+    g.write(at + 4, struct.pack('<I', 12 << 28))
+    g.write(at + 0x1c, struct.pack('<I', 20 << 7))
+    g.write(at + 0x2c, struct.pack('<H', 19400 & 0xffff))
+    g.write(at + 0x30, struct.pack('<I', 179095))
+    g.write(at + 0xb4, struct.pack('<I', 1000 << 11))
+
+    called_append = g.alloc(size=4)
+    g.write(0x036524ac, b'\xc7\x05' + struct.pack('<I', called_append) + b'\x01\x00\x00\x00\xc2\x04\x00')
+    called_news = g.alloc(size=4)
+    g.write(0x031538bf, b'\xc7\x05' + struct.pack('<I', called_news) + b'\x01\x00\x00\x00\xc2\x14\x00')
+
+    deal = g.alloc(size=0x80)
+    g.write(deal, struct.pack('<II', 19400, 179095))
+    var_24 = g.alloc(struct.pack('<I', AVS_FUTEBOL))
+    var_14 = g.alloc(size=4)
+
+    g.call(0x03652df0, [deal, var_24, var_14])
+
+    app = struct.unpack('<I', g.read(called_append, 4))[0]
+    news = struct.unpack('<I', g.read(called_news, 4))[0]
+    d4 = struct.unpack('<I', g.read(deal + 4, 4))[0]
+
+    assert app == 0, 'fcn_036524ac was called on aborted offer'
+    assert news == 0, 'fcn_031538bf was called on aborted offer'
+    assert d4 == 0, 'deal+4 was not zeroed on aborted offer'
+    print('avs mosconi abort test: verified fcn_03652df0 aborts cleanly without append or news')
 
 
 if __name__ == '__main__':

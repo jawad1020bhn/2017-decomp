@@ -964,7 +964,9 @@ and one `nop`. That place holds zeros in the file, and it is clear of `MLGrowth.
 came second found the memory not empty and wrote nothing; version 4 moved that calendar
 block to the `.trace` run at `0x03fc8000`-`0x03fc88ff`, so the two install together now.
 With `INCOMING = false` this piece is not touched at all. The entry keeps every register and flag, answers the game's own
-code for any other key, and falls back to the game's own prologue when no club passes.
+code for any other key, and falls back to the game's own prologue when the game's club can afford him. When redirected,
+both the look-up result and the caller's buyer argument (`[ebp + 0xc]`) are updated to the chosen club; when no club
+passes and the game's club cannot afford him, the deal is cleanly aborted so insolvent clubs cannot bid.
 The source is `sider/incoming.c` (gcc `-m32`, `offer_source.py` cleans the asm for
 keystone); `money_cave.py build` assembles it and checks the bytes the module ships.
 
