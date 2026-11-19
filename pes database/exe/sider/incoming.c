@@ -417,7 +417,12 @@ u32 pick(u32 mode, u32 frame, u32 key)
             best = c;
         }
     }
-    if (best) return best;
+    if (best) {
+        c = U(frame + 0xc);
+        if (c) *(u32 *)c = best;
+        return best;
+    }
     if (game_w == 2) return 0;
+    *(u32 *)(deal + 4) = 0;
     return seller;
 }
