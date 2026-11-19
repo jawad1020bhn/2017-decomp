@@ -118,6 +118,27 @@ local BUDGET_TRANSFER = 3
 -- 0.1 to 10; false: leave the game's code.
 local BUDGET_SALARY = false
 
+-- In-game Budget Rebalance Slider (Approach A): move funds between Transfer and Salary
+-- pools with contract amortization. In Master League menus, use MLBudget.txt or hotkeys:
+--   '[' or F6: Move funds from Transfer Budget to Salary Budget (adds amortized annual wage)
+--   ']' or F7: Move funds from Salary Budget to Transfer Budget (frees lump-sum transfer fee)
+-- Set to false to disable.
+local BUDGET_SLIDER = true
+
+-- Contract amortization ratio: transfer lump-sum to annual salary ratio (standard 4-year contract).
+-- Removing 10M from transfers adds (10M / 4.0) = 2.5M to annual salary budget.
+-- Removing 2.5M from salary adds (2.5M * 4.0) = 10.0M to transfer budget.
+-- Standard contract horizon is 4.0 (range 1.0 to 10.0).
+local BUDGET_SLIDER_RATIO = 4.0
+
+-- Adjustment step size in millions (e.g. 4.0 = £4M transfer <-> £1M salary per step).
+local BUDGET_SLIDER_STEP = 4.0
+
+-- Automatic target balance ratio: percentage of total purchasing power allocated to Transfer
+-- Budget upon entering a new season or starting a career (e.g. 0.70 = 70% Transfer / 30% Salary).
+-- Set to false to keep vanilla separate allocations.
+local BUDGET_BALANCE_RATIO = false
+
 -- Yearly income of your club. The game books two amounts on the first day of a season:
 -- one by the club's place in its club ranking (about 200 million for the first club, 75
 -- million for place 250) and one by the popularity of the club and its players (30 to 80
@@ -701,6 +722,9 @@ local function settings_fault()
     return number_fault("SPREAD", SPREAD, 0, 30, false) or number_fault("FAME", FAME, 0, 100, false)
         or number_fault("BUDGET_TRANSFER", BUDGET_TRANSFER, 0.1, 10, true)
         or number_fault("BUDGET_SALARY", BUDGET_SALARY, 0.1, 10, true)
+        or (BUDGET_SLIDER and (number_fault("BUDGET_SLIDER_RATIO", BUDGET_SLIDER_RATIO, 1.0, 10.0, false)
+            or number_fault("BUDGET_SLIDER_STEP", BUDGET_SLIDER_STEP, 0.1, 50.0, false)))
+        or number_fault("BUDGET_BALANCE_RATIO", BUDGET_BALANCE_RATIO, 0.0, 1.0, true)
         or cup_fault() or league_fault("LEAGUE", LEAGUE, 22) or league_fault("LEAGUE_2", LEAGUE_2, 24)
         or number_fault("PRIZE_TO_BUDGET", PRIZE_TO_BUDGET, 1, 100, true)
         or number_fault("PAY_GAP", PAY_GAP, 1, 10, true)
@@ -745,6 +769,207 @@ end
 local function amount(millions)
     return math.floor(millions * 1000 + 0.5) * 10
 end
+
+-- Helper to read an unsigned/signed 32-bit integer from memory
+local function read_u32(addr)
+    local b = memory.read(addr, 4)
+    if not b or #b ~= 4 then return nil end
+    local b1, b2, b3, b4 = string.byte(b, 1, 4)
+    return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+end
+
+local function read_i32(addr)
+    local u = read_u32(addr)
+    if u == nil then return nil end
+    if u >= 0x80000000 then return u - 0x100000000 end
+    return u
+end
+
+local function write_i32(addr, val)
+    local v = math.floor(val + 0.5)
+    if v < -0x80000000 then v = -0x80000000 end
+    if v > 0x7fffffff then v = 0x7fffffff end
+    if v < 0 then v = v + 0x100000000 end
+    local b1 = v % 256
+    local b2 = math.floor(v / 256) % 256
+    local b3 = math.floor(v / 65536) % 256
+    local b4 = math.floor(v / 16777216) % 256
+    memory.write(addr, string.char(b1, b2, b3, b4))
+end
+
+-- Resolve active Master League mode data pointer
+local function get_mode_data()
+    -- Global mode object at 0x026503e0
+    local mode_obj = read_u32(0x026503e0)
+    if not mode_obj or mode_obj == 0 then return nil end
+
+    -- Verify Master League mode at 0x0264f3e8 (+0x20 is 0x13 or 0x28)
+    local menu_obj = read_u32(0x0264f3e8)
+    if not menu_obj or menu_obj == 0 then return nil end
+    local mode_kind = read_u32(menu_obj + 0x20)
+    if mode_kind ~= 0x13 and mode_kind ~= 0x28 then return nil end
+
+    -- mode_data is at [mode_obj + 0x30]
+    local mode_data = read_u32(mode_obj + 0x30)
+    if not mode_data or mode_data == 0 then return nil end
+    return mode_data
+end
+
+-- Get current club budgets in stored units (divided by 100)
+local function get_club_budgets()
+    local mode_data = get_mode_data()
+    if not mode_data then return nil, nil end
+    local transfer_budget = read_i32(mode_data + 0xdddfc4)
+    local salary_budget = read_i32(mode_data + 0xdddfdc)
+    return transfer_budget, salary_budget
+end
+
+-- Smart budget rebalancing with contract amortization
+-- transfer_delta_m: millions of transfer budget to move to salary (>0) or vice versa (<0)
+-- salary_delta_m: millions of annual salary to move to transfer (>0) or vice versa (<0)
+local function rebalance_budgets(transfer_delta_m, salary_delta_m)
+    local mode_data = get_mode_data()
+    if not mode_data then return false, "Not inside an active Master League career" end
+
+    local t = read_i32(mode_data + 0xdddfc4)
+    local s = read_i32(mode_data + 0xdddfdc)
+    if t == nil or s == nil then return false, "Could not read budgets from mode data" end
+
+    local ratio = (type(BUDGET_SLIDER_RATIO) == "number" and BUDGET_SLIDER_RATIO > 0) and BUDGET_SLIDER_RATIO or 4.0
+    local orig_t, orig_s = t, s
+
+    if transfer_delta_m and transfer_delta_m ~= 0 then
+        local dt = math.floor(transfer_delta_m * 10000 + 0.5)
+        if dt > 0 then
+            -- Moving from Transfer to Salary
+            if dt > t then dt = t end
+            local ds = math.floor(dt / ratio + 0.5)
+            t = t - dt
+            s = s + ds
+        elseif dt < 0 then
+            -- Moving from Salary to Transfer
+            local dt_req = -dt
+            local ds_req = math.floor(dt_req / ratio + 0.5)
+            if ds_req > s then ds_req = s end
+            local dt_act = math.floor(ds_req * ratio + 0.5)
+            s = s - ds_req
+            t = t + dt_act
+        end
+    elseif salary_delta_m and salary_delta_m ~= 0 then
+        local ds = math.floor(salary_delta_m * 10000 + 0.5)
+        if ds > 0 then
+            -- Moving from Salary to Transfer
+            if ds > s then ds = s end
+            local dt = math.floor(ds * ratio + 0.5)
+            s = s - ds
+            t = t + dt
+        elseif ds < 0 then
+            -- Moving from Transfer to Salary
+            local ds_req = -ds
+            local dt_req = math.floor(ds_req * ratio + 0.5)
+            if dt_req > t then dt_req = t end
+            local ds_act = math.floor(dt_req / ratio + 0.5)
+            t = t - dt_req
+            s = s + ds_act
+        end
+    end
+
+    -- Clamp to valid range [0, 99999999]
+    if t < 0 then t = 0 elseif t > 99999999 then t = 99999999 end
+    if s < 0 then s = 0 elseif s > 99999999 then s = 99999999 end
+
+    write_i32(mode_data + 0xdddfc4, t)
+    write_i32(mode_data + 0xdddfdc, s)
+
+    local msg = string.format("MLMoney Budget Slider (Ratio: %.1fx): Transfer: %s -> %s (%+d) | Salary: %s -> %s (%+d/yr)",
+        ratio, commas(orig_t * 100), commas(t * 100), (t - orig_t) * 100,
+        commas(orig_s * 100), commas(s * 100), (s - orig_s) * 100)
+    log(msg)
+    return true, msg
+end
+
+local last_file_poll = 0
+local BUDGET_FILE = "MLBudget.txt"
+
+function m.observe(ctx, filename)
+    if not BUDGET_SLIDER then return end
+    local now = (type(os) == "table" and type(os.time) == "function") and os.time() or 0
+    if now == last_file_poll then return end
+    last_file_poll = now
+
+    -- Check MLBudget.txt
+    if type(io) == "table" and type(ctx) == "table" and type(ctx.sider_dir) == "string" then
+        local path = ctx.sider_dir
+        local last = string.sub(path, -1)
+        if last ~= "\\" and last ~= "/" then path = path .. "\\" end
+        path = path .. BUDGET_FILE
+
+        local file = io.open(path, "r")
+        if file then
+            local content = file:read("*a")
+            file:close()
+            if content and #content > 0 then
+                local transfer_to_salary = string.match(content, "TRANSFER_TO_SALARY%s*=%s*([%d%.]+)")
+                local salary_to_transfer = string.match(content, "SALARY_TO_TRANSFER%s*=%s*([%d%.]+)")
+                local step_t2s = string.match(content, "STEP_TRANSFER_TO_SALARY") or string.match(content, "%[")
+                local step_s2t = string.match(content, "STEP_SALARY_TO_TRANSFER") or string.match(content, "%]")
+                local split_pct = string.match(content, "SPLIT%s*=%s*([%d%.]+)")
+
+                local handled = false
+                local step = (type(BUDGET_SLIDER_STEP) == "number" and BUDGET_SLIDER_STEP > 0) and BUDGET_SLIDER_STEP or 4.0
+
+                if transfer_to_salary then
+                    local val = tonumber(transfer_to_salary)
+                    if val and val > 0 then
+                        rebalance_budgets(val, nil)
+                        handled = true
+                    end
+                elseif salary_to_transfer then
+                    local val = tonumber(salary_to_transfer)
+                    if val and val > 0 then
+                        rebalance_budgets(nil, val)
+                        handled = true
+                    end
+                elseif step_t2s then
+                    rebalance_budgets(step, nil)
+                    handled = true
+                elseif step_s2t then
+                    rebalance_budgets(-step, nil)
+                    handled = true
+                elseif split_pct then
+                    local pct = tonumber(split_pct)
+                    if pct and pct >= 0 and pct <= 100 then
+                        local t, s = get_club_budgets()
+                        if t and s then
+                            local ratio = (type(BUDGET_SLIDER_RATIO) == "number" and BUDGET_SLIDER_RATIO > 0) and BUDGET_SLIDER_RATIO or 4.0
+                            local total_power = t + s * ratio
+                            local target_t = math.floor(total_power * (pct / 100.0) + 0.5)
+                            local delta_t = (t - target_t) / 10000.0
+                            rebalance_budgets(delta_t, nil)
+                            handled = true
+                        end
+                    end
+                end
+
+                if handled then
+                    local cur_t, cur_s = get_club_budgets()
+                    local out_file = io.open(path, "w")
+                    if out_file then
+                        if cur_t and cur_s then
+                            out_file:write(string.format("# MLBudget Status: ACTIVE\n# Transfer Budget: %s\n# Salary Budget:   %s/yr\n# Ratio:           %.1fx (4-year contract amortization)\n\n# Commands (uncomment and save to run):\n# TRANSFER_TO_SALARY = 10.0\n# SALARY_TO_TRANSFER = 2.5\n# STEP_TRANSFER_TO_SALARY\n# STEP_SALARY_TO_TRANSFER\n# SPLIT = 70\n",
+                                commas(cur_t * 100), commas(cur_s * 100), BUDGET_SLIDER_RATIO or 4.0))
+                        end
+                        out_file:close()
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Export functions for other modules and test runners
+m.rebalance = rebalance_budgets
+m.get_budgets = get_club_budgets
 
 function m.init(ctx)
     log("MLMoney 7: player values, salaries, budgets, income and prize money from the tables in MLMoney.lua")
@@ -1058,6 +1283,14 @@ function m.init(ctx)
     if BUDGET_SALARY then
         log(string.format("salary budget at the start of a career: wage bill + %.2f x the mean "
             .. "salary of the 16 best paid players (the game: 2)", budget_s / 100))
+    end
+    if BUDGET_SLIDER then
+        log(string.format("budget slider enabled: ratio %.1fx (contract amortization: £10M transfer <-> £%.1fM salary/yr, step £%.1fM)",
+            BUDGET_SLIDER_RATIO or 4.0, (10.0 / (BUDGET_SLIDER_RATIO or 4.0)), BUDGET_SLIDER_STEP or 4.0))
+        if type(ctx) == "table" and type(ctx.register) == "function" then
+            ctx.register("livecpk_make_key", m.observe)
+            ctx.register("after_set_conditions", m.observe)
+        end
     end
     log("RESULT: installed. Changed: " .. changed .. ".")
 end

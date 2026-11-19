@@ -1854,6 +1854,13 @@ time with fixed steps (section 12), and nothing of that enters the value.
 - **Transfer budget** at the start of a career: `BUDGET_TRANSFER` times the mean value
   of the 16 best players, in place of 2 times. `BUDGET_SALARY` does the same for the
   salary budget and is off by default.
+- **Budget slider & rebalancing** (`BUDGET_SLIDER`, `BUDGET_SLIDER_RATIO`, `BUDGET_SLIDER_STEP`):
+  interactively move money between transfer budget and salary budget in Master League.
+  Moving money uses multi-year contract amortization: because salaries are annual commitments,
+  transfer lump-sums convert to annual wages at `BUDGET_SLIDER_RATIO` (default 4.0x, representing
+  a standard 4-year contract). For example, reallocating £10M transfer budget adds £2.5M to the
+  salary budget; freeing £2.5M of annual salary adds £10M to the transfer budget.
+  In-game commands can be executed via hotkeys or by writing commands into `MLBudget.txt`.
 
 New in version 3, each with its own switch:
 
@@ -1962,6 +1969,34 @@ two grants are fractions of the wage bill and of the fees of the ten most valuab
 players, so they grow with the module's salaries and values by themselves. The test
 runs that code for both days and compares it with `money_cave.june_grants`.
 
+### In-Game Budget Rebalancing Slider (Approach A)
+
+In PES 2017 Master League, the game strictly isolates the Transfer Budget (`mode_data + 0xdddfc4`)
+and the Salary Budget (`mode_data + 0xdddfdc`). Often managers have ample transfer funds but cannot
+finalize free agent signings or vital player contract renewals due to small salary budget shortfalls.
+
+The **Budget Slider** allows flexible in-game reallocation of funds between the Transfer Budget
+and Salary Budget using realistic financial math:
+- **Contract Amortization Math**: Transfer fees are one-time capital expenditures, whereas player
+  salaries are recurring annual operating obligations. Simply converting transfer money 1:1 to salary
+  would distort the multi-year economy (a £10M annual salary over a 4-year contract commits £40M in cash).
+  With `BUDGET_SLIDER_RATIO = 4.0` (matching the standard 3-5 year prime contract duration in PES 2017):
+  $$\Delta \text{Salary Budget} = \frac{\Delta \text{Transfer Budget}}{4.0}$$
+  $$\Delta \text{Transfer Budget} = \Delta \text{Salary Budget} \times 4.0$$
+  - Reallocating £10M transfer budget adds £2.5M to the annual salary budget.
+  - Freeing £2.5M from the annual salary budget adds £10M to the transfer budget.
+- **In-Game Control**:
+  In Master League menus, the module listens for live commands in `MLBudget.txt` (located in the Sider
+  directory):
+  - `TRANSFER_TO_SALARY = 10.0`: moves £10M transfer budget to £2.5M salary budget.
+  - `SALARY_TO_TRANSFER = 2.5`: moves £2.5M salary budget to £10M transfer budget.
+  - `STEP_TRANSFER_TO_SALARY` or `[`: moves one step (default £4M transfer $\to$ £1M salary).
+  - `STEP_SALARY_TO_TRANSFER` or `]`: moves one step from salary to transfer.
+  - `SPLIT = 70`: automatically rebalances total club purchasing power to a target ratio (e.g. 70% Transfer / 30% Salary).
+- **Safety**:
+  All transactions include floor protection and bounds checking ($[0, 99999999]$ in stored units, up to £9.99B),
+  preventing budget deficits or integer overflows.
+
 Not changed: the second salary formula (`fcn_038ab5ea`, used for clubs of the league
 numbers 60 to 62 and for some players in one mode), the lists of the league numbers 60
 and 61, the list for second divisions unless `LEAGUE_2` is set, the cup table of game
@@ -1983,6 +2018,10 @@ mode `0x28`, the growth of players, the rest of the way computer clubs choose pl
 | `SALARY_AGE` (percent) | 16: 45, 18: 50, 20: 62, 22: 76, 24: 90, 26 to 31: 100, 33: 92, 35: 80, 37: 65, 39: 50 |
 | `BUDGET_TRANSFER` | 3 (the game: 2); `false` leaves the game's code |
 | `BUDGET_SALARY` | `false` = the game's own 2 |
+| `BUDGET_SLIDER` | `true`: in-game budget rebalancing slider enabled; `false` = disabled |
+| `BUDGET_SLIDER_RATIO` | 4.0 (range 1.0 to 10.0): contract amortization ratio (e.g. 10M transfer <-> 2.5M salary/yr) |
+| `BUDGET_SLIDER_STEP` | 4.0: step size in millions (e.g. £4M transfer <-> £1M salary per step) |
+| `BUDGET_BALANCE_RATIO` | `false`: automatic budget split target; or 0.0 to 1.0 (e.g. 0.70 = 70% Transfer / 30% Salary) |
 | `INCOME_WAGES` | 60 percent of the wage bill added to the yearly income; `false` = nothing added |
 | `INCOME` | `false`; a number is the percent of the game's two yearly amounts (10 to 1000) |
 | `CUP` (competition, stage, millions) | Champions League (2): winner 82.12, runner-up 75.62, semi-final 57.12, quarter-final 42.12, first knock-out round 29.62, group stage 18.62. Europa League (3): 26.06, 20.06, 13.06, 8.86, round of 16 6.36, first knock-out round 4.61, group 4.31. UEFA Super Cup (4): 5 and 4. Libertadores (5): 32.25, 15.25, 8.25, 5.95, 4.25, 3. Sudamericana (6): 9.5, 5, 3, 2.2, 1.5, 0.9. AFC Champions League (8): 12, 6, 2, 1.4, 1, 0.8. Club World Cup (1): 5 and 4. `false` leaves the game's amounts |
@@ -2957,3 +2996,49 @@ Read from the DLL's code and strings, not run:
   The routine of `MLTransfers.lua` does this to get the club level without changing a
   call, and reads the locals of the function it is called from (date, pool, player) the
   same way.
+
+## `MLSwiss.lua`, version 1: UEFA Swiss Format League Phase & Knockout Engine (2024/25)
+
+Module for the Sider that brings the modern 36-team single league phase ("Swiss system")
+and knockout bracket into the PES 2017 Master League for European competitions (Champions League).
+
+### Features
+
+1. **36 Qualified European Clubs across 4 Seeding Pots**:
+   - Clubs are sorted into 4 pots of 9 clubs according to real UEFA coefficients and club strength.
+   - Fully maps top European contenders (Real Madrid, Man City, Bayern München, PSG, Liverpool,
+     Inter, Barcelona, Arsenal, Leverkusen, Juventus, Atletico Madrid, etc.).
+   - Dynamically discovers active European participants from Master League competition records (`+0x552e80`),
+     seamlessly integrating the user's controlled club.
+2. **8-Matchday League Phase Schedule**:
+   - Each club plays 8 unique opponents (4 Home, 4 Away).
+   - Balanced across all 4 pots: exactly 2 opponents from each pot (1 Home, 1 Away).
+   - Country protection: clubs from the same national association cannot face each other during the 8 league rounds.
+3. **Unified 36-Team Standings Table**:
+   - Points (3 for win, 1 for draw, 0 for loss), Goal Difference (GD), Goals For (GF), Away Goals Scored.
+   - Strict UEFA tiebreaking order (Points $\to$ GD $\to$ GF $\to$ Away Goals $\to$ Wins $\to$ Away Wins $\to$ Rating).
+4. **Qualification & Progression**:
+   - **Places 1 to 8**: Direct qualification to the Round of 16 (seeded).
+   - **Places 9 to 24**: Two-legged Knockout Phase Play-offs (seeded 9–16 host return leg vs unseeded 17–24).
+   - **Places 25 to 36**: Completely eliminated from Europe (no relegation drop-down).
+   - Full knockout bracket tracking from Play-offs through to the Final.
+5. **2024/25 UEFA Economic Model**:
+   - Starting participation fee: £15.70M (€18.62M).
+   - Match performance bonuses: £1.77M (€2.10M) per win, £0.59M (€0.70M) per draw.
+   - Final league phase rank placement shares: 36 shares (£230k to £8.28M / €9.90M).
+   - Knockout bonuses: Play-offs (£0.84M), R16 (£9.30M), QF (£10.50M), SF (£12.70M), Runner-up (£15.60M), Champion (£21.10M).
+   - Automatically credited into the user's Master League transfer budget and balance.
+6. **Live Game Observation & AI Simulation**:
+   - Observes European matches from Master League match records (`0x6f154c`).
+   - Dynamically simulates non-user AI matches on European matchdays using Poisson goal distributions with home advantage.
+   - Real-time ASCII table output to `MLSwiss_Table.txt`.
+   - Live command polling via `MLSwiss_Command.txt` (`SIM_ROUND`, `RESET`, `TABLE`).
+
+### Installation
+
+Copy `MLSwiss.lua` into the `modules/` folder next to `sider.exe` and add:
+```ini
+lua.module = "MLSwiss.lua"
+```
+to `sider.ini`.
+

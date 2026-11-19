@@ -9,3 +9,7 @@ node_modules/
 /SiderX Launcher.*
 __pycache__/
 .venv/
+MLSwiss_Table.txt
+MLSwiss_Command.txt
+MLBudget.txt
+
