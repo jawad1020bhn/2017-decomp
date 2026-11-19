@@ -146,6 +146,37 @@ def test_swiss_format():
     os.remove(table_path)
     print("ok 4: MLSwiss_Table.txt successfully generated with formatted standings and bracket preview")
 
+    # 5. Verify ModeData competition and match schedule synchronization
+    import struct
+    MODE_OBJ = 0x20000000
+    MODE_DATA = 0x30000000
+    MENU_OBJ = 0x21000000
+    mem_write(0x026503e0, struct.pack('<I', MODE_OBJ))
+    mem_write(MODE_OBJ + 0x30, struct.pack('<I', MODE_DATA))
+    mem_write(0x0264f3e8, struct.pack('<I', MENU_OBJ))
+    mem_write(MENU_OBJ + 0x20, struct.pack('<I', 0x13))
+    mem_write(MODE_DATA + 0x30, struct.pack('<I', 1))
+
+    # Mock competition record 0 (ID 2 = UCL)
+    mem_write(MODE_DATA + 0x5fece8, struct.pack('<I', 1))
+    mem_write(MODE_DATA + 0x552e80, struct.pack('<H', 2))
+
+    # Mock match record 0 (ID 2)
+    mem_write(MODE_DATA + 0x8a9e40, struct.pack('<I', 1))
+    mem_write(MODE_DATA + 0x6f154c + 0x04, struct.pack('<H', 2))
+
+    assert mod.sync_mode_data(), "mod.sync_mode_data() failed"
+    # Verify club written to competition record
+    ucl_club_0 = struct.unpack('<I', mem_read(MODE_DATA + 0x552e80 + 0x148, 4))[0]
+    assert ucl_club_0 == teams[1].id, f"Expected {hex(teams[1].id)}, got {hex(ucl_club_0)}"
+    # Verify fixture written to match record
+    match_home = struct.unpack('<I', mem_read(MODE_DATA + 0x6f154c + 0x0c, 4))[0]
+    match_away = struct.unpack('<I', mem_read(MODE_DATA + 0x6f154c + 0x10, 4))[0]
+    first_fixture = schedule[1][1]
+    assert match_home == teams[first_fixture[1]].id, "Match home club mismatch"
+    assert match_away == teams[first_fixture[2]].id, "Match away club mismatch"
+    print("ok 5: Master League ModeData competition and match records synchronized with Swiss Format")
+
 
 if __name__ == '__main__':
     test_swiss_format()

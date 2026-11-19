@@ -95,31 +95,31 @@ local TEAMS = {
     { id = 0x001e001d, name = "Juventus FC",             assoc = "ITA", pot = 2, rating = 82 },
     { id = 0x002fc063, name = "SL Benfica",              assoc = "POR", pot = 2, rating = 80 },
     { id = 0x00194000, name = "Arsenal FC",              assoc = "ENG", pot = 2, rating = 87 },
-    { id = 0x0030406f, name = "Club Brugge KV",          assoc = "BEL", pot = 2, rating = 78 },
-    { id = 0x001e4020, name = "FC Shakhtar Donetsk",     assoc = "UKR", pot = 2, rating = 77 },
-    { id = 0x001e4021, name = "AC Milan",                assoc = "ITA", pot = 2, rating = 82 },
+    { id = 0x00434148, name = "Club Brugge KV",          assoc = "BEL", pot = 2, rating = 78 },
+    { id = 0x0022401f, name = "FC Shakhtar Donetsk",     assoc = "UKR", pot = 2, rating = 77 },
+    { id = 0x001e4020, name = "AC Milan",                assoc = "ITA", pot = 2, rating = 82 },
 
     -- Pot 3 (Ranks 19 to 27)
-    { id = 0x001d004e, name = "Feyenoord Rotterdam",     assoc = "NED", pot = 3, rating = 78 },
-    { id = 0x0030406e, name = "Sporting CP",             assoc = "POR", pot = 3, rating = 79 },
+    { id = 0x001d4051, name = "Feyenoord Rotterdam",     assoc = "NED", pot = 3, rating = 78 },
+    { id = 0x0030406f, name = "Sporting CP",             assoc = "POR", pot = 3, rating = 79 },
     { id = 0x001d805a, name = "PSV Eindhoven",           assoc = "NED", pot = 3, rating = 79 },
-    { id = 0x0020817f, name = "GNK Dinamo Zagreb",       assoc = "CRO", pot = 3, rating = 76 },
-    { id = 0x00408029, name = "FC Red Bull Salzburg",    assoc = "AUT", pot = 3, rating = 77 },
-    { id = 0x002d4043, name = "Lille OSC",               assoc = "FRA", pot = 3, rating = 78 },
-    { id = 0x0031417e, name = "FK Crvena zvezda",        assoc = "SRB", pot = 3, rating = 75 },
-    { id = 0x00308035, name = "BSC Young Boys",          assoc = "SUI", pot = 3, rating = 75 },
-    { id = 0x00630010, name = "Celtic FC",               assoc = "SCO", pot = 3, rating = 76 },
+    { id = 0x012cc191, name = "GNK Dinamo Zagreb",       assoc = "CRO", pot = 3, rating = 76 },
+    { id = 0x018c8193, name = "FC Red Bull Salzburg",    assoc = "AUT", pot = 3, rating = 77 },
+    { id = 0x00354041, name = "Lille OSC",               assoc = "FRA", pot = 3, rating = 78 },
+    { id = 0x0131c190, name = "FK Crvena zvezda",        assoc = "SRB", pot = 3, rating = 75 },
+    { id = 0x01e78176, name = "BSC Young Boys",          assoc = "SUI", pot = 3, rating = 75 },
+    { id = 0x0020c161, name = "Celtic FC",               assoc = "SCO", pot = 3, rating = 76 },
 
     -- Pot 4 (Ranks 28 to 36)
     { id = 0x0041c033, name = "ŠK Slovan Bratislava",    assoc = "SVK", pot = 4, rating = 73 },
     { id = 0x001c0046, name = "AS Monaco",               assoc = "FRA", pot = 4, rating = 79 },
-    { id = 0x00310038, name = "AC Sparta Praha",         assoc = "CZE", pot = 4, rating = 75 },
+    { id = 0x0511418f, name = "AC Sparta Praha",         assoc = "CZE", pot = 4, rating = 75 },
     { id = 0x001ac001, name = "Aston Villa FC",          assoc = "ENG", pot = 4, rating = 81 },
-    { id = 0x0041ec01, name = "Bologna FC 1909",         assoc = "ITA", pot = 4, rating = 77 },
-    { id = 0x0042c03b, name = "Girona FC",               assoc = "ESP", pot = 4, rating = 78 },
+    { id = 0x002e8015, name = "Bologna FC 1909",         assoc = "ITA", pot = 4, rating = 77 },
+    { id = 0x0222c10d, name = "Girona FC",               assoc = "ESP", pot = 4, rating = 78 },
     { id = 0x0039c07f, name = "VfB Stuttgart",           assoc = "GER", pot = 4, rating = 80 },
-    { id = 0x005c8034, name = "SK Sturm Graz",           assoc = "AUT", pot = 4, rating = 74 },
-    { id = 0x001b803a, name = "Stade Brestois 29",       assoc = "FRA", pot = 4, rating = 76 },
+    { id = 0x02084194, name = "SK Sturm Graz",           assoc = "AUT", pot = 4, rating = 74 },
+    { id = 0x014c403e, name = "Stade Brestois 29",       assoc = "FRA", pot = 4, rating = 76 },
 }
 
 -- ============================ FIXTURE SCHEDULE ============================
@@ -164,12 +164,35 @@ local function commas(n)
     return (n < 0 and "-" or "") .. string.sub(s, 1, pos) .. string.gsub(string.sub(s, pos + 1), "(%d%d%d)", ",%1")
 end
 
--- Memory helper
+-- Memory helpers
+local function read_u16(addr)
+    local b = memory.read(addr, 2)
+    if not b or #b ~= 2 then return nil end
+    local b1, b2 = string.byte(b, 1, 2)
+    return b1 + b2 * 256
+end
+
+local function write_u16(addr, val)
+    local v = math.floor(val + 0.5) % 65536
+    local b1 = v % 256
+    local b2 = math.floor(v / 256) % 256
+    memory.write(addr, string.char(b1, b2))
+end
+
 local function read_u32(addr)
     local b = memory.read(addr, 4)
     if not b or #b ~= 4 then return nil end
     local b1, b2, b3, b4 = string.byte(b, 1, 4)
     return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+end
+
+local function write_u32(addr, val)
+    local v = math.floor(val + 0.5) % 0x100000000
+    local b1 = v % 256
+    local b2 = math.floor(v / 256) % 256
+    local b3 = math.floor(v / 65536) % 256
+    local b4 = math.floor(v / 16777216) % 256
+    memory.write(addr, string.char(b1, b2, b3, b4))
 end
 
 local function read_i32(addr)
@@ -517,6 +540,117 @@ local function observe_commands(ctx)
     end
 end
 
+-- Synchronize Master League memory data structures with the UEFA Swiss Format
+function m.sync_mode_data()
+    local mode_data = get_mode_data()
+    if not mode_data then return false end
+
+    -- Check if career is loaded
+    local active = read_u32(mode_data + 0x30)
+    if not active or active == 0 then return false end
+
+    -- 1. Synchronize Competition Records at ModeData + 0x552e80
+    -- In PES 2017 ML, competition records hold the participant club IDs
+    local comp_count = read_u32(mode_data + 0x5fece8)
+    if not comp_count or comp_count == 0 or comp_count > 1000 then
+        comp_count = 350
+    end
+
+    local ucl_comps = {}
+    for i = 0, comp_count - 1 do
+        local comp_addr = mode_data + 0x552e80 + i * 0x224
+        local cid = read_u16(comp_addr + 0x00)
+        if cid == COMPETITION_ID or (cid and cid >= 600 and cid <= 607) then
+            ucl_comps[#ucl_comps + 1] = { addr = comp_addr, id = cid }
+        end
+    end
+
+    -- Write all 36 clubs across the European competition slots
+    if #ucl_comps > 0 then
+        local team_ptr = 1
+        for _, comp in ipairs(ucl_comps) do
+            local teams_in_slot = (comp.id == COMPETITION_ID) and 36 or 4
+            for slot = 0, teams_in_slot - 1 do
+                if team_ptr <= TOTAL_TEAMS then
+                    write_u32(comp.addr + 0x148 + slot * 4, TEAMS[team_ptr].id)
+                    team_ptr = team_ptr + 1
+                end
+            end
+            write_u16(comp.addr + 0x21c, teams_in_slot)
+        end
+    end
+
+    -- 2. Synchronize Match Records at ModeData + 0x6f154c
+    -- Rewrite European match records with the 144 Swiss fixtures
+    local match_count = read_u32(mode_data + 0x8a9e40)
+    if not match_count or match_count == 0 or match_count > 10000 then
+        match_count = 1500
+    end
+
+    local ucl_match_indices = {}
+    for mi = 0, match_count - 1 do
+        local match_addr = mode_data + 0x6f154c + mi * 0x24c
+        local comp_id = read_u16(match_addr + 0x04)
+        if comp_id == COMPETITION_ID or (comp_id and comp_id >= 600 and comp_id <= 607) then
+            ucl_match_indices[#ucl_match_indices + 1] = match_addr
+        end
+    end
+
+    -- Inject Swiss schedule into European match slots
+    local cur_slot = 1
+    for r = 1, LEAGUE_ROUNDS do
+        for _, pair in ipairs(SCHEDULE[r]) do
+            if cur_slot <= #ucl_match_indices then
+                local m_addr = ucl_match_indices[cur_slot]
+                local h_team = TEAMS[pair[1]]
+                local a_team = TEAMS[pair[2]]
+                write_u32(m_addr + 0x0c, h_team.id)
+                write_u32(m_addr + 0x10, a_team.id)
+                write_u16(m_addr + 0x06, r) -- Round number
+                cur_slot = cur_slot + 1
+            end
+        end
+    end
+
+    log("MLSwiss: Master League memory synchronized with 36-team UEFA Swiss Format (competitions and fixtures).")
+    return true
+end
+
+-- Sider match routing callbacks
+function m.set_home_team(ctx)
+    if not SWISS_ENABLED or stage ~= "LEAGUE" then return end
+    local tid = ctx.tournament_id
+    if tid == COMPETITION_ID or (tid and tid >= 600 and tid <= 607) then
+        if current_round >= 1 and current_round <= LEAGUE_ROUNDS then
+            local round_fixtures = SCHEDULE[current_round]
+            for _, pair in ipairs(round_fixtures) do
+                local h = TEAMS[pair[1]]
+                local a = TEAMS[pair[2]]
+                if ctx.home_team == h.id or ctx.away_team == a.id or ctx.home_team == a.id or ctx.away_team == h.id then
+                    return h.id
+                end
+            end
+        end
+    end
+end
+
+function m.set_away_team(ctx)
+    if not SWISS_ENABLED or stage ~= "LEAGUE" then return end
+    local tid = ctx.tournament_id
+    if tid == COMPETITION_ID or (tid and tid >= 600 and tid <= 607) then
+        if current_round >= 1 and current_round <= LEAGUE_ROUNDS then
+            local round_fixtures = SCHEDULE[current_round]
+            for _, pair in ipairs(round_fixtures) do
+                local h = TEAMS[pair[1]]
+                local a = TEAMS[pair[2]]
+                if ctx.home_team == h.id or ctx.away_team == a.id or ctx.home_team == a.id or ctx.away_team == h.id then
+                    return a.id
+                end
+            end
+        end
+    end
+end
+
 -- Observer called during Sider game lifecycle
 function m.observe(ctx)
     if not SWISS_ENABLED then return end
@@ -530,11 +664,14 @@ function m.observe(ctx)
     local mode_data = get_mode_data()
     if not mode_data then return end
 
+    -- Periodically sync ML memory structures if not done yet
+    m.sync_mode_data()
+
     -- Read current match record pointer if available
     local match_ptr = read_u32(mode_data + 0x537b8)
     if match_ptr and match_ptr ~= 0 then
         local comp_id = read_u32(match_ptr + 0x04)
-        if comp_id == COMPETITION_ID then
+        if comp_id == COMPETITION_ID or (comp_id and comp_id >= 600 and comp_id <= 607) then
             local status_flag = read_u32(match_ptr + 0x06)
             local is_played = (status_flag and (math.floor(status_flag / 16384) % 2 == 1))
             if is_played and stage == "LEAGUE" and current_round <= LEAGUE_ROUNDS then
@@ -581,6 +718,8 @@ function m.init(ctx)
 
     if type(ctx) == "table" and type(ctx.register) == "function" then
         ctx.register("livecpk_make_key", m.observe)
+        ctx.register("set_home_team", m.set_home_team)
+        ctx.register("set_away_team", m.set_away_team)
         ctx.register("after_set_conditions", m.observe)
     end
 
