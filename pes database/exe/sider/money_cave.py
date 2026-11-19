@@ -417,6 +417,20 @@ STAR_PICK_BAND_SITE, STAR_PICK_BAND_SITE_OLD = 0x0366106b, bytes.fromhex('83f807
 STAR_PICK_BAND_SITE_NEW = bytes.fromhex('83f808')
 STAR_PICK_LEVEL_SITE, STAR_PICK_LEVEL_SITE_OLD = 0x03661094, bytes.fromhex('83f808')
 STAR_PICK_LEVEL_SITE_NEW = bytes.fromhex('83f80a')
+TRIM_PLAN_SITE, TRIM_PLAN_SITE_OLD = 0x03660b85, bytes.fromhex('83f919')
+TRIM_PLAN_SITE_NEW = bytes.fromhex('83f91e')
+TRIM_FILL_SITE, TRIM_FILL_SITE_OLD = 0x038895f6, bytes.fromhex('83f820')
+TRIM_FILL_SITE_NEW = bytes.fromhex('83f821')
+TRIM_CLOSE_SITE, TRIM_CLOSE_SITE_OLD = 0x0365d3f4, bytes.fromhex('833a20')
+TRIM_CLOSE_SITE_NEW = bytes.fromhex('833a21')
+TRIM_EVICT_SITE, TRIM_EVICT_SITE_OLD = 0x03892145, bytes.fromhex('83f80d0f8523020000')
+TRIM_EVICT_SITE_NEW = bytes.fromhex('83f80c0f8223020000')
+TRIM_SITES = (
+    ('trim plan', TRIM_PLAN_SITE, TRIM_PLAN_SITE_OLD, TRIM_PLAN_SITE_NEW),
+    ('trim fill', TRIM_FILL_SITE, TRIM_FILL_SITE_OLD, TRIM_FILL_SITE_NEW),
+    ('trim close', TRIM_CLOSE_SITE, TRIM_CLOSE_SITE_OLD, TRIM_CLOSE_SITE_NEW),
+    ('trim evict', TRIM_EVICT_SITE, TRIM_EVICT_SITE_OLD, TRIM_EVICT_SITE_NEW),
+)
 TAKE = 0x041293c0                               # adds an id pair to a list (thiscall, one argument)
 RATING = 0x03853b42                             # (player record, -> position or 13, kind) -> rating in al
 FIND_PLAYER = 0x03822835                        # (player id low, id high), ecx = mode data -> the player record
@@ -1533,6 +1547,9 @@ CONTEXT_CEILING = (
     ('player', PLAYER_RECORD, 111),         # the record of a player, the whole function
     ('no player', SAME_ID, 53),             # "are two id pairs the same", the whole function
     ('no player id', NO_PLAYER_AT, 8),      # the id pair of an empty squad entry it is asked with
+    ('trim fill', TRIM_FILL_SITE, 3),       # squad trim room test: cmp eax, 0x20
+    ('trim close', TRIM_CLOSE_SITE, 3),     # deal closing squad cap check: cmp dword ptr [edx], 0x20
+    ('trim evict', TRIM_EVICT_SITE, 9),     # squad eviction mode gate: cmp eax, 0xd; jne ...
 )
 
 
@@ -1578,9 +1595,15 @@ SITES = (('fee', FEE_SITE, FEE_SITE_OLD, FEE_SITE_NEW), ('salary', SALARY_SITE, 
          ('star band', STAR_BAND_SITE, STAR_BAND_SITE_OLD, STAR_BAND_SITE_NEW),
          ('star pick', STAR_PICK_BAND_SITE, STAR_PICK_BAND_SITE_OLD, STAR_PICK_BAND_SITE_NEW),
          ('star level', STAR_PICK_LEVEL_SITE, STAR_PICK_LEVEL_SITE_OLD, STAR_PICK_LEVEL_SITE_NEW),
+         ('trim plan', TRIM_PLAN_SITE, TRIM_PLAN_SITE_OLD, TRIM_PLAN_SITE_NEW),
+         ('trim fill', TRIM_FILL_SITE, TRIM_FILL_SITE_OLD, TRIM_FILL_SITE_NEW),
+         ('trim close', TRIM_CLOSE_SITE, TRIM_CLOSE_SITE_OLD, TRIM_CLOSE_SITE_NEW),
+         ('trim evict', TRIM_EVICT_SITE, TRIM_EVICT_SITE_OLD, TRIM_EVICT_SITE_NEW),
          ('need plan', NEED_PLAN_SITE, NEED_PLAN_SITE_OLD, call(NEED_PLAN_SITE, NEED_PLAN_CODE) + b'\x90'),
          ('need pick', NEED_PICK_SITE, NEED_PICK_SITE_OLD, call(NEED_PICK_SITE, NEED_PICK_CODE)))
-TRANSFER_SITES = ('transfers', 'star band', 'star pick', 'star level', 'need plan', 'need pick')     # the places of MLTransfers.lua
+TRANSFER_SITES = ('transfers', 'star band', 'star pick', 'star level',
+                  'trim plan', 'trim fill', 'trim close', 'trim evict',
+                  'need plan', 'need pick')     # the places of MLTransfers.lua
 assert all(len(old) == len(new) for _, _, old, new in SITES)
 
 
@@ -1793,6 +1816,8 @@ class Tables:
               'years': self.young_years is not None, 'income 1': income or wages, 'income 2': income, 'income 3': income,
               'income 4': wages, 'transfers': self.transfers, 'star band': self.transfers,
               'star pick': self.transfers, 'star level': self.transfers,
+              'trim plan': self.transfers, 'trim fill': self.transfers,
+              'trim close': self.transfers, 'trim evict': self.transfers,
               'need plan': self.need, 'need pick': self.need}
         used = []
         for name, at, old, new in SITES:
@@ -3291,6 +3316,12 @@ def lua_block_transfers(exe):
         if site[0].startswith('star '):
             star += '    { "%s", 0x%08x, "%s", "%s" },\n' % (site[0], site[1], site[2].hex(), site[3].hex())
     star += '}\n\n'
+    trim = ('-- Native squad trim & mutual contract termination sites: unlock 32-player squad deadlock\n'
+            'local TRIM_SITES = {\n')
+    for site in SITES:
+        if site[0].startswith('trim '):
+            trim += '    { "%s", 0x%08x, "%s", "%s" },\n' % (site[0], site[1], site[2].hex(), site[3].hex())
+    trim += '}\n\n'
     need = ('-- The position need: the two routines (offset in the third piece of memory, machine code)\n'
             '-- and the two places that are changed for it.\nlocal NEED_ROUTINES = {\n')
     for code_at, code in ((NEED_PLAN_CODE, NEED_PLAN_BYTES), (NEED_PICK_CODE, NEED_PICK_BYTES)):
@@ -3304,7 +3335,7 @@ def lua_block_transfers(exe):
     out = ('local ROUTINE = { 0x%02x, %s }\n\n-- The place that is changed: name, address, bytes there now, bytes to write.\n'
            'local SITE = { "%s", 0x%08x, "%s", "%s" }\n\n' % (
                CEILING_CODE - CAVE_2, quoted(CEILING_BYTES.hex(), 60), name, at, old.hex(), new.hex()))
-    out += star + need + '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n'
+    out += star + trim + need + '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n'
     for name, at, data in MONEY_NEEDED:
         out += '    { "%s", 0x%08x,\n      %s },\n' % (name, at, quoted(data.hex(), 88))
     return (out + '}\n\n-- The code of the game the place and the routine rely on: name, address, bytes.\n'

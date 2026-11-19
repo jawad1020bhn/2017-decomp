@@ -844,6 +844,14 @@ local STAR_SITES = {
     { "star level", 0x03661094, "83f808", "83f80a" },
 }
 
+-- Native squad trim & mutual contract termination sites: unlock 32-player squad deadlock
+local TRIM_SITES = {
+    { "trim plan", 0x03660b85, "83f919", "83f91e" },
+    { "trim fill", 0x038895f6, "83f820", "83f821" },
+    { "trim close", 0x0365d3f4, "833a20", "833a21" },
+    { "trim evict", 0x03892145, "83f80d0f8523020000", "83f80c0f8223020000" },
+}
+
 -- The position need: the two routines (offset in the third piece of memory, machine code)
 -- and the two places that are changed for it.
 local NEED_ROUTINES = {
@@ -1093,7 +1101,14 @@ local CONTEXT = {
       .. "c2040031c05dc20400" },
     { "no player id", 0x024feb04,
       "ffff000000000000" },
+    { "trim fill", 0x038895f6,
+      "83f820" },
+    { "trim close", 0x0365d3f4,
+      "833a20" },
+    { "trim evict", 0x03892145,
+      "83f80d0f8523020000" },
 }
+
 local function hex(s)
     local t = {}
     for i = 1, #s do t[i] = string.format("%02x", string.byte(s, i)) end
@@ -1523,6 +1538,7 @@ function m.init(ctx)
     local pressure_memory = pressure_image()
     local sites = { SITE }
     for _, site in ipairs(STAR_SITES) do sites[#sites + 1] = site end
+    for _, site in ipairs(TRIM_SITES) do sites[#sites + 1] = site end
     if NEED then
         for _, site in ipairs(NEED_SITES) do sites[#sites + 1] = site end
     end
@@ -1672,6 +1688,7 @@ function m.init(ctx)
         log(string.format("sporting projects: %d qualifying AI clubs from global top %d of the top five leagues receive up to %d%% recruitment ceiling assistance for priority squad need positions",
             round(PROJECT_COUNT), round(PROJECT_RANK_MAX), round(PROJECT_CEILING_BOOST)))
     end
+    log("squad trimming: AI squad cap raised to 32 with mutual contract terminations enabled")
     log("RESULT: installed. Changed: " .. table.concat(changed, ", ") .. ".")
 end
 
