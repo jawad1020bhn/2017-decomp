@@ -411,6 +411,12 @@ POOL_KEEPS = 23                                 # a club lets a player go only w
 AI_NEXT_PLAYER = 0x0365fb28                     # where ai_candidates goes on when a player fails a test
 AI_TAKEN = 0x0365fb16                           # the instruction after the replaced ones
 AI_PICK_RETURNS = (0x03660d58, 0x03660db9)      # where ai_candidates returns to: its two calls in ai_pick_candidate
+STAR_BAND_SITE, STAR_BAND_SITE_OLD = 0x0365f8ec, bytes.fromhex('83ff06')
+STAR_BAND_SITE_NEW = bytes.fromhex('83ff08')
+STAR_PICK_BAND_SITE, STAR_PICK_BAND_SITE_OLD = 0x0366106b, bytes.fromhex('83f807')
+STAR_PICK_BAND_SITE_NEW = bytes.fromhex('83f808')
+STAR_PICK_LEVEL_SITE, STAR_PICK_LEVEL_SITE_OLD = 0x03661094, bytes.fromhex('83f808')
+STAR_PICK_LEVEL_SITE_NEW = bytes.fromhex('83f80a')
 TAKE = 0x041293c0                               # adds an id pair to a list (thiscall, one argument)
 RATING = 0x03853b42                             # (player record, -> position or 13, kind) -> rating in al
 FIND_PLAYER = 0x03822835                        # (player id low, id high), ecx = mode data -> the player record
@@ -851,15 +857,9 @@ v3: cmp dword ptr [ebp - 0x30], 2
     add esp, 4
     pop edx
     mov ecx, dword ptr [ebp - 0x20]
-    cmp ecx, 9
-    jb s1
-    cmp dword ptr [ebp - 0x48], 0
-    ja s5
-s1: cmp dword ptr [ebp - 0x44], 1
-    jne s2
     cmp ecx, 8
     jae s5
-s2: cmp dword ptr [ebp - 0x44], 4
+    cmp dword ptr [ebp - 0x44], 4
     jne s3
     cmp ecx, eax
     ja s5
@@ -1387,42 +1387,45 @@ INCOME_SCALE_BYTES = bytes.fromhex('85c07e0e52f7258c0d7b04f73554067b045ac3')
 INCOME_S_BYTES = bytes.fromhex('81c6983a00005089f0e8deffffff89c658c3')
 LEAGUE_BYTES = bytes.fromhex('31c9eb0d0fb7144d900d7b0439fa7411413b0da80d7b0472eb8b0485c0077b04c36bc91801c10fb7044db00d7b046bc064c3')
 CEILING_BYTES = bytes.fromhex(
-    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f'
-    '85d7040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b88b5014691235aeb2'
-    'c28955b48b000fb6481b894df08b401c8b0083f8090f87950400008945e031c98b93b400000083e20f4a83fa'
-    '01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd86955e8b179379e31'
-    'd1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8d90400008945ec8955b031c9'
-    '518b45ec8b55e8e8910400005989848d70ffffff4183f90e72e6c745f80d0000006a028d45f85053e873f007'
-    'ff83c40c0fb6c08945dc8b55b0e8220400008945cc837dd0000f84480100008365f8008d45f8508d45c45089'
-    'd9e8876505ff8b45c43b0534eb4f020f84260100008b55e88b0dc8477d0449782e3904cdcc477d04750d3914'
-    'cdd0477d040f84ad0300003914cdcc477d0475de3904cdd0477d040f8497030000ebcf837dd0020f85e20000'
-    '00e81b0400005052e8a30300008945a85a833d5c427d040074698b4dc88b49f48b45c425ff3f00003d8d0200'
-    '000f83aa00000083bc81ac070000170f869c000000817dc0b90d660375395253e86bf407ff83c4045a8b4de0'
-    '83f9097206837db8007720837dbc01750583f9087315837dbc04750439c1770b83f8077360807a0e08735a58'
-    '6a0c598b55c4e85e0300008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d042b55a87e090faf15f04f'
-    '7d0401d0694dc4b179379e334dd8334dac69c92febd427c1e9186bc964c1e908e8312100000f82b1020000eb'
-    '0658e9a9020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d047319694dd4'
-    'b1675616c1e9186bc964c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200008b55b88b4dc88b'
-    '49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f85'
-    '0c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d172'
-    '2740039574ffffff39d1721c40039578ffffff39d17211837de4000f84df0100008b55ec0fb64210837de400'
-    '752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f83a70100'
-    '00837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f8587010000837de40075656945e8b179'
-    '379e69c091f44525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a'
-    '4a0e7c053a4a0f7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05e84f7d046bc964'
-    '39c10f821c0100008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de40075'
-    '0f8b45cc2b45983945dc0f8ce80000008b55f08b4dec2251128b4de074128b45dc0fb69128427d0439d00f8f'
-    'c80000008b048d00427d0483f8ff0f84a80000006a645f8b4d88e8ba0000008945fc8b45e40b45f0741ba138'
-    '427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb'
-    '85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d94'
-    '8b45fcbfa0860100e848000000e8500000008b45dce8e0bdfdff8b4dd083f902741189f8f7248d3c427d04f7'
-    '3554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9e24495ff89ec5d5f5b83c404e93dace8fef7e139'
-    'fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf054c427d'
-    '04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb6040869c993'
-    '01000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04'
-    'c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483'
-    'c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069'
-    'c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3')
+    '53575589e581ec900000008b45008945c88b58d88b480481f9580d6603740c81f9b90d66030f85c6'
+    '040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b88b5014691235'
+    'aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87840400008945e031c98b93b4000000'
+    '83e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d189'
+    '4dd86955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45'
+    'e8e8c80400008945ec8955b031c9518b45ec8b55e8e8800400005989848d70ffffff4183f90e72e6'
+    'c745f80d0000006a028d45f85053e873f007ff83c40c0fb6c08945dc8b55b0e8110400008945cc83'
+    '7dd0000f84370100008365f8008d45f8508d45c45089d9e8876505ff8b45c43b0534eb4f020f8415'
+    '0100008b55e88b0dc8477d0449782e3904cdcc477d04750d3914cdd0477d040f849c0300003914cd'
+    'cc477d0475de3904cdd0477d040f8486030000ebcf837dd0020f85d1000000e80a0400005052e892'
+    '0300008945a85a833d5c427d040074588b4dc88b49f48b45c425ff3f00003d8d0200000f83990000'
+    '0083bc81ac070000170f868b000000817dc0b90d660375285253e86bf407ff83c4045a8b4de083f9'
+    '087315837dbc04750439c1770b83f8077360807a0e08735a586a0c598b55c4e85e0300008b55cc2b'
+    '55a83b15f44f7d047d178b55dc0315ec4f7d042b55a87e090faf15f04f7d0401d0694dc4b179379e'
+    '334dd8334dac69c92febd427c1e9186bc964c1e908e8422100000f82b1020000eb0658e9a9020000'
+    '837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d047319694dd4b16756'
+    '16c1e9186bc964c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200008b55b88b4dc8'
+    '8b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e483'
+    '7db8000f850c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c0'
+    '8b9570ffffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837de4000f84df01'
+    '00008b55ec0fb64210837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e918'
+    '6bc964c1e9083b8d7cffffff0f83a7010000837df00074118b55ec0fb64a1039c175040fb64a1189'
+    'c83b45d00f8587010000837de40075656945e8b179379e69c091f44525c1e8188b15fc4f7d048d4c'
+    '12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a0f7e2b694dd4933587'
+    '1bc1e9186bc964c1e9088b45a4837dd000750a0faf05e84f7d046bc96439c10f821c0100008b4584'
+    '8d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b4598'
+    '3945dc0f8ce80000008b55f08b4dec2251128b4de074128b45dc0fb69128427d0439d00f8fc80000'
+    '008b048d00427d0483f8ff0f84a80000006a645f8b4d88e8ba0000008945fc8b45e40b45f0741ba1'
+    '38427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce88700000069'
+    '4dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81'
+    'e1ff0f00000faf4d948b45fcbfa0860100e848000000e8500000008b45dce8f1bdfdff8b4dd083f9'
+    '02741189f8f7248d3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9f34495'
+    'ff89ec5d5f5b83c404e94eace8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a'
+    '0e83f9097605b9090000000fb742080faf054c427d04030550427d04c1e8100fb69164427d0439d0'
+    '730289d00fb6916e427d0439d0760289d0c30fb6040869c99301000169d2b179379e31d169c96bca'
+    'eb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52f881c2cc84'
+    'cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483c4048b0d60427d'
+    '0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179'
+    '379ec1e81d0fb684c878427d046bc01405c8427d04c3')
 assert CEILING_CODE + len(CEILING_BYTES) <= FAME_KNOWN_AT and CAVE_2 + CAVE_2_SIZE <= CAVE_2_LIMIT
 NEED_PLAN_BYTES = bytes.fromhex(
     '608b75b469f6180100000375b081c60cb8cc0066c786090100000000837e04010f87d80000008b7da08b45a429f83db00000000f82c500'
@@ -1572,9 +1575,12 @@ SITES = (('fee', FEE_SITE, FEE_SITE_OLD, FEE_SITE_NEW), ('salary', SALARY_SITE, 
          ) + tuple(('nat %d' % i, at, struct.pack('<I', old), struct.pack('<I', old))
                    for i, (at, old) in enumerate(NATIONAL_SITES)) + (
          ('transfers', CEILING_SITE, CEILING_SITE_OLD, call(CEILING_SITE, CEILING_CODE) + b'\x90' * 4),
+         ('star band', STAR_BAND_SITE, STAR_BAND_SITE_OLD, STAR_BAND_SITE_NEW),
+         ('star pick', STAR_PICK_BAND_SITE, STAR_PICK_BAND_SITE_OLD, STAR_PICK_BAND_SITE_NEW),
+         ('star level', STAR_PICK_LEVEL_SITE, STAR_PICK_LEVEL_SITE_OLD, STAR_PICK_LEVEL_SITE_NEW),
          ('need plan', NEED_PLAN_SITE, NEED_PLAN_SITE_OLD, call(NEED_PLAN_SITE, NEED_PLAN_CODE) + b'\x90'),
          ('need pick', NEED_PICK_SITE, NEED_PICK_SITE_OLD, call(NEED_PICK_SITE, NEED_PICK_CODE)))
-TRANSFER_SITES = ('transfers', 'need plan', 'need pick')     # the places of MLTransfers.lua
+TRANSFER_SITES = ('transfers', 'star band', 'star pick', 'star level', 'need plan', 'need pick')     # the places of MLTransfers.lua
 assert all(len(old) == len(new) for _, _, old, new in SITES)
 
 
@@ -1785,7 +1791,9 @@ class Tables:
               'cup 3': self.has_cup, 'league 1': self.has_league, 'league 2': self.has_league_2,
               'prize 1': share, 'prize 2': share, 'pay gap': self.has_gap, 'bonus 1': bonus, 'bonus 2': bonus,
               'years': self.young_years is not None, 'income 1': income or wages, 'income 2': income, 'income 3': income,
-              'income 4': wages, 'transfers': self.transfers, 'need plan': self.need, 'need pick': self.need}
+              'income 4': wages, 'transfers': self.transfers, 'star band': self.transfers,
+              'star pick': self.transfers, 'star level': self.transfers,
+              'need plan': self.need, 'need pick': self.need}
         used = []
         for name, at, old, new in SITES:
             if name == 'years' and on[name]:
@@ -2120,8 +2128,7 @@ def accepts(t, level, player, buyer=None, search=None, from_pick=True):
                 return False
             if not search['first']:
                 band = player.get('band', 0)
-                wanted = ((level >= 9 and search['band'] > 0) or (search['kind'] == 1 and level >= 8)
-                          or (search['kind'] == 4 and level > band))
+                wanted = level >= 8 or (search['kind'] == 4 and level > band)
                 if not wanted and (band >= 7 or seller['level'] >= 8):
                     return False
         keeps = gene(t, persona(t, seller['id'], seller['level']), GENE_NAMES.index('keeps'), seller['id'])
@@ -3278,6 +3285,12 @@ def lua_block(exe):
 def lua_block_transfers(exe):
     """The lines of MLTransfers.lua from `local ROUTINE` to the end of CONTEXT."""
     (name, at, old, new), = [x for x in SITES if x[0] == 'transfers']
+    star = ('-- Native transfer candidate filter sites: bypass unlisted 85+ OVR freeze\n'
+            'local STAR_SITES = {\n')
+    for site in SITES:
+        if site[0].startswith('star '):
+            star += '    { "%s", 0x%08x, "%s", "%s" },\n' % (site[0], site[1], site[2].hex(), site[3].hex())
+    star += '}\n\n'
     need = ('-- The position need: the two routines (offset in the third piece of memory, machine code)\n'
             '-- and the two places that are changed for it.\nlocal NEED_ROUTINES = {\n')
     for code_at, code in ((NEED_PLAN_CODE, NEED_PLAN_BYTES), (NEED_PICK_CODE, NEED_PICK_BYTES)):
@@ -3289,10 +3302,9 @@ def lua_block_transfers(exe):
     need += ('}\n\n-- SQUAD_PRESSURE: its routine (offset in the fifth piece of memory, machine code)\n'
              'local PRESSURE_ROUTINE = { 0x%02x, %s }\n\n' % (PRESSURE_CODE - CAVE_5, quoted(PRESSURE_BYTES.hex(), 50)))
     out = ('local ROUTINE = { 0x%02x, %s }\n\n-- The place that is changed: name, address, bytes there now, bytes to write.\n'
-           'local SITE = { "%s", 0x%08x, "%s", "%s" }\n\n'
-           '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n' % (
+           'local SITE = { "%s", 0x%08x, "%s", "%s" }\n\n' % (
                CEILING_CODE - CAVE_2, quoted(CEILING_BYTES.hex(), 60), name, at, old.hex(), new.hex()))
-    out = out.replace('-- What MLMoney.lua must have', need + '-- What MLMoney.lua must have')
+    out += star + need + '-- What MLMoney.lua must have put into its memory: name, address, bytes.\nlocal MONEY = {\n'
     for name, at, data in MONEY_NEEDED:
         out += '    { "%s", 0x%08x,\n      %s },\n' % (name, at, quoted(data.hex(), 88))
     return (out + '}\n\n-- The code of the game the place and the routine rely on: name, address, bytes.\n'

@@ -817,7 +817,8 @@ class Harness:
                     """the first set (i = 1) has none of the game's tests of the status band"""
                     def fits(p):
                         return p['fits'] and (i == 1 or p['band'] >= asked and not (
-                            p['status'] == 0 and asked == 0 and not p['listed'] and p['band'] > 5))
+                            p['status'] == 0 and asked == 0 and not p['listed'] and p['band'] > (
+                                7 if g.read(mc.STAR_BAND_SITE, 3) == mc.STAR_BAND_SITE_NEW else 5)))
                     return [p['id'] for p in mc.candidates(tables, level, lists[i], lowest, highest, fits, most,
                                                            buyer, search(i))]
 
