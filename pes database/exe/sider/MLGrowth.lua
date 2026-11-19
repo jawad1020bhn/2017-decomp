@@ -1,5 +1,6 @@
--- MLGrowth.lua, version 6: a calibrated realistic age curve for every Master League
--- player (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
+-- MLGrowth.lua, version 7: calibrated realistic age curve, multi-attribute positional
+-- development, and AI veteran physical decline for Master League (Sider Lua module).
+-- Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): Master League keeps growth
 -- records (experience, carry, match counters, pending events) for about fifty players
@@ -13,7 +14,7 @@
 -- raises only their age.
 --
 -- What the module changes, in the running game only (no file is touched):
---   Version 6 calibrates the youth rates to realistic football development paces:
+--   Version 6 calibrated the youth rates to realistic football development paces:
 --   the effective rates are x1.75 at 15-17, x1.50 at 18-21, x1.00 at 22-24, x0.75 at
 --   25-27, x0.50 at 28-29 and x0.25 from 30. Unplayed reserve players develop slowly
 --   (20% playtime baseline), requiring regular match appearances to unlock full growth.
@@ -23,6 +24,14 @@
 --     25% plateau/slump seasons, preventing uniform development across all youth.
 --   - Non-linear diminishing headroom & prodigy resistance: Dynamic resistance tiers
 --     at 75+ and 82+ OVR prevent young players from reaching 90+ on autopilot.
+--   Version 7 adds Package E AI player realism improvements:
+--   - Multi-attribute positional development: Youth progression alternates between
+--     primary and secondary positional attributes on even/odd age years (e.g. CF finish
+--     and dribbling; midfielders dribbling and passing; defenders defending and ball
+--     winning/speed; GK goalkeeping and reflexes).
+--   - AI veteran physical decline: Contracted AI players aged 32+ now experience
+--     natural physical decline (-1) on speed and stamina down to a protected floor of 45,
+--     mirroring human squad physical decline and preventing static evergreen veterans.
 --   A. The exp award fcn_038b2fc4 now multiplies the exp by this age curve, a
 --      potential scale (how close the player is to the ceiling his age allows) and,
 --      for a player with a growth record, by his playtime of the cycle. Kind-2 awards
@@ -64,7 +73,7 @@ local m = {}
 local DATA = 0x0298c200
 local DATA_SIZE = 236
 local CAVE_E2 = 0x047d3f07
-local CAVE_E2_SIZE = 138
+local CAVE_E2_SIZE = 150
 local CAVE_CURVE = 0x047d5b8c
 local CAVE_CURVE_SIZE = 83
 local CAVE_B1 = 0x047d6377
@@ -75,13 +84,13 @@ local CAVE_FOCUS = 0x047d6efe
 local CAVE_FOCUS_SIZE = 78
 
 local BLOCKS = {
-    { "season award code", CAVE_E2, "8d43f10fb69058c2980285d2746b0fb68010c29802c1e802745f83bfa8000000ff74568b4704c1e81c0fb690c8c298028955fc8d45f8505289f9e86a3905ff8b75f883fe5873328b472c69c06d4ec64101d8c1e8183c40722083fe4b720f83fe5272063cd27212eb043c80720c4656ff75fc89f9e8304205ff89ec5d5f5e5b8b1518e54f02e9aff7e4fe" },
+    { "season award code", CAVE_E2, "83bfa8000000ff747c6a0d5883fb20730e8d43f183f80a736c8b4704c1e81cbac8c29802f6c301740383ea100fb614108955fc6a00545289f9e86b3905ff5e8b472c69c06d4ec64101d8c1e8183c40723483fb20720c3c80722b83fe2d76264eeb1883fe58731e83fe4b720d3c80721583fe5272043cd2720c4656ff75fc89f9e8244205ff89ec5d5f5e5b8b1518e54f02e9a3f7e4fe" },
     { "age curve code", CAVE_CURVE, "8d43f10fb68010c2980250db0424d80dd8c29802588d43f10fb68858c2980285c9742b8d469df7d883fe4b7c0883fb157f0383c00450db04245851db042458def9d9e8dbf1dbc1d9c9ddd8dec9c3ddd8d9eec3" },
     { "exp award code", CAVE_B1, "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e87d2806ff83c40c0fb6f08b551cf64203800f85100b0000c745f814000000a1e00365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c074178b4df4ff7730ff772ce8e0a394fe8b90a00100008955f88b551ce9930a0000" },
-    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f8504d1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
+    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f8510d1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
     { "season walk code 2", CAVE_E1 + 58, "d902e8fbecffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b5589e581ec3c020000e9cfc00dff" },
     { "training scale code", CAVE_FOCUS, "5356575589e583ec10894df88b5f1cc1eb0783e33f8d45fc6a00508d472c50e8f61c06ff83c40c0fb6f0e85fecffffdb4518dec983ec04db1c24ff75148b4df8e8a6a7e4fe89ec5d5f5e5bc20800" },
-    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0707070606060604040403030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c0505050101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101010001010100000000000000000000000000000000000013131111110f1111110f0f0f101111110000803e0000a041cdcc4c3fcdcc4c3e0000803e" },
+    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0707070606060604040403030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c050505010101010101010101010101010101010101010101010101010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010101000101010000111114141417141414171f1f1a25141413131111110f1111110f0f0f101f11110000803e0000a041cdcc4c3fcdcc4c3e0000803e" },
 }
 
 local SITES = {
@@ -125,9 +134,9 @@ local function check_bytes(name, addr, expected_hex)
 end
 
 function m.init(ctx)
-    log("MLGrowth 5: a moderated age curve for every Master League player "
-        .. "(potential and playtime decide growth, young players still lead, "
-        .. "physical decline from 31, training follows the curve too)")
+    log("MLGrowth 7: a moderated age curve for every Master League player "
+        .. "(potential, playtime, multi-attribute youth development, "
+        .. "physical decline from 32, training follows the curve too)")
 
     -- 1. the code the cave jumps to and calls must be where it is
     local good = true

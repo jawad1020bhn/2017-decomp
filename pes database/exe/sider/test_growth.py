@@ -151,20 +151,129 @@ def native_awards(g):
     return checked
 
 
+def test_e2_standalone():
+    """Emulate E2 in a standalone Unicorn instance without needing PES2017.exe."""
+    from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_PROT_ALL, UC_HOOK_CODE
+    from unicorn.x86_const import (UC_X86_REG_ESP, UC_X86_REG_EBP, UC_X86_REG_EDI,
+                                   UC_X86_REG_EBX, UC_X86_REG_EIP)
+
+    mu = Uc(UC_ARCH_X86, UC_MODE_32)
+    mu.mem_map(0x0298c000, 0x1000, UC_PROT_ALL)   # DATA
+    mu.mem_map(0x047d3000, 0x2000, UC_PROT_ALL)   # E2
+    mu.mem_map(0x03827000, 0x3000, UC_PROT_ALL)   # GETTER / SETTER
+    mu.mem_map(0x03623000, 0x1000, UC_PROT_ALL)   # SEASON_NEXT
+    mu.mem_map(0x024fe000, 0x1000, UC_PROT_ALL)   # [0x24fe518]
+    mu.mem_map(0x10000000, 0x10000, UC_PROT_ALL)  # Stack & Player
+
+    mu.mem_write(gc.POSTBL_TBL, bytes(gc.POSTBL))
+    mu.mem_write(gc.POSTBL2_TBL, bytes(gc.POSTBL2))
+    e2_bytes = bytes.fromhex(gc.part('E2')[1])
+    mu.mem_write(gc.E2, e2_bytes)
+
+    player_attrs = {}
+    last_set = {}
+
+    def hook_code(uc, address, size, user_data):
+        if address == gc.GETTER:
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            sel = struct.unpack('<I', uc.mem_read(esp + 4, 4))[0]
+            out_ptr = struct.unpack('<I', uc.mem_read(esp + 8, 4))[0]
+            val = player_attrs.get(sel, 50)
+            uc.mem_write(out_ptr, struct.pack('<I', val))
+            ret_addr = struct.unpack('<I', uc.mem_read(esp, 4))[0]
+            uc.reg_write(UC_X86_REG_ESP, esp + 12)
+            uc.reg_write(UC_X86_REG_EIP, ret_addr)
+        elif address == gc.SETTER:
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            sel = struct.unpack('<I', uc.mem_read(esp + 4, 4))[0]
+            val = struct.unpack('<I', uc.mem_read(esp + 8, 4))[0]
+            last_set['sel'] = sel
+            last_set['val'] = val
+            ret_addr = struct.unpack('<I', uc.mem_read(esp, 4))[0]
+            uc.reg_write(UC_X86_REG_ESP, esp + 12)
+            uc.reg_write(UC_X86_REG_EIP, ret_addr)
+        elif address == gc.SEASON_NEXT:
+            uc.emu_stop()
+
+    mu.hook_add(UC_HOOK_CODE, hook_code)
+
+    def run_e2(player_id, club_id, age, pos, attrs):
+        nonlocal player_attrs, last_set
+        player_attrs = dict(attrs)
+        last_set = {}
+
+        player_addr = 0x10008000
+        p_data = bytearray(0xe0)
+        struct.pack_into('<I', p_data, 4, pos << 28)
+        struct.pack_into('<I', p_data, 0x1c, age << 7)
+        struct.pack_into('<I', p_data, 0x2c, player_id)
+        struct.pack_into('<I', p_data, 0xa8, club_id)
+        mu.mem_write(player_addr, bytes(p_data))
+
+        stack_top = 0x10005000
+        ebp = stack_top - 16
+        esp = ebp - 16
+        mu.reg_write(UC_X86_REG_ESP, esp)
+        mu.reg_write(UC_X86_REG_EBP, ebp)
+        mu.reg_write(UC_X86_REG_EDI, player_addr)
+        mu.reg_write(UC_X86_REG_EBX, age)
+        mu.reg_write(UC_X86_REG_EIP, gc.E2)
+
+        mu.emu_start(gc.E2, gc.SEASON_NEXT + 10, timeout=1000000)
+        return last_set
+
+    # 1. CF turning 18 (even age): Finishing (0x13)
+    res = run_e2(player_id=1, club_id=10, age=18, pos=0, attrs={0x13: 65, 0x11: 60})
+    assert res.get('sel') == 0x13 and res.get('val') == 66, f'CF age 18 failed: {res}'
+
+    # 2. CF turning 19 (odd age): Dribbling (0x11)
+    res = run_e2(player_id=1, club_id=10, age=19, pos=0, attrs={0x13: 66, 0x11: 60})
+    assert res.get('sel') == 0x11 and res.get('val') == 61, f'CF age 19 failed: {res}'
+
+    # 3. CMF turning 18 (even): Dribbling (0x11)
+    res = run_e2(player_id=1, club_id=10, age=18, pos=6, attrs={0x11: 65, 0x14: 60})
+    assert res.get('sel') == 0x11 and res.get('val') == 66, f'CMF age 18 failed: {res}'
+
+    # 4. CMF turning 19 (odd): Low Pass (0x14)
+    res = run_e2(player_id=1, club_id=10, age=19, pos=6, attrs={0x11: 66, 0x14: 60})
+    assert res.get('sel') == 0x14 and res.get('val') == 61, f'CMF age 19 failed: {res}'
+
+    # 5. Senior 32yo (even age): Speed (0x1f) declines
+    res = run_e2(player_id=2, club_id=10, age=32, pos=0, attrs={0x1f: 80, 0x25: 75})
+    assert res.get('sel') == 0x1f and res.get('val') == 79, f'Senior 32 failed: {res}'
+
+    # 6. Senior 33yo (odd age): Stamina (0x25) declines
+    res = run_e2(player_id=2, club_id=10, age=33, pos=0, attrs={0x1f: 79, 0x25: 75})
+    assert res.get('sel') == 0x25 and res.get('val') == 74, f'Senior 33 failed: {res}'
+
+    # 7. Floor protection: stat <= 45 must not decline
+    res = run_e2(player_id=2, club_id=10, age=32, pos=0, attrs={0x1f: 45, 0x25: 45})
+    assert res == {}, f'Floor protection failed: {res}'
+
+    # 8. Free agent: club 0xffffffff gets 0
+    res = run_e2(player_id=1, club_id=0xffffffff, age=18, pos=0, attrs={0x13: 65})
+    assert res == {}, f'Free agent gating failed: {res}'
+
+
 def main(exe):
-    # Version 6 calibrated realistic rates: quarter-step rates guarding the realistic
+    # Version 7: Multi-attribute positional development & AI veteran physical decline.
+    # Calibrated realistic rates: quarter-step rates guarding the realistic
     # 1.75/1.50/1.00/0.75 youth curve and 0.50/0.25 late tail, with 20% playtime baseline.
     expected_curve = {15: 1.75, 18: 1.50, 22: 1.00, 25: 0.75, 28: 0.50, 30: 0.25}
     assert {age: gc.mult(age) for age in expected_curve} == expected_curve
     assert gc.award_exp(1000, 18, 60) == 1500
     assert gc.season_levels(18, 90) == 0    # close to the ceiling: no forced extra point
-    print('ok 0: version 6 uses the calibrated 1.75/1.50/1.00/0.75 youth curve, keeps '
-          'the 0.50/0.25 late tail, and still slows players near their potential ceiling')
+    print('ok 0: version 7 uses the calibrated 1.75/1.50/1.00/0.75 youth curve, keeps '
+          'the 0.50/0.25 late tail, multi-attribute youth growth and senior physical decline')
 
     source = open(MODULE, encoding='utf-8').read()
     assert gc.lua_block() in source, 'MLGrowth.lua does not hold the block of growth_cave.py'
     print('ok 0a: MLGrowth.lua holds exactly the code and tables growth_cave.py builds '
           '(the generated block matches)')
+
+    test_e2_standalone()
+    print('ok 0b: standalone CPU emulation verified: multi-attribute youth growth, '
+          'senior physical decline (32+ speed/stamina), floor protection (45), and free agent gating')
 
     image = Game(exe)
 
@@ -255,48 +364,54 @@ def main(exe):
 
     # -- 5: hook E with the module ----------------------------------------------
     mode, _ = world(image, tracked=0)
-    players = [craft({0x13: 64, 0x11: 61}, 17, 0),          # CF turning 18
-               craft({0x13: 70, 0x0f: 58}, 30, 9),          # CB turning 31
-               craft({0x13: 40, 0x0f: 30}, 22, 9),          # CB turning 23
-               craft({0x10: 50}, 16, 12),                   # GK turning 17
-               craft({0x11: 50}, 17, 13)]                   # broken position 13 -> drib
-    sel_of = [0x13, 0x0f, 0x0f, 0x10, 0x11]
+    players = [craft({0x13: 64, 0x11: 61}, 17, 0, id_lo=1),          # CF turning 18 (even age -> finish 0x13)
+               craft({0x13: 70, 0x0f: 58}, 30, 9, id_lo=1),          # CB turning 31 (age 31 -> 0 change)
+               craft({0x13: 40, 0x17: 30}, 22, 9, id_lo=1),          # CB turning 23 (odd age -> ball_win 0x17)
+               craft({0x1a: 50}, 16, 12, id_lo=1),                   # GK turning 17 (odd age -> reflex 0x1a)
+               craft({0x11: 50}, 17, 13, id_lo=1)]                   # broken position 13 -> drib 0x11
+    sel_of = [0x13, 0x0f, 0x17, 0x1a, 0x11]
     before = [field(p, s) for p, s in zip(players, sel_of)]
     after = season(image, mode, players)
     for i, (rec, sel, was) in enumerate(zip(after, sel_of, before)):
         age = (struct.unpack_from('<I', rec, 0x1c)[0] >> 7) & 0x3f
         assert age == (17, 30, 22, 16, 17)[i] + 1, (i, age)
-        assert field(rec, sel) == was + gc.season_levels(age, was), (i, field(rec, sel), was)
+        assert field(rec, sel) == was + gc.season_levels(age, was, player_id=1, pos=(0, 9, 9, 12, 13)[i]), (i, field(rec, sel), was)
     mode, _ = world(image, tracked=1)
     after = season(image, mode, [craft({0x13: 64}, 17, 0)])
     assert field(after[0], 0x13) == 64, 'a tracked player gets no season points'
-    print('ok 5: with the module the season walk raises the age of everyone and adds '
-          'season_levels points on the position ability of every player without a '
-          'growth record (CF finishing, CB defending, GK goalkeeping, the fallback of '
-          'a broken position is dribbling); a tracked player is left to hook A')
+    print('ok 5: with the module the season walk raises the age of everyone, adds '
+          'season_levels points on multi-attribute position abilities for youth, and '
+          'declines veterans physically; a tracked player is left to hook A')
 
     checked = 0
     for before_age in (14, 15, 16, 17, 20, 21, 22, 24, 28, 30, 51, 52, 62):
         cases = [(pos, value) for pos in range(16) for value in (40, 75, 80, 84, 90, 98, 99)]
         mode, _ = world(image, tracked=0)
-        players = [craft({gc.POSTBL[pos]: value}, before_age, pos) for pos, value in cases]
+        age = before_age + 1
+        players = [craft({gc.season_attr(age, pos): value}, before_age, pos) for pos, value in cases]
         after = season(image, mode, players)
         for rec, (pos, was) in zip(after, cases):
-            age = (struct.unpack_from('<I', rec, 0x1c)[0] >> 7) & 0x3f
-            expected = was + gc.season_levels(age, was)
-            assert field(rec, gc.POSTBL[pos]) == expected, (age, pos, was, field(rec, gc.POSTBL[pos]), expected)
+            sel = gc.season_attr(age, pos)
+            expected = was + gc.season_levels(age, was, pos=pos)
+            assert field(rec, sel) == expected, (age, pos, was, field(rec, sel), expected)
             checked += 1
     assert gc.build() == {name: (gc.part(name)[0], bytes.fromhex(gc.part(name)[1])) for name in gc.CODE_PARTS}
     print('ok 5a: annual awards match the age-margin reference near the ceiling across '
           '%d age/position/ability cases; assembled code matches every embedded block' % checked)
 
-    # -- 5b: Package D development conditioning ---------------------------------
+    # -- 5b: Package D & E development conditioning -----------------------------
     mode, _ = world(image, tracked=0)
     free_agent = craft({0x13: 64}, 17, 0, id_lo=5, club=0xffffffff)
     contracted = craft({0x13: 64}, 17, 0, id_lo=5, club=100)
-    after = season(image, mode, [free_agent, contracted])
+    senior_32 = craft({0x1f: 80, 0x25: 78}, 31, 0, id_lo=2, club=100)
+    senior_33 = craft({0x1f: 79, 0x25: 75}, 32, 0, id_lo=2, club=100)
+    senior_floor = craft({0x1f: 45, 0x25: 45}, 31, 0, id_lo=2, club=100)
+    after = season(image, mode, [free_agent, contracted, senior_32, senior_33, senior_floor])
     assert field(after[0], 0x13) == 64, 'uncontracted free agent must receive 0 growth'
     assert field(after[1], 0x13) == 65, 'contracted youth player develops'
+    assert field(after[2], 0x1f) == 79, 'senior speed must decline at age 32'
+    assert field(after[3], 0x25) == 74, 'senior stamina must decline at age 33'
+    assert field(after[4], 0x1f) == 45, 'senior at floor (<= 45) must not decline'
 
     plateaus = 0
     sample_ids = range(1, 101)
