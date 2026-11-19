@@ -1103,7 +1103,88 @@ class Harness:
         v['age'] = 0
 
 
-def main(exe):
+def test_budget_rebalancing():
+    """Verify smart budget rebalancing with contract amortization in Python and Lua."""
+    # 1. Python model:
+    t0, s0 = 480137, 123735
+    # Move 10M from transfers to salary (ratio 4.0: 10M -> 2.5M/yr)
+    t1, s1 = mc.rebalance_budgets(t0, s0, transfer_delta_m=10.0, ratio=4.0)
+    assert (t1, s1) == (380137, 148735), f"Failed transfer to salary: {t1}, {s1}"
+
+    # Move 2.5M from salary back to transfers
+    t2, s2 = mc.rebalance_budgets(t1, s1, salary_delta_m=2.5, ratio=4.0)
+    assert (t2, s2) == (t0, s0), f"Failed salary to transfer symmetry: {t2}, {s2}"
+
+    # Ratio 5.0 (5-year contract): 10M -> 2.0M/yr
+    t3, s3 = mc.rebalance_budgets(t0, s0, transfer_delta_m=10.0, ratio=5.0)
+    assert (t3, s3) == (380137, 143735), f"Failed ratio 5.0: {t3}, {s3}"
+
+    # Overdraft / floor protection: moving 500M when we only have 48M
+    t_floor, s_floor = mc.rebalance_budgets(t0, s0, transfer_delta_m=500.0, ratio=4.0)
+    assert t_floor == 0, f"Transfer budget floor failed: {t_floor}"
+    assert s_floor == s0 + int(round(t0 / 4.0)), f"Salary addition from clamped floor failed: {s_floor}"
+
+    # 2. Lua module integration test via LuaRuntime:
+    lua = LuaRuntime(encoding=None, unpack_returned_tuples=True)
+    memory_store = {}
+
+    def mem_read(addr, size):
+        buf = bytearray()
+        for i in range(int(size)):
+            buf.append(memory_store.get(int(addr) + i, 0))
+        return bytes(buf)
+
+    def mem_write(addr, data):
+        for i, b in enumerate(data):
+            memory_store[int(addr) + i] = b
+
+    # Mock mode structures
+    MODE_OBJ = 0x20000000
+    MODE_DATA = 0x30000000
+    MENU_OBJ = 0x21000000
+
+    mem_write(0x026503e0, struct.pack('<I', MODE_OBJ))
+    mem_write(MODE_OBJ + 0x30, struct.pack('<I', MODE_DATA))
+    mem_write(0x0264f3e8, struct.pack('<I', MENU_OBJ))
+    mem_write(MENU_OBJ + 0x20, struct.pack('<I', 0x13))
+
+    mem_write(MODE_DATA + 0xdddfc4, struct.pack('<i', 480137))
+    mem_write(MODE_DATA + 0xdddfdc, struct.pack('<i', 123735))
+
+    loader = lua.eval('''function(source, log, read, write)
+        local env = { assert = assert, table = table, pairs = pairs, ipairs = ipairs, string = string,
+                      math = math, tonumber = tonumber, tostring = tostring, unpack = unpack,
+                      error = error, _VERSION = _VERSION, type = type,
+                      os = { time = os.time, clock = os.clock, date = os.date },
+                      log = log, memory = { read = read, write = write } }
+        local f = loadstring(source)
+        setfenv(f, env)
+        return f()
+    end''')
+
+    source = open(MODULE, 'rb').read()
+    mod = loader(source, lambda *a: None, mem_read, mem_write)
+
+    # Test mod.rebalance: move 10M from transfers to salary
+    ok, _ = mod.rebalance(10.0, None)
+    assert ok, "mod.rebalance failed"
+    got_t = struct.unpack('<i', mem_read(MODE_DATA + 0xdddfc4, 4))[0]
+    got_s = struct.unpack('<i', mem_read(MODE_DATA + 0xdddfdc, 4))[0]
+    assert (got_t, got_s) == (380137, 148735), f"Lua rebalance got: {got_t}, {got_s}"
+
+    # Move 2.5M from salary back to transfers
+    ok, _ = mod.rebalance(None, 2.5)
+    assert ok, "mod.rebalance failed"
+    got_t = struct.unpack('<i', mem_read(MODE_DATA + 0xdddfc4, 4))[0]
+    got_s = struct.unpack('<i', mem_read(MODE_DATA + 0xdddfdc, 4))[0]
+    assert (got_t, got_s) == (480137, 123735), f"Lua rebalance restore got: {got_t}, {got_s}"
+    print("ok 0: smart budget slider rebalances transfers and salaries with 4.0x contract amortization")
+
+
+def main(exe=None):
+    test_budget_rebalancing()
+    if exe is None:
+        return
     random.seed(2017)
     source = two_modules()
     h = Harness(exe)
@@ -1253,7 +1334,7 @@ def main(exe):
               n, n, cups, leagues, n // 5, max(160, n // 4)))
 
     # 3. the switches, and settings at their limits
-    optional = ('SALARY', 'BUDGET_TRANSFER', 'BUDGET_SALARY', 'CUP', 'LEAGUE', 'LEAGUE_2', 'PRIZE_TO_BUDGET',
+    optional = ('SALARY', 'BUDGET_TRANSFER', 'BUDGET_SALARY', 'BUDGET_SLIDER', 'CUP', 'LEAGUE', 'LEAGUE_2', 'PRIZE_TO_BUDGET',
                 'PAY_GAP', 'BONUS', 'YOUNG_YEARS', 'TALENT', 'INCOME', 'LEAGUE_BY_ID', 'CUP_NATIONAL', 'CUP_TV',
                 'INCOME_WAGES', 'CEILING', 'SELL_SIDE', 'PERSONA', 'RIVALS', 'NEED', 'INCOMING', 'SPORTING_PROJECTS')
 
@@ -1878,4 +1959,4 @@ def main(exe):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    main(sys.argv[1] if len(sys.argv) > 1 else None)

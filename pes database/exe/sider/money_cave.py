@@ -2505,6 +2505,51 @@ def budgets(t, fees, salaries, wage_bill):
     return limit(mean(fees) * bt // 100), limit(wage_bill + mean(salaries) * bs // 100)
 
 
+def rebalance_budgets(transfer_stored, salary_stored, transfer_delta_m=0, salary_delta_m=0, ratio=4.0):
+    """Rebalance funds between Transfer Budget and Salary Budget with contract amortization.
+    transfer_stored, salary_stored: budget amounts in stored units (amount / 100).
+    transfer_delta_m: millions of transfer budget to move to salary (>0) or vice versa (<0).
+    salary_delta_m: millions of annual salary to move to transfer (>0) or vice versa (<0).
+    ratio: amortization ratio (default 4.0: 10M transfer fee -> 2.5M/yr salary over 4-year contract).
+    Returns (new_transfer_stored, new_salary_stored)."""
+    t = transfer_stored
+    s = salary_stored
+    if transfer_delta_m != 0:
+        dt = int(round(transfer_delta_m * 10000))
+        if dt > 0:
+            if dt > t:
+                dt = t
+            ds = int(round(dt / ratio))
+            t -= dt
+            s += ds
+        elif dt < 0:
+            dt_req = -dt
+            ds_req = int(round(dt_req / ratio))
+            if ds_req > s:
+                ds_req = s
+            dt_act = int(round(ds_req * ratio))
+            s -= ds_req
+            t += dt_act
+    elif salary_delta_m != 0:
+        ds = int(round(salary_delta_m * 10000))
+        if ds > 0:
+            if ds > s:
+                ds = s
+            dt = int(round(ds * ratio))
+            s -= ds
+            t += dt
+        elif ds < 0:
+            ds_req = -ds
+            dt_req = int(round(ds_req * ratio))
+            if dt_req > t:
+                dt_req = t
+            ds_act = int(round(dt_req / ratio))
+            t -= dt_req
+            s += ds_act
+    limit = lambda v: clamp(v, 0, 99999999)
+    return limit(t), limit(s)
+
+
 # INCOMING_SOURCE. Entered at fcn_0381e2eb in the place of its prologue: the look-up the
 # offer creator (fcn_03652df0) asks for the buying club, a byte of the mode data turned into
 # a club id. Only the key 0x02100a66 is touched; every other call runs the game's own code.
