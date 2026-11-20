@@ -394,7 +394,7 @@ addresses, and a Sider module reads it without trouble.
 What else the same `sider.log` shows:
 
 - `luajit.ext.enabled = 0`: modules have no `ffi`, `bit` or `require`. Modules here must
-  work without them, except for the optional F6/F7 money controls.
+  work without them, including the F6/F7 money controls.
 - Sider itself uses `0x026503E0` (`_tid_addr1`), the pointer `MASTER_LEAGUE.md` calls the
   mode object, and `0x04062701`, the competition id table function. Two addresses of the
   notes confirmed from another side.
@@ -1986,14 +1986,13 @@ and Salary Budget using realistic financial math:
   - Reallocating £10M transfer budget adds £2.5M to the annual salary budget.
   - Freeing £2.5M from the annual salary budget adds £10M to the transfer budget.
 - **In-Game Control**:
-  On Windows, set `luajit.ext.enabled = 1` and `livecpk.enabled = 1` in `sider.ini`, then restart
-  PES and Sider. LuaJIT extensions grant native access to loaded modules; enable them only for mods
-  you trust. With extensions off, the rest of MLMoney still works, but not the budget keys.
-  - **F6** moves one step from transfer funds to salary room (£4M transfer → £1M annual salary by default).
-  - **F7** moves one step back (£1M annual salary → £4M transfer by default).
-  - Sider 3.6 samples these keys during file loads, not every frame. In a focused Master League window,
-    hold one key while opening a menu, then release both while navigating before the next move. A quick
-    tap in an idle menu may be missed. `sider.log` reports each move. No command file is used.
+  - After replacing `modules/MLMoney.lua`, fully restart Sider and PES. Check for `Budget keys active:`
+    in `sider.log`. No LuaJIT extensions, LiveCPK polling, or command file is needed.
+  - With a loaded Master League career and the game window focused, **tap F6** to move £4M
+    from transfer funds into £1M of annual salary room. **Tap F7** to move it back.
+    If the current finance screen still shows its old values, leave and reopen it.
+  - The main Windows message pump handles initial F6/F7 keydowns (not auto-repeats) and
+    forwards the original message to PES. This is checked in emulation, not on Windows.
 - **Safety**:
   All transactions include floor protection and bounds checking ($[0, 99999999]$ in stored units, up to £9.99B),
   preventing budget deficits or integer overflows.
@@ -2967,7 +2966,8 @@ Read from the DLL's code and strings, not run:
   zeros finish a padding NOP, and the next function starts at `0x03fc9da0`), where it
   takes `0x03fc8000`-`0x03fc88ff`. `MLNews.lua` reserves the separate
   `0x03fc8900`-`0x03fc92ff` (2,560 bytes) for its code and constant text/date tables;
-  it has no writable cave state. No verified native pointer/direct target into the
+  `MLMoney.lua` uses `0x03fc9300`–`0x03fc943f` for the optional budget keys. News
+  has no writable cave state. No verified native pointer/direct target into the
   **News block** was found in the static scan; raw overlapping-dword matches are not
   proof of pointers (see `SAFETY_AUDIT.md`). Computed/third-party uses remain unproved.
   `.trace` is read/write/execute, so nothing there needs a protection change.

@@ -41,7 +41,7 @@
 -- career for numbers that fit together, or set SALARY, PAY_GAP, BONUS and INCOME_WAGES to
 -- false for a running one. Prizes and the contract limit work in a running career at once.
 --
--- The optional F6/F7 controls require luajit.ext.enabled = 1 and livecpk.enabled = 1 in sider.ini.
+-- F6/F7 use the PES keyboard message loop; LuaJIT extensions and LiveCPK are not required.
 
 local m = {}
 
@@ -332,10 +332,13 @@ local SITES = {
     { "nat 3", 0x038aa45e, "e8030000", "e8030000" },
     { "nat 4", 0x038aa46a, "f4010000", "f4010000" },
     { "nat 5", 0x038aa476, "2c010000", "2c010000" },
+    { "keys", 0x02bd2663, "8b1da0787d04", "bb0093fc0390" },
 }
 
 -- The code and data those places and the routines rely on: name, address, bytes.
 local CONTEXT = {
+    { "key dispatch", 0x02bd265d,
+      "8b3db0797d048b1da0787d048d098d8de4ffffff51ffd78d95e4ffffff52ffd3" },
     { "fee code", 0x038ab832,
       "5589e583ec1c5356e8a608f7ff8b75088b4e048b40308b16515289c1e8e26ff7ff89c38b4518803800751d8b"
       .. "4d10833900751556e8df18feff83c40484c074085e31c05b89ec5dc38b550c8b0285c075068b83cc0000008b"
@@ -582,7 +585,7 @@ end
 -- nil, or what is wrong with a single number (off: false is allowed too)
 local function number_fault(name, v, lo, hi, off)
     if off and v == false then return nil end
-    if type(v) ~= "number" or v < lo or v > hi then
+    if type(v) ~= "number" or v ~= v or v < lo or v > hi then
         return name .. " is not a number from " .. lo .. " to " .. hi .. (off and " or false" or "")
     end
     return nil
@@ -795,11 +798,11 @@ local function get_mode_data()
     local mode_obj = read_u32(0x026503e0)
     if not mode_obj or mode_obj == 0 then return nil end
 
-    -- Verify Master League mode at 0x0264f3e8 (+0x20 is 0x13)
+    -- Both mode numbers map to Master League (kind 12).
     local menu_obj = read_u32(0x0264f3e8)
     if not menu_obj or menu_obj == 0 then return nil end
     local mode_kind = read_u32(menu_obj + 0x20)
-    if mode_kind ~= 0x13 then return nil end
+    if mode_kind ~= 0x13 and mode_kind ~= 0x28 then return nil end
 
     -- mode_data is at [mode_obj + 0x30]
     local mode_data = read_u32(mode_obj + 0x30)
@@ -879,36 +882,23 @@ local function rebalance_budgets(transfer_delta_m, salary_delta_m)
     return true, msg
 end
 
-local function register_budget_keys(ctx)
-    local win = ffi or (type(require) == "function" and require("ffi"))
-    if not win or win.os ~= "Windows" or type(ctx) ~= "table" or type(ctx.register) ~= "function" then
-        log("Budget keys unavailable: F6/F7 require Windows Sider with luajit.ext.enabled = 1 and livecpk.enabled = 1.")
-        return
+-- Generated from money_keys.py. Keep the existing economy ABI/MLM7 marker for MLTransfers.
+local KEY_BASE, KEY_SIZE = 0x03fc9300, 0x140
+local KEY_CODE = unhex("8b4c2404817904000100000f85f30000008b410883e87583f8010f87e4000000f6410f400f85da0000005689ceff1548797d0485c00f84c80000003b060f85c00000008b0de8f3640285c90f84b20000008b412083f813740983f8280f85a10000008b0de003650285c90f84930000008b493085c90f848800000081c1c4dfdd008b018b51183dffe0f505777681faffe0f505776e807e087575358b352894fc0339c60f47f029f0f20f2ac6f20f5e053094fc03f20f58053894fc03f20f2cf085f6743f01f281faffe0f5057735eb2e8b352c94fc0339d60f47f229f2f20f2ac6f20f59053094fc03f20f58053894fc03f20f2cf001f03dffe0f505770589018951185eff25a0787d04")
+
+local function budget_key_memory(install)
+    if not install then
+        if memory.read(KEY_BASE, KEY_SIZE) == string.rep("\0", KEY_SIZE) then return true end
+        log("RESULT: nothing written. Budget key memory is in use; send this log.")
+        return false
     end
-    win.cdef[[
-        short __stdcall GetAsyncKeyState(int);
-        void * __stdcall GetForegroundWindow(void);
-        unsigned long __stdcall GetWindowThreadProcessId(void *, unsigned long *);
-        unsigned long __stdcall GetCurrentProcessId(void);
-    ]]
-    local user32 = win.load("user32")
-    local game_pid = win.C.GetCurrentProcessId()
-    local pid = win.new("unsigned long[1]")
-    local armed = false
-    ctx.register("livecpk_make_key", function()
-        local f6 = user32.GetAsyncKeyState(0x75) < 0
-        local f7 = user32.GetAsyncKeyState(0x76) < 0
-        if not f6 and not f7 then armed = true; return end
-        if not armed then return end
-        armed = false   -- require a sampled release, even for simultaneous or out-of-game presses
-        if f6 == f7 then return end
-        local window = user32.GetForegroundWindow()
-        if window == nil or user32.GetWindowThreadProcessId(window, pid) == 0 or pid[0] ~= game_pid then return end
-        local ok, message = rebalance_budgets(f6 and BUDGET_SLIDER_STEP or -BUDGET_SLIDER_STEP, nil)
-        if not ok then log("MLMoney Budget Slider: " .. message) end
-    end)
-    log(string.format("Budget keys: F6 adds salary room; F7 adds transfer funds (step %.1fM, ratio %.1fx).",
-        BUDGET_SLIDER_STEP, BUDGET_SLIDER_RATIO))
+    local step = math.floor(BUDGET_SLIDER_STEP * 10000 + 0.5)
+    local image = KEY_CODE .. string.rep("\0", KEY_SIZE - 24 - #KEY_CODE) .. u32(step)
+        .. u32(math.floor(step / BUDGET_SLIDER_RATIO + 0.5)) .. f64(BUDGET_SLIDER_RATIO) .. f64(0.5)
+    memory.write(KEY_BASE, image)
+    if memory.read(KEY_BASE, KEY_SIZE) == image then return true end
+    log("RESULT: budget key code could not be written. No hooks installed; restart PES.")
+    return false
 end
 
 -- Export functions for other modules and test runners
@@ -1062,11 +1052,14 @@ function m.init(ctx)
     -- 1. is this the game the module was made for?
     local good = true
     for _, c in ipairs(CONTEXT) do
-        local got = memory.read(c[2], #c[3] / 2)
-        local same = (got ~= nil and hex(got) == c[3])
-        log(string.format("check: %-13s at %08x  %s", c[1], c[2], same and "as expected" or "DIFFERENT"))
-        if not same then good = false end
+        if BUDGET_SLIDER or c[1] ~= "key dispatch" then
+            local got = memory.read(c[2], #c[3] / 2)
+            local same = (got ~= nil and hex(got) == c[3])
+            log(string.format("check: %-13s at %08x  %s", c[1], c[2], same and "as expected" or "DIFFERENT"))
+            if not same then good = false end
+        end
     end
+    if BUDGET_SLIDER and not budget_key_memory(false) then return end
     local room = memory.read(CAVE, CAVE_SIZE)
     local empty = (room ~= nil and room == string.rep("\0", CAVE_SIZE))
     log(string.format("check: %-13s at %08x  %s", "free memory", CAVE, empty and "empty" or "NOT EMPTY"))
@@ -1088,9 +1081,11 @@ function m.init(ctx)
         return
     end
 
+    if BUDGET_SLIDER and not budget_key_memory(true) then return end
+
     -- 3. the places in the game's code
     local on = {
-        ["fee"] = true, ["salary"] = SALARY, ["budget 1"] = BUDGET_TRANSFER, ["budget 2"] = BUDGET_SALARY,
+        ["keys"] = BUDGET_SLIDER, ["fee"] = true, ["salary"] = SALARY, ["budget 1"] = BUDGET_TRANSFER, ["budget 2"] = BUDGET_SALARY,
         ["cup 1"] = CUP, ["cup 2"] = CUP, ["cup 3"] = CUP, ["league 1"] = LEAGUE, ["league 2"] = LEAGUE_2,
         ["prize 1"] = PRIZE_TO_BUDGET, ["prize 2"] = PRIZE_TO_BUDGET, ["pay gap"] = PAY_GAP,
         ["bonus 1"] = BONUS, ["bonus 2"] = BONUS, ["years"] = YOUNG_YEARS,
@@ -1228,7 +1223,7 @@ function m.init(ctx)
         log(string.format("salary budget at the start of a career: wage bill + %.2f x the mean "
             .. "salary of the 16 best paid players (the game: 2)", budget_s / 100))
     end
-    if BUDGET_SLIDER then register_budget_keys(ctx) end
+    if BUDGET_SLIDER then log("Budget keys active: tap F6 for salary or F7 for transfers in Master League.") end
     log("RESULT: installed. Changed: " .. changed .. ".")
 end
 

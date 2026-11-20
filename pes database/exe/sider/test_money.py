@@ -31,6 +31,7 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'tools'))
 import money                                     # noqa: E402
+import money_keys as mk
 import money_cave as mc                          # noqa: E402
 from emu import Game, REG, RETURN, STACK, STACK_SIZE     # noqa: E402
 from unicorn.x86_const import UC_X86_REG_EBP, UC_X86_REG_EFLAGS, UC_X86_REG_EIP, UC_X86_REG_ESP    # noqa: E402
@@ -53,7 +54,7 @@ GRANT_28, GRANT_30, TOP_FEES_SUM = (0x03642bab, 0x03642cf5), (0x03642011, 0x0364
 MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and others
 # what the module may touch: (address, size). Reads: the pieces of code it checks and
 # its memory. Writes: its memory and the places it changes.
-CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
+CAVE = ((mc.CAVE, mc.CAVE_SIZE), (mk.BASE, mk.SIZE))
 # version 7 of MLTransfers.lua adds a fourth piece for the offers for the user's players
 # (version 8 gives it the whole 0x700 place and the site it replaces)
 INCOMING = ((mc.INCOMING_CODE, 0x700), (mc.INCOMING_SITE, 6))
@@ -165,6 +166,7 @@ def settings(source):
     t.incoming = re.search(r'^local INCOMING = true$', source, re.M) is not None
     if t.incoming:
         t.transfers = True                     # the fourth piece of memory is written with the others
+    t.budget_keys = text('BUDGET_SLIDER') == 'true'
     return t
 
 
@@ -1151,11 +1153,10 @@ def test_budget_rebalancing():
     mem_write(MODE_DATA + 0xdddfc4, struct.pack('<i', 480137))
     mem_write(MODE_DATA + 0xdddfdc, struct.pack('<i', 123735))
 
-    loader = lua.eval('''function(source, log, read, write, ffi)
+    loader = lua.eval('''function(source, log, read, write)
         local env = { assert = assert, table = table, pairs = pairs, ipairs = ipairs, string = string,
                       math = math, tonumber = tonumber, tostring = tostring, unpack = unpack,
                       error = error, _VERSION = _VERSION, type = type,
-                      ffi = ffi,
                       log = log, memory = { read = read, write = write } }
         local f = loadstring(source)
         setfenv(f, env)
@@ -1163,18 +1164,7 @@ def test_budget_rebalancing():
     end''')
 
     source = open(MODULE, 'rb').read()
-    # Use the real FFI parser and C array, substituting just the Windows calls.
-    keys = lua.table_from({0x75: 0, 0x76: 0, b'pid': 17})
-    win = lua.eval('''function(keys)
-        local ffi = require("ffi")
-        local user32 = {GetAsyncKeyState = function(k) return assert(keys[k]) end,
-                        GetForegroundWindow = function() return 1 end,
-                        GetWindowThreadProcessId = function(w, p) p[0] = keys.pid; return 1 end}
-        return {os="Windows", cdef=ffi.cdef, new=ffi.new,
-                load=function(name) assert(name == "user32"); return user32 end,
-                C={GetCurrentProcessId=function() return 17 end}}
-    end''')(keys)
-    mod = loader(source, lambda *a: None, mem_read, mem_write, win)
+    mod = loader(source, lambda *a: None, mem_read, mem_write)
 
     # Test mod.rebalance: move 10M from transfers to salary
     ok, _ = mod.rebalance(10.0, None)
@@ -1191,46 +1181,71 @@ def test_budget_rebalancing():
     assert (got_t, got_s) == (480137, 123735), f"Lua rebalance restore got: {got_t}, {got_s}"
     print("ok 0a: smart budget slider rebalances transfers and salaries with 4.0x contract amortization")
 
-    context = lua.eval(re.search(rb'local CONTEXT = (\{.*?\n\})', source, re.S)[1])
-    for row in context.values():
-        mem_write(row[2], bytes.fromhex(row[3].decode()))
-    callbacks = lua.table()
-    mod.init(lua.eval('function(c) return {register=function(k, f) c[k]=f end} end')(callbacks))
-    poll = callbacks[b'livecpk_make_key']
-    assert poll is not None
 
-    def press(f6=0, f7=0):
-        keys[0x75], keys[0x76] = f6, f7
-        poll()
-        return mod.get_budgets()
-
-    before, after = (480137, 123735), (440137, 133735)
-    down = -32768
-    assert press() == before and press(down) == after
-    for _ in range(8):
-        assert press(down) == after
-    assert press() == after and press(0, down) == before
-    assert press() == before and press(down, down) == before and press(down) == before
-    assert press() == before
-    keys[b'pid'] = 23
-    assert press(down) == before
-    keys[b'pid'] = 17
-    assert press(down) == before and press() == before
-    mem_write(MENU_OBJ + 0x20, struct.pack('<I', 0x12))
-    assert press(down) == (None, None)
-    mem_write(MENU_OBJ + 0x20, struct.pack('<I', 0x13))
-    assert press(down) == before and press() == before
-    for t, s in [(480137, 99999999), (-1, 123735)]:
-        mem_write(MODE_DATA + TRANSFER_BUDGET, struct.pack('<i', t))
-        mem_write(MODE_DATA + SALARY_BUDGET, struct.pack('<i', s))
-        assert press(down) == press() == mc.rebalance_budgets(t, s, transfer_delta_m=4) == (t, s)
-    print('ok 0b: F6/F7 move once per press, only in the focused ML game')
+def test_budget_messages(exe):
+    # Exercise the installed main message pump, not a direct call to the balance API.
+    g = Game(exe)
+    source = open(MODULE, encoding='utf-8').read()
+    assert g.read(mk.SITE,6)==mk.OLD
+    # A different mod owning these bytes must not be overwritten. Disabling only
+    # the keys must leave that mod alone without disabling the rest of MLMoney.
+    g.write(mk.BASE,b'X'); lines,_,writes=run(g,source)
+    assert not writes and 'in use' in results(lines)[0]
+    g.write(mk.SITE,b'X'*6)
+    for enabled in (False,True):
+        text = source if enabled else source.replace('local BUDGET_SLIDER = true','local BUDGET_SLIDER = false')
+        lines,_,writes=run(g,text)
+        assert results(lines)[0].startswith(INSTALLED)
+        assert ((mk.SITE,6) in writes)==enabled and ((mk.BASE,mk.SIZE) in writes)==enabled
+        if not enabled:
+            assert g.read(mk.SITE,6)==b'X'*6 and g.read(mk.BASE,1)==b'X'
+            g=Game(exe)
+    if KEYSTONE:
+        assert g.read(mk.BASE,len(mk.code()))==mk.code()
+    pack=lambda x: struct.pack('<I',x)
+    menu,holder,mode=g.alloc(size=0x24),g.alloc(size=0x34),g.alloc(size=0xdde000)
+    g.write(MENU_OBJECT,pack(menu)); g.write(MODE_OBJECT,pack(holder)); g.write(holder+0x30,pack(mode))
+    queue=[]; forwarded=[]; foreground=[42]
+    def peek(g,arg):
+        if not queue: return 0
+        g.write(arg(0),queue.pop(0)); return 1
+    g.replace(0x02bd1f49,lambda g,a:0); g.replace(0x03d62a90,lambda g,a:0)
+    for slot,fn,n in [(0x047d7980,peek,20),(0x047d79b0,lambda g,a:1,4),
+                      (0x047d7948,lambda g,a:foreground[0],0),
+                      (0x047d78a0,lambda g,a:forwarded.append(g.read(a(0),28)) or 0,4)]:
+        ptr=g.alloc(); g.write(slot,pack(ptr)); g.replaced[ptr]=fn,n
+    def msg(key,flags=0,kind=0x100):
+        return struct.pack('<7I',42,kind,key,flags,0,0,0)
+    def budgets():
+        return tuple(struct.unpack('<i',g.read(mode+offset,4))[0] for offset in (TRANSFER_BUDGET,SALARY_BUDGET))
+    def send(*messages):
+        queue.extend(messages); forwarded.clear(); g.call(0x02bd2639,limit=2000)
+        assert forwarded==list(messages)
+        return budgets()
+    def start(t,s):
+        for off,val in ((TRANSFER_BUDGET,t),(SALARY_BUDGET,s)):
+            g.write(mode+off,struct.pack('<i',val))
+    before,after=(480137,123735),(440137,133735)
+    start(*before)
+    for kind in (0x13,0x28):
+        g.write(menu+0x20,pack(kind))
+        assert send(msg(0x75),msg(0x75,1<<30),msg(0x75,kind=0x101))==after
+        assert send(msg(0x76))==before
+    foreground[0]=7; assert send(msg(0x75))==before
+    foreground[0]=42; assert send(msg(0x74),msg(0x76,kind=0x104))==before
+    g.write(menu+0x20,pack(0x14)); assert send(msg(0x76))==before
+    g.write(menu+0x20,pack(0x13)); g.write(holder+0x30,pack(0)); assert send(msg(0x75))==before
+    g.write(holder+0x30,pack(mode)); start(30,0); assert send(msg(0x75))==(0,8)
+    start(40000,99999999); assert send(msg(0x75))==(40000,99999999)
+    start(-1,10000); assert send(msg(0x76))==(-1,10000)
+    print('ok 0b: real message pump forwards every message; F6/F7 taps work without file loads in both ML modes; repeats/focus/range guarded')
 
 
 def main(exe=None):
     test_budget_rebalancing()
     if exe is None:
         return
+    test_budget_messages(exe)
     random.seed(2017)
     source = two_modules()
     h = Harness(exe)
