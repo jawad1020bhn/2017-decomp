@@ -210,6 +210,7 @@ page; the routine of version 2 does not fit there, and that range is unused agai
 Version 5 of MLMoney.lua kept the ceiling at 0x047b0130-0x047b01fb.)
 """
 import struct
+import money_keys
 import sys
 
 CAP = 99999900
@@ -1503,7 +1504,9 @@ NO_TALENT = 255
 
 # the code the routines rely on: name, address, byte count (MLMoney.lua compares these
 # bytes of the running game with the bytes of the exe file before it writes anything)
+
 CONTEXT = (
+    ('key dispatch', 0x02bd265d, 32),
     ('fee code', 0x038ab832, 228),          # start of the fee function to the end of the changed part and its use
     ('salary code', 0x038ac6f8, 15),        # the player record goes into ebx
     ('salary code 2', 0x038ac86f, 110),     # the rating part and what follows
@@ -1591,6 +1594,7 @@ SITES = (('fee', FEE_SITE, FEE_SITE_OLD, FEE_SITE_NEW), ('salary', SALARY_SITE, 
          ('income 4', INCOME_W_SITE, INCOME_W_SITE_OLD, call(INCOME_W_SITE, WAGES_KEEP_CODE) + b'\x90' * 4),
          ) + tuple(('nat %d' % i, at, struct.pack('<I', old), struct.pack('<I', old))
                    for i, (at, old) in enumerate(NATIONAL_SITES)) + (
+         ('keys', money_keys.SITE, money_keys.OLD, money_keys.NEW),
          ('transfers', CEILING_SITE, CEILING_SITE_OLD, call(CEILING_SITE, CEILING_CODE) + b'\x90' * 4),
          ('star band', STAR_BAND_SITE, STAR_BAND_SITE_OLD, STAR_BAND_SITE_NEW),
          ('star pick', STAR_PICK_BAND_SITE, STAR_PICK_BAND_SITE_OLD, STAR_PICK_BAND_SITE_NEW),
@@ -1809,7 +1813,7 @@ class Tables:
         """The places the module changes with these settings: (name, address, old, new)."""
         share, bonus, income = self.prize_share is not None, self.bonus is not None, self.income is not None
         wages = self.income_wages is not None
-        on = {'fee': True, 'salary': self.has_salary, 'budget 1': self.budget_transfer is not None,
+        on = {'keys': getattr(self, 'budget_keys', True), 'fee': True, 'salary': self.has_salary, 'budget 1': self.budget_transfer is not None,
               'budget 2': self.budget_salary is not None, 'cup 1': self.has_cup, 'cup 2': self.has_cup,
               'cup 3': self.has_cup, 'league 1': self.has_league, 'league 2': self.has_league_2,
               'prize 1': share, 'prize 2': share, 'pay gap': self.has_gap, 'bonus 1': bonus, 'bonus 2': bonus,
