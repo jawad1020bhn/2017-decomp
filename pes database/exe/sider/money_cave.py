@@ -2514,6 +2514,8 @@ def rebalance_budgets(transfer_stored, salary_stored, transfer_delta_m=0, salary
     Returns (new_transfer_stored, new_salary_stored)."""
     t = transfer_stored
     s = salary_stored
+    if not (0 <= t <= 99999999 and 0 <= s <= 99999999):
+        return t, s
     if transfer_delta_m != 0:
         dt = int(round(transfer_delta_m * 10000))
         if dt > 0:
@@ -2546,8 +2548,9 @@ def rebalance_budgets(transfer_stored, salary_stored, transfer_delta_m=0, salary
             ds_act = int(round(dt_req / ratio))
             t -= dt_req
             s += ds_act
-    limit = lambda v: clamp(v, 0, 99999999)
-    return limit(t), limit(s)
+    if t > 99999999 or s > 99999999:
+        return transfer_stored, salary_stored
+    return t, s
 
 
 # INCOMING_SOURCE. Entered at fcn_0381e2eb in the place of its prologue: the look-up the

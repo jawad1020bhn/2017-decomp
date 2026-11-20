@@ -7,7 +7,7 @@
 -- 6, is now in MLTransfers.lua. That module uses the values of this one: in sider.ini the
 -- line for MLMoney.lua must stand above the line for MLTransfers.lua.
 --
--- What it changes, in the running game only (no file is touched):
+-- What it changes in the running game:
 --   * the value of a player (the transfer fee the game computes) becomes
 --         VALUE[rating] x AGE[age] x (1 + talent bonus) x POSITION[position] x spread
 --         x (1 + popularity bonus)
@@ -41,7 +41,7 @@
 -- career for numbers that fit together, or set SALARY, PAY_GAP, BONUS and INCOME_WAGES to
 -- false for a running one. Prizes and the contract limit work in a running career at once.
 --
--- Uses only: log, memory.read, memory.write, string, table, math, ipairs, tonumber, type.
+-- The optional F6/F7 controls require luajit.ext.enabled = 1 and livecpk.enabled = 1 in sider.ini.
 
 local m = {}
 
@@ -119,9 +119,7 @@ local BUDGET_TRANSFER = 3
 local BUDGET_SALARY = false
 
 -- In-game Budget Rebalance Slider (Approach A): move funds between Transfer and Salary
--- pools with contract amortization. In Master League menus, use MLBudget.txt or hotkeys:
---   '[' or F6: Move funds from Transfer Budget to Salary Budget (adds amortized annual wage)
---   ']' or F7: Move funds from Salary Budget to Transfer Budget (frees lump-sum transfer fee)
+-- pools with contract amortization. F6 adds salary room; F7 adds transfer funds.
 -- Set to false to disable.
 local BUDGET_SLIDER = true
 
@@ -133,11 +131,6 @@ local BUDGET_SLIDER_RATIO = 4.0
 
 -- Adjustment step size in millions (e.g. 4.0 = £4M transfer <-> £1M salary per step).
 local BUDGET_SLIDER_STEP = 4.0
-
--- Automatic target balance ratio: percentage of total purchasing power allocated to Transfer
--- Budget upon entering a new season or starting a career (e.g. 0.70 = 70% Transfer / 30% Salary).
--- Set to false to keep vanilla separate allocations.
-local BUDGET_BALANCE_RATIO = false
 
 -- Yearly income of your club. The game books two amounts on the first day of a season:
 -- one by the club's place in its club ranking (about 200 million for the first club, 75
@@ -724,7 +717,6 @@ local function settings_fault()
         or number_fault("BUDGET_SALARY", BUDGET_SALARY, 0.1, 10, true)
         or (BUDGET_SLIDER and (number_fault("BUDGET_SLIDER_RATIO", BUDGET_SLIDER_RATIO, 1.0, 10.0, false)
             or number_fault("BUDGET_SLIDER_STEP", BUDGET_SLIDER_STEP, 0.1, 50.0, false)))
-        or number_fault("BUDGET_BALANCE_RATIO", BUDGET_BALANCE_RATIO, 0.0, 1.0, true)
         or cup_fault() or league_fault("LEAGUE", LEAGUE, 22) or league_fault("LEAGUE_2", LEAGUE_2, 24)
         or number_fault("PRIZE_TO_BUDGET", PRIZE_TO_BUDGET, 1, 100, true)
         or number_fault("PAY_GAP", PAY_GAP, 1, 10, true)
@@ -803,11 +795,11 @@ local function get_mode_data()
     local mode_obj = read_u32(0x026503e0)
     if not mode_obj or mode_obj == 0 then return nil end
 
-    -- Verify Master League mode at 0x0264f3e8 (+0x20 is 0x13 or 0x28)
+    -- Verify Master League mode at 0x0264f3e8 (+0x20 is 0x13)
     local menu_obj = read_u32(0x0264f3e8)
     if not menu_obj or menu_obj == 0 then return nil end
     local mode_kind = read_u32(menu_obj + 0x20)
-    if mode_kind ~= 0x13 and mode_kind ~= 0x28 then return nil end
+    if mode_kind ~= 0x13 then return nil end
 
     -- mode_data is at [mode_obj + 0x30]
     local mode_data = read_u32(mode_obj + 0x30)
@@ -836,6 +828,7 @@ local function rebalance_budgets(transfer_delta_m, salary_delta_m)
     if t == nil or s == nil then return false, "Could not read budgets from mode data" end
 
     local ratio = (type(BUDGET_SLIDER_RATIO) == "number" and BUDGET_SLIDER_RATIO > 0) and BUDGET_SLIDER_RATIO or 4.0
+    if t < 0 or s < 0 or t > 99999999 or s > 99999999 then return false, "Budget outside slider range" end
     local orig_t, orig_s = t, s
 
     if transfer_delta_m and transfer_delta_m ~= 0 then
@@ -874,9 +867,7 @@ local function rebalance_budgets(transfer_delta_m, salary_delta_m)
         end
     end
 
-    -- Clamp to valid range [0, 99999999]
-    if t < 0 then t = 0 elseif t > 99999999 then t = 99999999 end
-    if s < 0 then s = 0 elseif s > 99999999 then s = 99999999 end
+    if t > 99999999 or s > 99999999 then return false, "Receiving budget would exceed the limit" end
 
     write_i32(mode_data + 0xdddfc4, t)
     write_i32(mode_data + 0xdddfdc, s)
@@ -888,139 +879,36 @@ local function rebalance_budgets(transfer_delta_m, salary_delta_m)
     return true, msg
 end
 
--- ============================ INTERACTIVE BUDGET SLIDER HOTKEY HOOK ============================
-
-local HOTKEY_CAVE = 0x03fc8900
-local HOTKEY_SITE = 0x02bca62e
-local HOTKEY_SITE_OLD = "e806800000"
-local HOTKEY_SITE_NEW = "e8cde23f01"
-local HOTKEY_COUNT_ADDR = 0x03fc8b0c
-local HOTKEY_CODE = "e8349dc0fe9c60a1e8f3640285c00f84bb01000083782013740a837820280f85ab010000a1e003650285c00f849e01000089c6837e30000f8492010000ff1548797d0485c00f847d0100006a0089e25250ff1574797d045b85c00f8468010000ff1570717d0439d80f855a0100008b1d008bfc0385db752e68208bfc03ff15e4717d0485c00f844401000068308bfc0350ff15ec717d0485c00f8430010000a3008bfc0389c36a75ffd366a90080751668dd000000ffd366a9008075098025048bfc03feeb4af605048bfc03017541800d048bfc03018b86c4dfdd008b8edcdfdd0081f9102700007d09c1e10201c831c9eb0b81e91027000005409c00008986c4dfdd00898edcdfdd00ff050c8bfc036a76ffd366a90080751668db000000ffd366a9008075098025048bfc03fdeb49f605048bfc03027540800d048bfc03028b86c4dfdd008b8edcdfdd003d409c00007d09c1e80201c131c0eb0b2d409c000081c1102700008986c4dfdd00898edcdfdd00ff050c8bfc036a74ffd366a9008075098025048bfc03fbeb43f605048bfc0304753a800d048bfc03048b86c4dfdd008b8edcdfdd00c1e10201c8d1e889c2c1ea028986c4dfdd008996dcdfdd00ff050c8bfc03eb07c605048bfc0307619dc3"
-
-m.install_hotkey = function()
-    if not BUDGET_SLIDER then return false end
-    local cur = memory.read(HOTKEY_SITE, 5)
-    if cur ~= unhex(HOTKEY_SITE_OLD) then return false end
-
-    memory.write(HOTKEY_CAVE, unhex(HOTKEY_CODE))
-    memory.write(HOTKEY_CAVE + 0x200, unhex("00000000"))
-    memory.write(HOTKEY_CAVE + 0x204, unhex("00000000"))
-    memory.write(HOTKEY_CAVE + 0x208, unhex("409c0000"))
-    memory.write(HOTKEY_CAVE + 0x20c, unhex("00000000"))
-    memory.write(HOTKEY_CAVE + 0x220, "USER32.DLL\0")
-    memory.write(HOTKEY_CAVE + 0x230, "GetAsyncKeyState\0")
-    memory.write(HOTKEY_SITE, unhex(HOTKEY_SITE_NEW))
-    log("  interactive hotkeys hooked at 0x02bca62e: F6 (+Transfer), F7 (+Salary), [ / ], F5 (Reset 50/50)")
-    return true
-end
-
-local last_file_poll = 0
-local last_hotkey_count = 0
-local BUDGET_FILE = "MLBudget.txt"
-
-local function update_budget_file(ctx, cur_t, cur_s)
-    if type(io) ~= "table" or type(ctx) ~= "table" or type(ctx.sider_dir) ~= "string" then return end
-    local path = ctx.sider_dir
-    local last = string.sub(path, -1)
-    if last ~= "\\" and last ~= "/" then path = path .. "\\" end
-    path = path .. BUDGET_FILE
-    local out_file = io.open(path, "w")
-    if out_file then
-        if cur_t and cur_s then
-            out_file:write(string.format("# MLBudget Status: ACTIVE\n# Transfer Budget: %s\n# Salary Budget:   %s/yr\n# Ratio:           %.1fx (4-year contract amortization)\n\n# Commands (uncomment and save to run):\n# TRANSFER_TO_SALARY = 10.0\n# SALARY_TO_TRANSFER = 2.5\n# STEP_TRANSFER_TO_SALARY\n# STEP_SALARY_TO_TRANSFER\n# SPLIT = 70\n",
-                commas(cur_t * 100), commas(cur_s * 100), BUDGET_SLIDER_RATIO or 4.0))
-        end
-        out_file:close()
+local function register_budget_keys(ctx)
+    local win = ffi or (type(require) == "function" and require("ffi"))
+    if not win or win.os ~= "Windows" or type(ctx) ~= "table" or type(ctx.register) ~= "function" then
+        log("Budget keys unavailable: F6/F7 require Windows Sider with luajit.ext.enabled = 1 and livecpk.enabled = 1.")
+        return
     end
-end
-
-function m.observe(ctx, filename)
-    if not BUDGET_SLIDER then return end
-
-    -- Check native hotkey trigger counter
-    local cur_count = read_u32(HOTKEY_COUNT_ADDR)
-    if cur_count and cur_count > last_hotkey_count then
-        last_hotkey_count = cur_count
-        local cur_t, cur_s = get_club_budgets()
-        if cur_t and cur_s then
-            log(string.format("MLMoney: Interactive budget hotkey executed! Transfer: %s | Salary: %s/yr",
-                commas(cur_t * 100), commas(cur_s * 100)))
-            update_budget_file(ctx, cur_t, cur_s)
-        end
-    end
-
-    local now = (type(os) == "table" and type(os.time) == "function") and os.time() or 0
-    if now == last_file_poll then return end
-    last_file_poll = now
-
-    -- Check MLBudget.txt
-    if type(io) == "table" and type(ctx) == "table" and type(ctx.sider_dir) == "string" then
-        local path = ctx.sider_dir
-        local last = string.sub(path, -1)
-        if last ~= "\\" and last ~= "/" then path = path .. "\\" end
-        path = path .. BUDGET_FILE
-
-        local file = io.open(path, "r")
-        if file then
-            local content = file:read("*a")
-            file:close()
-            if content and #content > 0 then
-                local transfer_to_salary = string.match(content, "TRANSFER_TO_SALARY%s*=%s*([%d%.]+)")
-                local salary_to_transfer = string.match(content, "SALARY_TO_TRANSFER%s*=%s*([%d%.]+)")
-                local step_t2s = string.match(content, "STEP_TRANSFER_TO_SALARY") or string.match(content, "%[")
-                local step_s2t = string.match(content, "STEP_SALARY_TO_TRANSFER") or string.match(content, "%]")
-                local split_pct = string.match(content, "SPLIT%s*=%s*([%d%.]+)")
-
-                local handled = false
-                local step = (type(BUDGET_SLIDER_STEP) == "number" and BUDGET_SLIDER_STEP > 0) and BUDGET_SLIDER_STEP or 4.0
-
-                if transfer_to_salary then
-                    local val = tonumber(transfer_to_salary)
-                    if val and val > 0 then
-                        rebalance_budgets(val, nil)
-                        handled = true
-                    end
-                elseif salary_to_transfer then
-                    local val = tonumber(salary_to_transfer)
-                    if val and val > 0 then
-                        rebalance_budgets(nil, val)
-                        handled = true
-                    end
-                elseif step_t2s then
-                    rebalance_budgets(step, nil)
-                    handled = true
-                elseif step_s2t then
-                    rebalance_budgets(-step, nil)
-                    handled = true
-                elseif split_pct then
-                    local pct = tonumber(split_pct)
-                    if pct and pct >= 0 and pct <= 100 then
-                        local t, s = get_club_budgets()
-                        if t and s then
-                            local ratio = (type(BUDGET_SLIDER_RATIO) == "number" and BUDGET_SLIDER_RATIO > 0) and BUDGET_SLIDER_RATIO or 4.0
-                            local total_power = t + s * ratio
-                            local target_t = math.floor(total_power * (pct / 100.0) + 0.5)
-                            local delta_t = (t - target_t) / 10000.0
-                            rebalance_budgets(delta_t, nil)
-                            handled = true
-                        end
-                    end
-                end
-
-                if handled then
-                    local cur_t, cur_s = get_club_budgets()
-                    local out_file = io.open(path, "w")
-                    if out_file then
-                        if cur_t and cur_s then
-                            out_file:write(string.format("# MLBudget Status: ACTIVE\n# Transfer Budget: %s\n# Salary Budget:   %s/yr\n# Ratio:           %.1fx (4-year contract amortization)\n\n# Commands (uncomment and save to run):\n# TRANSFER_TO_SALARY = 10.0\n# SALARY_TO_TRANSFER = 2.5\n# STEP_TRANSFER_TO_SALARY\n# STEP_SALARY_TO_TRANSFER\n# SPLIT = 70\n",
-                                commas(cur_t * 100), commas(cur_s * 100), BUDGET_SLIDER_RATIO or 4.0))
-                        end
-                        out_file:close()
-                    end
-                end
-            end
-        end
-    end
+    win.cdef[[
+        short __stdcall GetAsyncKeyState(int);
+        void * __stdcall GetForegroundWindow(void);
+        unsigned long __stdcall GetWindowThreadProcessId(void *, unsigned long *);
+        unsigned long __stdcall GetCurrentProcessId(void);
+    ]]
+    local user32 = win.load("user32")
+    local game_pid = win.C.GetCurrentProcessId()
+    local pid = win.new("unsigned long[1]")
+    local armed = false
+    ctx.register("livecpk_make_key", function()
+        local f6 = user32.GetAsyncKeyState(0x75) < 0
+        local f7 = user32.GetAsyncKeyState(0x76) < 0
+        if not f6 and not f7 then armed = true; return end
+        if not armed then return end
+        armed = false   -- require a sampled release, even for simultaneous or out-of-game presses
+        if f6 == f7 then return end
+        local window = user32.GetForegroundWindow()
+        if window == nil or user32.GetWindowThreadProcessId(window, pid) == 0 or pid[0] ~= game_pid then return end
+        local ok, message = rebalance_budgets(f6 and BUDGET_SLIDER_STEP or -BUDGET_SLIDER_STEP, nil)
+        if not ok then log("MLMoney Budget Slider: " .. message) end
+    end)
+    log(string.format("Budget keys: F6 adds salary room; F7 adds transfer funds (step %.1fM, ratio %.1fx).",
+        BUDGET_SLIDER_STEP, BUDGET_SLIDER_RATIO))
 end
 
 -- Export functions for other modules and test runners
@@ -1340,15 +1228,7 @@ function m.init(ctx)
         log(string.format("salary budget at the start of a career: wage bill + %.2f x the mean "
             .. "salary of the 16 best paid players (the game: 2)", budget_s / 100))
     end
-    if BUDGET_SLIDER then
-        log(string.format("budget slider enabled: ratio %.1fx (contract amortization: £10M transfer <-> £%.1fM salary/yr, step £%.1fM)",
-            BUDGET_SLIDER_RATIO or 4.0, (10.0 / (BUDGET_SLIDER_RATIO or 4.0)), BUDGET_SLIDER_STEP or 4.0))
-        m.install_hotkey()
-        if type(ctx) == "table" and type(ctx.register) == "function" then
-            ctx.register("livecpk_make_key", m.observe)
-            ctx.register("after_set_conditions", m.observe)
-        end
-    end
+    if BUDGET_SLIDER then register_budget_keys(ctx) end
     log("RESULT: installed. Changed: " .. changed .. ".")
 end
 
