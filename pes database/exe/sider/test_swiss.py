@@ -177,6 +177,66 @@ def test_swiss_format():
     assert match_away == teams[first_fixture[2]].id, "Match away club mismatch"
     print("ok 5: Master League ModeData competition and match records synchronized with Swiss Format")
 
+    # 6. Verify native in-game UI runtime patches
+    assert mem_read(0x03120b2d, 1) == b'\x07', "UCL switch byte at 0x03120b2d != 0x07"
+    assert mem_read(0x0323a3af, 1) == b'\x40', "fcn_0323a336 stats unpack clamp != 0x40"
+    assert mem_read(0x0323abc3, 1) == b'\x40', "fcn_0323a885 choice row clamp != 0x40"
+    assert mem_read(0x03239e9c, 1) == b'\x40', "fcn_03239e2f rank arrow entry clamp != 0x40"
+    assert mem_read(0x03239edd, 1) == b'\x40', "fcn_03239e2f prev rank entry clamp != 0x40"
+    assert mem_read(0x03239f31, 1) == b'\x40', "fcn_03239e2f prev rank loop clamp != 0x40"
+    print("ok 6: native in-game UI memory patches verified (single table layout & 64-team limits)")
+
+    # 7. Verify Standings Table Record at ModeData + 0xc2cbb8 for Competition 2
+    ucl_rec_addr = MODE_DATA + 0xc2cbb8
+    assert struct.unpack('<H', mem_read(ucl_rec_addr, 2))[0] == 2, "UCL comp_id != 2"
+    assert struct.unpack('<I', mem_read(ucl_rec_addr + 0x844, 4))[0] == 36, "UCL team count != 36"
+
+    for rank in range(1, 37):
+        row_addr = ucl_rec_addr + 0x34 + (rank - 1) * 12
+        dw0, dw1, dw2 = struct.unpack('<III', mem_read(row_addr, 12))
+        s = standings[rank]
+        assert dw0 == s.id, f"Rank {rank} team_id mismatch: expected {hex(s.id)}, got {hex(dw0)}"
+        unpacked_rank = dw1 & 0x3f
+        unpacked_pts = (dw1 >> 6) & 0xff
+        unpacked_w = (dw1 >> 14) & 0x3f
+        unpacked_l = (dw1 >> 20) & 0x3f
+        unpacked_d = (dw1 >> 26) & 0x3f
+        unpacked_gf = dw2 & 0xfff
+        unpacked_ga = (dw2 >> 12) & 0xfff
+        unpacked_gd = unpacked_gf - unpacked_ga
+
+        assert unpacked_rank == rank, f"Rank mismatch at {rank}: got {unpacked_rank}"
+        assert unpacked_pts == s.pts, f"Points mismatch at rank {rank}: expected {s.pts}, got {unpacked_pts}"
+        assert unpacked_w == s.w, f"Wins mismatch at rank {rank}: expected {s.w}, got {unpacked_w}"
+        assert unpacked_l == s.l, f"Losses mismatch at rank {rank}: expected {s.l}, got {unpacked_l}"
+        assert unpacked_d == s.d, f"Draws mismatch at rank {rank}: expected {s.d}, got {unpacked_d}"
+        assert unpacked_gf == s.gf, f"GF mismatch at rank {rank}: expected {s.gf}, got {unpacked_gf}"
+        assert unpacked_ga == s.ga, f"GA mismatch at rank {rank}: expected {s.ga}, got {unpacked_ga}"
+        assert unpacked_gd == s.gd, f"GD mismatch at rank {rank}: expected {s.gd}, got {unpacked_gd}"
+
+    print("ok 7: ModeData + 0xc2cbb8 UCL standings table contains all 36 teams with exact packed stats")
+
+    # 8. Verify the 8 individual group records (competitions 600..607)
+    total_group_teams = 0
+    for grp_idx in range(8):
+        grp_cid = 600 + grp_idx
+        # find slot with grp_cid
+        found = False
+        for slot in range(300):
+            addr = MODE_DATA + 0xc2cbb8 + slot * 0x84c
+            cid = struct.unpack('<H', mem_read(addr, 2))[0]
+            if cid == grp_cid:
+                num_in_grp = struct.unpack('<I', mem_read(addr + 0x844, 4))[0]
+                expected_num = 5 if grp_idx < 4 else 4
+                assert num_in_grp == expected_num, f"Group {grp_idx} count mismatch: {num_in_grp} vs {expected_num}"
+                total_group_teams += num_in_grp
+                found = True
+                break
+        assert found, f"Group record {grp_cid} not found in ModeData standings"
+
+    assert total_group_teams == 36, f"Total teams across 8 groups != 36: {total_group_teams}"
+    print("ok 8: all 8 group records (600..607) synchronized across 36 teams for group-view fallback")
+
 
 if __name__ == '__main__':
     test_swiss_format()
