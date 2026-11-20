@@ -394,7 +394,7 @@ addresses, and a Sider module reads it without trouble.
 What else the same `sider.log` shows:
 
 - `luajit.ext.enabled = 0`: modules have no `ffi`, `bit` or `require`. Modules here must
-  not need them.
+  work without them, except for the optional F6/F7 money controls.
 - Sider itself uses `0x026503E0` (`_tid_addr1`), the pointer `MASTER_LEAGUE.md` calls the
   mode object, and `0x04062701`, the competition id table function. Two addresses of the
   notes confirmed from another side.
@@ -1860,7 +1860,7 @@ time with fixed steps (section 12), and nothing of that enters the value.
   transfer lump-sums convert to annual wages at `BUDGET_SLIDER_RATIO` (default 4.0x, representing
   a standard 4-year contract). For example, reallocating £10M transfer budget adds £2.5M to the
   salary budget; freeing £2.5M of annual salary adds £10M to the transfer budget.
-  In-game commands can be executed via hotkeys or by writing commands into `MLBudget.txt`.
+  Use F6 for transfer → salary or F7 for salary → transfer.
 
 New in version 3, each with its own switch:
 
@@ -1986,13 +1986,14 @@ and Salary Budget using realistic financial math:
   - Reallocating £10M transfer budget adds £2.5M to the annual salary budget.
   - Freeing £2.5M from the annual salary budget adds £10M to the transfer budget.
 - **In-Game Control**:
-  In Master League menus, the module listens for live commands in `MLBudget.txt` (located in the Sider
-  directory):
-  - `TRANSFER_TO_SALARY = 10.0`: moves £10M transfer budget to £2.5M salary budget.
-  - `SALARY_TO_TRANSFER = 2.5`: moves £2.5M salary budget to £10M transfer budget.
-  - `STEP_TRANSFER_TO_SALARY` or `[`: moves one step (default £4M transfer $\to$ £1M salary).
-  - `STEP_SALARY_TO_TRANSFER` or `]`: moves one step from salary to transfer.
-  - `SPLIT = 70`: automatically rebalances total club purchasing power to a target ratio (e.g. 70% Transfer / 30% Salary).
+  On Windows, set `luajit.ext.enabled = 1` and `livecpk.enabled = 1` in `sider.ini`, then restart
+  PES and Sider. LuaJIT extensions grant native access to loaded modules; enable them only for mods
+  you trust. With extensions off, the rest of MLMoney still works, but not the budget keys.
+  - **F6** moves one step from transfer funds to salary room (£4M transfer → £1M annual salary by default).
+  - **F7** moves one step back (£1M annual salary → £4M transfer by default).
+  - Sider 3.6 samples these keys during file loads, not every frame. In a focused Master League window,
+    hold one key while opening a menu, then release both while navigating before the next move. A quick
+    tap in an idle menu may be missed. `sider.log` reports each move. No command file is used.
 - **Safety**:
   All transactions include floor protection and bounds checking ($[0, 99999999]$ in stored units, up to £9.99B),
   preventing budget deficits or integer overflows.
@@ -2021,7 +2022,6 @@ mode `0x28`, the growth of players, the rest of the way computer clubs choose pl
 | `BUDGET_SLIDER` | `true`: in-game budget rebalancing slider enabled; `false` = disabled |
 | `BUDGET_SLIDER_RATIO` | 4.0 (range 1.0 to 10.0): contract amortization ratio (e.g. 10M transfer <-> 2.5M salary/yr) |
 | `BUDGET_SLIDER_STEP` | 4.0: step size in millions (e.g. £4M transfer <-> £1M salary per step) |
-| `BUDGET_BALANCE_RATIO` | `false`: automatic budget split target; or 0.0 to 1.0 (e.g. 0.70 = 70% Transfer / 30% Salary) |
 | `INCOME_WAGES` | 60 percent of the wage bill added to the yearly income; `false` = nothing added |
 | `INCOME` | `false`; a number is the percent of the game's two yearly amounts (10 to 1000) |
 | `CUP` (competition, stage, millions) | Champions League (2): winner 82.12, runner-up 75.62, semi-final 57.12, quarter-final 42.12, first knock-out round 29.62, group stage 18.62. Europa League (3): 26.06, 20.06, 13.06, 8.86, round of 16 6.36, first knock-out round 4.61, group 4.31. UEFA Super Cup (4): 5 and 4. Libertadores (5): 32.25, 15.25, 8.25, 5.95, 4.25, 3. Sudamericana (6): 9.5, 5, 3, 2.2, 1.5, 0.9. AFC Champions League (8): 12, 6, 2, 1.4, 1, 0.8. Club World Cup (1): 5 and 4. `false` leaves the game's amounts |

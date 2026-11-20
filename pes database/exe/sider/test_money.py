@@ -53,13 +53,11 @@ GRANT_28, GRANT_30, TOP_FEES_SUM = (0x03642bab, 0x03642cf5), (0x03642011, 0x0364
 MODES = (0x13, 0x13, 0x13, 0x12, 0x14, 0x28, 0)              # Master League and others
 # what the module may touch: (address, size). Reads: the pieces of code it checks and
 # its memory. Writes: its memory and the places it changes.
-CAVE_HOTKEY = ((0x03fc8900, 0x400), (0x02bca62e, 5))
-READS_HOTKEY = ((0x02bca62e, 5), (0x03fc8900, 0x400))
-CAVE = ((mc.CAVE, mc.CAVE_SIZE),) + CAVE_HOTKEY
+CAVE = ((mc.CAVE, mc.CAVE_SIZE),)
 # version 7 of MLTransfers.lua adds a fourth piece for the offers for the user's players
 # (version 8 gives it the whole 0x700 place and the site it replaces)
 INCOMING = ((mc.INCOMING_CODE, 0x700), (mc.INCOMING_SITE, 6))
-READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING + READS_HOTKEY
+READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
 # (the third piece, of the position need, only with NEED on; the fifth, of SQUAD_PRESSURE, always)
 CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE),
@@ -1153,11 +1151,11 @@ def test_budget_rebalancing():
     mem_write(MODE_DATA + 0xdddfc4, struct.pack('<i', 480137))
     mem_write(MODE_DATA + 0xdddfdc, struct.pack('<i', 123735))
 
-    loader = lua.eval('''function(source, log, read, write)
+    loader = lua.eval('''function(source, log, read, write, ffi)
         local env = { assert = assert, table = table, pairs = pairs, ipairs = ipairs, string = string,
                       math = math, tonumber = tonumber, tostring = tostring, unpack = unpack,
                       error = error, _VERSION = _VERSION, type = type,
-                      os = { time = os.time, clock = os.clock, date = os.date },
+                      ffi = ffi,
                       log = log, memory = { read = read, write = write } }
         local f = loadstring(source)
         setfenv(f, env)
@@ -1165,7 +1163,18 @@ def test_budget_rebalancing():
     end''')
 
     source = open(MODULE, 'rb').read()
-    mod = loader(source, lambda *a: None, mem_read, mem_write)
+    # Use the real FFI parser and C array, substituting just the Windows calls.
+    keys = lua.table_from({0x75: 0, 0x76: 0, b'pid': 17})
+    win = lua.eval('''function(keys)
+        local ffi = require("ffi")
+        local user32 = {GetAsyncKeyState = function(k) return assert(keys[k]) end,
+                        GetForegroundWindow = function() return 1 end,
+                        GetWindowThreadProcessId = function(w, p) p[0] = keys.pid; return 1 end}
+        return {os="Windows", cdef=ffi.cdef, new=ffi.new,
+                load=function(name) assert(name == "user32"); return user32 end,
+                C={GetCurrentProcessId=function() return 17 end}}
+    end''')(keys)
+    mod = loader(source, lambda *a: None, mem_read, mem_write, win)
 
     # Test mod.rebalance: move 10M from transfers to salary
     ok, _ = mod.rebalance(10.0, None)
@@ -1182,15 +1191,40 @@ def test_budget_rebalancing():
     assert (got_t, got_s) == (480137, 123735), f"Lua rebalance restore got: {got_t}, {got_s}"
     print("ok 0a: smart budget slider rebalances transfers and salaries with 4.0x contract amortization")
 
-    # Test native in-game machine-code hotkey hook installation
-    mem_write(0x02bca62e, bytes.fromhex("e806800000"))
-    assert mod.install_hotkey(), "install_hotkey returned false"
-    assert mem_read(0x02bca62e, 5) == bytes.fromhex("e8cde23f01"), "Hook detour jump not written"
-    assert mem_read(0x03fc8900, 5) == bytes.fromhex("e8349dc0fe"), "Code cave not written"
-    assert mem_read(0x03fc8b08, 4) == bytes.fromhex("409c0000"), "Budget step not initialized"
-    assert mem_read(0x03fc8b20, 11) == b"USER32.DLL\0", "USER32.DLL string missing"
-    assert mem_read(0x03fc8b30, 17) == b"GetAsyncKeyState\0", "GetAsyncKeyState string missing"
-    print("ok 0b: native machine-code cave hooked at 0x02bca62e for F6/F7/F5/[/] in-game budget hotkeys")
+    context = lua.eval(re.search(rb'local CONTEXT = (\{.*?\n\})', source, re.S)[1])
+    for row in context.values():
+        mem_write(row[2], bytes.fromhex(row[3].decode()))
+    callbacks = lua.table()
+    mod.init(lua.eval('function(c) return {register=function(k, f) c[k]=f end} end')(callbacks))
+    poll = callbacks[b'livecpk_make_key']
+    assert poll is not None
+
+    def press(f6=0, f7=0):
+        keys[0x75], keys[0x76] = f6, f7
+        poll()
+        return mod.get_budgets()
+
+    before, after = (480137, 123735), (440137, 133735)
+    down = -32768
+    assert press() == before and press(down) == after
+    for _ in range(8):
+        assert press(down) == after
+    assert press() == after and press(0, down) == before
+    assert press() == before and press(down, down) == before and press(down) == before
+    assert press() == before
+    keys[b'pid'] = 23
+    assert press(down) == before
+    keys[b'pid'] = 17
+    assert press(down) == before and press() == before
+    mem_write(MENU_OBJ + 0x20, struct.pack('<I', 0x12))
+    assert press(down) == (None, None)
+    mem_write(MENU_OBJ + 0x20, struct.pack('<I', 0x13))
+    assert press(down) == before and press() == before
+    for t, s in [(480137, 99999999), (-1, 123735)]:
+        mem_write(MODE_DATA + TRANSFER_BUDGET, struct.pack('<i', t))
+        mem_write(MODE_DATA + SALARY_BUDGET, struct.pack('<i', s))
+        assert press(down) == press() == mc.rebalance_budgets(t, s, transfer_delta_m=4) == (t, s)
+    print('ok 0b: F6/F7 move once per press, only in the focused ML game')
 
 
 def main(exe=None):
@@ -1421,7 +1455,8 @@ def main(exe=None):
                             ('{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }', 'true'), ('{ 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01 }', 'false')):
         t, lines = install(setting(only(CEILING=amounts), 'CEILING_RATING', rating), 'values, price ceiling of the computer clubs')
         assert t.ceiling_top == (list(mc.WINDOW_TOP) if rating == 'true' else [255] * 10)
-        assert lines[-2].startswith('  second search: no player rated above' if rating == 'true' else '  second search: from rating 99')
+        prefix = '  second search: no player rated above' if rating == 'true' else '  second search: from rating 99'
+        assert any(line.startswith(prefix) for line in lines), prefix
         assert h.choose_cases(500, t)[0] > 0
     assert t.ceiling == [100] * 10
     # the four numbers of the limit: the hard ceiling of version 5, each part alone, all at their limits
@@ -1433,10 +1468,11 @@ def main(exe=None):
         t, lines = install(text, 'values, price ceiling of the computer clubs')
         assert (t.ceiling_stretch, t.ceiling_need, t.ceiling_listed, t.ceiling_free) == tuple(
             int(x + 0.5) for x in (stretch, need, listed, free))
-        assert lines[-3].startswith('  above the ceiling: the chance falls to none at %d percent above it; a club in need '
-                                    'counts its ceiling %d percent higher; a listed player counts at %d percent of his '
-                                    'value, a player without a contract at %d percent' % (
-                                        t.ceiling_stretch, t.ceiling_need, t.ceiling_listed, t.ceiling_free)), lines[-3]
+        expected = ('  above the ceiling: the chance falls to none at %d percent above it; a club in need '
+                    'counts its ceiling %d percent higher; a listed player counts at %d percent of his '
+                    'value, a player without a contract at %d percent' % (
+                        t.ceiling_stretch, t.ceiling_need, t.ceiling_listed, t.ceiling_free))
+        assert expected in lines, expected
         if (stretch, need) == (0, 0):
             assert all(mc.limit(t, level, (random.getrandbits(32), random.getrandbits(32)), random.getrandbits(32),
                                 random.randint(0, 1)) == t.ceiling[level] for level in range(10) for _ in range(50))
