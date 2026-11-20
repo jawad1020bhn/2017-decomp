@@ -165,6 +165,17 @@ local function commas(n)
 end
 
 -- Memory helpers
+local function read_u8(addr)
+    local b = memory.read(addr, 1)
+    if not b or #b ~= 1 then return nil end
+    return string.byte(b, 1)
+end
+
+local function write_u8(addr, val)
+    local v = math.floor(val + 0.5) % 256
+    memory.write(addr, string.char(v))
+end
+
 local function read_u16(addr)
     local b = memory.read(addr, 2)
     if not b or #b ~= 2 then return nil end
@@ -612,7 +623,131 @@ function m.sync_mode_data()
         end
     end
 
-    log("MLSwiss: Master League memory synchronized with 36-team UEFA Swiss Format (competitions and fixtures).")
+    -- 3. Synchronize In-Game Native Standings UI at ModeData + 0xc2cbb8
+    m.sync_in_game_standings(mode_data)
+
+    log("MLSwiss: Master League memory synchronized with 36-team UEFA Swiss Format (competitions, fixtures, and native UI standings table).")
+    return true
+end
+
+-- Synchronize in-game native Master League Standings UI (Common/CmnStandingsMenu & rankingTeam.bin)
+function m.sync_in_game_standings(mode_data)
+    if not mode_data or mode_data == 0 then return false end
+
+    -- 1. Apply runtime UI memory hooks (switches UCL to unified table & raises clamps to 64 teams)
+    -- Layout switch at fcn_031209ba: 0x00 -> 0x07 (Case 7: unified single league table)
+    write_u8(0x03120b2d, 0x07)
+    -- fcn_0323a336: cmp eax, 0x20 -> cmp eax, 0x40 (allow reading stats for >32 teams)
+    write_u8(0x0323a3af, 0x40)
+    -- fcn_0323a885: cmp edi, 0x20 -> cmp edi, 0x40 (allow choice row creation for >32 teams)
+    write_u8(0x0323abc3, 0x40)
+    -- fcn_03239e2f: cmp eax, 0x20 -> cmp eax, 0x40 (rank arrow team entry pointer)
+    write_u8(0x03239e9c, 0x40)
+    -- fcn_03239e2f: cmp edi, 0x20 -> cmp edi, 0x40 (rank arrow prev rank entry pointer)
+    write_u8(0x03239edd, 0x40)
+    -- fcn_03239f2f: cmp edi, 0x20 -> cmp edi, 0x40 (rank arrow match loop compare)
+    write_u8(0x03239f31, 0x40)
+
+    -- 2. Locate or allocate Competition 2 record in ModeData + 0xc2cbb8
+    -- Standings table storage: 300 records of 0x84c bytes each
+    local ucl_rec = nil
+    local free_rec = nil
+    for slot = 0, 299 do
+        local addr = mode_data + 0xc2cbb8 + slot * 0x84c
+        local cid = read_u16(addr + 0x00)
+        if cid == COMPETITION_ID then
+            ucl_rec = addr
+            break
+        elseif (cid == 0xffff or cid == 0 or not cid) and not free_rec then
+            free_rec = addr
+        end
+    end
+
+    if not ucl_rec then
+        if free_rec then
+            ucl_rec = free_rec
+            write_u16(ucl_rec + 0x00, COMPETITION_ID)
+            local count = read_u32(mode_data + 0xcc84c8) or 0
+            write_u32(mode_data + 0xcc84c8, count + 1)
+        else
+            ucl_rec = mode_data + 0xc2cbb8
+            write_u16(ucl_rec + 0x00, COMPETITION_ID)
+        end
+    end
+
+    -- Write team count: 36 clubs
+    write_u32(ucl_rec + 0x844, TOTAL_TEAMS)
+
+    -- Write all 36 clubs with packed standings stats
+    -- Team entry layout (0x0c bytes = 3 dwords):
+    -- dword 0: team_id
+    -- dword 1: rank (0..5), pts (6..13), wins (14..19), losses (20..25), draws (26..31)
+    -- dword 2: gf (0..11), ga (12..23)
+    for rank = 1, TOTAL_TEAMS do
+        local s = standings[rank]
+        if s then
+            local dw0 = s.id
+            local dw1 = (rank % 64)
+                      + (s.pts % 256) * 64
+                      + (s.w % 64) * 16384
+                      + (s.l % 64) * 1048576
+                      + (s.d % 64) * 67108864
+            local dw2 = (s.gf % 4096)
+                      + (s.ga % 4096) * 4096
+
+            local row_offset = 0x34 + (rank - 1) * 12
+            write_u32(ucl_rec + row_offset + 0x00, dw0)
+            write_u32(ucl_rec + row_offset + 0x04, dw1)
+            write_u32(ucl_rec + row_offset + 0x08, dw2)
+        end
+    end
+
+    -- 3. Also populate the 8 individual group slots (competitions 600..607)
+    for grp_idx = 0, 7 do
+        local grp_cid = 600 + grp_idx
+        local grp_rec = nil
+        local grp_free = nil
+        for slot = 0, 299 do
+            local addr = mode_data + 0xc2cbb8 + slot * 0x84c
+            local cid = read_u16(addr + 0x00)
+            if cid == grp_cid then
+                grp_rec = addr
+                break
+            elseif (cid == 0xffff or cid == 0 or not cid) and not grp_free then
+                grp_free = addr
+            end
+        end
+        if not grp_rec and grp_free then
+            grp_rec = grp_free
+            write_u16(grp_rec + 0x00, grp_cid)
+            local count = read_u32(mode_data + 0xcc84c8) or 0
+            write_u32(mode_data + 0xcc84c8, count + 1)
+        end
+        if grp_rec then
+            local start_rank = (grp_idx < 4) and (grp_idx * 5 + 1) or (20 + (grp_idx - 4) * 4 + 1)
+            local num_in_grp = (grp_idx < 4) and 5 or 4
+            write_u32(grp_rec + 0x844, num_in_grp)
+            for gi = 0, num_in_grp - 1 do
+                local grank = start_rank + gi
+                local s = standings[grank]
+                if s then
+                    local dw0 = s.id
+                    local dw1 = ((gi + 1) % 64)
+                              + (s.pts % 256) * 64
+                              + (s.w % 64) * 16384
+                              + (s.l % 64) * 1048576
+                              + (s.d % 64) * 67108864
+                    local dw2 = (s.gf % 4096)
+                              + (s.ga % 4096) * 4096
+                    local row_offset = 0x34 + gi * 12
+                    write_u32(grp_rec + row_offset + 0x00, dw0)
+                    write_u32(grp_rec + row_offset + 0x04, dw1)
+                    write_u32(grp_rec + row_offset + 0x08, dw2)
+                end
+            end
+        end
+    end
+
     return true
 end
 

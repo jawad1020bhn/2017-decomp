@@ -2745,4 +2745,31 @@ round 35: 7-6  8-5  9-4  10-3  15-1  16-14  17-13  18-12  19-11  20-2
 round 36: 8-7  9-6  10-5  14-1  15-13  16-12  17-11  18-2  19-3  20-4
 round 37: 1-13  2-16  3-17  4-18  5-19  6-20  7-10  8-9  11-15  12-14
 round 38: 10-9  12-1  13-11  14-2  15-3  16-4  17-5  18-6  19-7  20-8
+
+---
+
+## Standings UI Architecture & 36-Team Swiss Format Integration
+
+### Memory Layout (`ModeData + 0xc2cbb8`)
+- Holds 300 competition standings records (`0x84c` = 2,124 bytes each).
+- Record count at `ModeData + 0xcc84c8`.
+- In each record:
+  - `+0x00`: Competition ID (`int16_t`, 2 for UEFA Champions League)
+  - `+0x34`: Array of team rows (12 bytes per team = 3 dwords: `[+0] team_id`, `[+4] rank/pts/W/L/D`, `[+8] GF/GA`)
+  - `+0x844`: Active team count (`int32_t`, 36 for Swiss phase)
+
+### In-Game UI Standings Decoding Pipeline
+1. `fcn_0323a66c` initializes `Common/CmnStandingsMenu` (`rankingTeam.bin`).
+2. `fcn_031209ba` routes layout selector jump table at `0x03120b2d`:
+   - Patched byte at `0x03120b2d`: `0x00` -> `0x07` (Case 7 routes to `0x03120a79`, calling `fcn_033c4243(0)` for unified single league table layout).
+3. `fcn_0323a885` loops `uVar9 = 0 .. team_count - 1`:
+   - Patched clamp at `0x0323abc3`: `cmp edi, 0x20` -> `cmp edi, 0x40` allows creating native choice rows for up to 64 teams.
+4. `fcn_0323a336` unpacks stats:
+   - Patched clamp at `0x0323a3af`: `cmp eax, 0x20` -> `cmp eax, 0x40` allows decoding stats for up to 64 teams.
+   - Decodes: `ranking` (bits 0..5), `num_Points` (bits 6..13), `num_Wins` (bits 14..19), `num_Losses` (bits 20..25), `num_Draw` (bits 26..31), `num_Goals` (bits 0..11), `num_GoalsConceded` (bits 12..23), `num_GoalsDifference` (GF - GA).
+5. `fcn_0323a1e1` applies qualification zone highlights:
+   - Ranks 1 to 8: Direct Round of 16 (seeded)
+   - Ranks 9 to 24: Knockout Phase Play-Offs
+   - Ranks 25 to 36: Eliminated
+
 ```
