@@ -516,7 +516,7 @@ def main(exe):
     print('ok 8: after installation a second run refuses to overwrite itself')
 
     for name in ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch',
-                 'MLTeamSpirit', 'MLSimToDate', 'MLNews'):
+                 'MLTeamSpirit', 'MLSimToDate'):
         text = (Path(MODULE).parent / (name + '.lua')).read_text(encoding='utf-8')
         lines, _, _ = run(image, text)
         result = tm.results(lines)[0]
@@ -527,7 +527,7 @@ def main(exe):
     assert field(after[0], 0x13) == 64 + gc.season_levels(18, 64)
     for which, menu_code, sel, expected in focus_results:
         assert focus_exp(image, which, menu_code, sel) == expected
-    print('ok 9: all nine modules coexist during %d native-lookup awards, the season walk '
+    print('ok 9: all eight modules coexist during %d native-lookup awards, the season walk '
           'and both training-focus paths' % checked)
 
     print('all ok')

@@ -614,6 +614,25 @@ def main(exe):
         g.write(address, old)
     print('ok 14: controlled-club fingerprints, unsupported counts/layouts/controllers and ambiguous ownership fail closed')
 
+    # Two slot-zero records in a progressed career, but only one in this fixture.
+    for lookup in (0, 1, 2):
+        for h, a in ((OURS, OTHER), (OTHER, OURS)):
+            mode = career(g, [record(0, LEAGUE, 5, club(h), club(a), played=False)] + played_run([0,1], (0,2)),
+                          clubs=[(THIRD, (0,0,0)), (OURS, (0,0,0))], lookup=lookup)
+            g.write(mode + CLUBS_AT + 0x314, struct.pack('<I', 0))
+            # Establish a different value first so a skipped update cannot pass.
+            fire('set_conditions', home_team=THIRD, away_team=OTHER)
+            assert g.read(VALUE_AT, 1)[0] == RULES['BASE']
+            fire('after_set_conditions', home_team=h, away_team=a, match_id=0)
+            assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP']
+            for sides in ((THIRD, OURS), (THIRD, THIRD), (OTHER, None), (None, THIRD), (0, THIRD)):
+                event_reads.clear()
+                fire('set_conditions', **{k:v for k,v in zip(('home_team','away_team'),sides) if v is not None})
+                assert not any(mode + MATCHES_AT <= a < mode + MATCHES_AT + MATCH_COUNT * MATCH_STRIDE
+                               for a, _ in event_reads), sides
+                assert g.read(VALUE_AT, 1)[0] == RULES['TWO_LOSS_CAP']
+    print('ok 14a: only one participating controller-slot-zero record qualifies, home or away')
+
     paths = sorted(p for p in (Path(MODULE).parent.parent / 'ML saves').rglob('ML00000013*')
                    if p.name in ('ML00000013 (before)', 'ML00000013 (after)'))
     assert len(paths) == 4
@@ -654,7 +673,7 @@ def main(exe):
     print('ok 15a: mode 0/1 counted careers and sparse indexed mode 2 update form; '
           '03 Oct 2026 one-win/derby/final give 96/98/99, with career records unchanged')
 
-    for name in ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch', 'MLSimToDate', 'MLGrowth', 'MLNews'):
+    for name in ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch', 'MLSimToDate', 'MLGrowth'):
         text = (Path(MODULE).parent / (name + '.lua')).read_text(encoding='utf-8')
         lines, _, _ = run(g, text)
         result = tm.results(lines)[0]
@@ -665,7 +684,7 @@ def main(exe):
     assert value(g, 0x13, 30, 1) == RULES['TWO_LOSS_CAP']
     indexed_form(g, fire, event_reads)
     assert value(g, 0x13, 30, 1) == 99
-    print('ok 16: dynamic callback, sparse indexed tables and native Team Spirit reader also work with all nine modules installed')
+    print('ok 16: dynamic callback, sparse indexed tables and native Team Spirit reader also work with all eight modules installed')
     print('all ok')
 
 

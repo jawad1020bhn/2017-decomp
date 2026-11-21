@@ -1,5 +1,5 @@
 """Source of MLMoney's Win32 MSG handler; python money_keys.py prints its Lua hex."""
-BASE = 0x03fc9300  # after MLNews; still in the checked zero run ending at 03fc9da0
+BASE = 0x03fc9300  # in the checked zero run ending at 03fc9da0
 SIZE = 0x140
 STEP, WAGE, RATIO, HALF = (BASE + SIZE - 24 + n for n in (0,4,8,16))
 SITE = 0x02bd2663  # main pump loads DispatchMessageW into ebx before its message loop
