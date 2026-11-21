@@ -1,16 +1,16 @@
 # PES2017.exe decompiled
 
 Static decompilation of the `PES2017.exe` in `pes.7z.001`-`.005` (110,179,840 bytes,
-sha256 `44b0caaa…954f`, 32-bit Windows, built 2 September 2016). Nothing was run: the
+sha256 `44b0caaa…954f`, 32-bit Windows, built 2 September 2016). For the static inventory the
 file was read with [REA](https://github.com/morluto/rea) driving Rizin 0.9.1 and its
 Ghidra decompiler plugin (`rea execute-rizin-command`, set-up in `../../rea-setup.sh`).
 
-Every function that could be found is decompiled to C with machine names
-(`fcn_038e77af`). Three parts are understood so far and written up in **`NOTES.md`**:
-the save file, how the edit data is loaded, and the overall rating. What was found
-about Master League (year plan, league fixtures, salary, transfer fee, negotiations,
-transfers of the computer clubs) is in **`MASTER_LEAGUE.md`**. The 133 functions
-behind them have working names in `names.tsv`.
+Start with the guide for your task:
+
+- [Master League](MASTER_LEAGUE.md): stock game behavior, evidence and open questions.
+- [Sider modules](sider/README.md): install, controls, code owners and regression tests.
+- [Other executable findings](NOTES.md): save containers, edit-data loading and overall ratings.
+- [Function names](names.tsv): working names mapped to executable addresses.
 
 ## Look something up
 
@@ -62,30 +62,6 @@ They need `pip install unicorn capstone` and the exe (`rea-setup.sh` puts it in
 | `fixtures.py <teams>` | the rounds of a home-and-away league as the game pairs them (check 10) |
 | `clubai.py` | overall window of the players a computer club looks for, by club level (check 11) |
 | `rtti.py <exe>` | class names and their function tables from the exe's type records → `output/classes.tsv.xz` (9,814 tables of 6,932 classes) |
-
-## Sider modules
-
-`sider/` holds Lua modules for the Sider of this game and how to install them
-(`sider/README.md`):
-
-- `MLCheck.lua`, a read-only test that writes the level table of the computer clubs and
-  the fee numbers of the running game to `sider.log` (6 of 6 on the user's game).
-  `sider/test_module.py <exe>` runs it outside the game against the exe file.
-- `MLMoney.lua` (version 7) and `MLTransfers.lua` (version 8, the price ceiling of
-  version 1 and the transfers between the computer clubs; the ceiling was a part of
-  `MLMoney.lua` up to version 6), which change the running game: player values by rating,
-  age, talent, position and popularity with a fixed spread per player, salaries by
-  rating and age, the transfer budget of a new career, a yearly income that follows
-  the wage bill, the prize money of cups and leagues (with lists by league and for
-  the national cups), a share of each prize for the transfer budget, the pay gap
-  between clubs, the salary bonuses and the contract limit of young players, and the
-  highest value a computer club of each size signs (a price ceiling; the game itself
-  lets computer clubs choose by rating alone), from tables in the two files.
-  `sider/test_money.py <exe>` runs the game's salary, fee, budget, prize, income and
-  contract-limit code and the function that lists the players a computer club may
-  sign, with the module's changes, in the emulator, and the yearly budget step as the
-  game has it. Version 2 (values and transfer budget) ran on the user's game with the
-  expected numbers; the parts added in versions 3, 4 and 5 have not run in the game.
 
 ## What the file looks like
 
@@ -160,7 +136,7 @@ read back from the exe; the import slots match the file.
 
 ## Not done
 
-- 142 functions are named (`names.tsv`); the rest is not understood. Of Master League
+- Only a small subset of functions have working names (`names.tsv`). Of Master League
   five pieces are proven and many rules are only located (`MASTER_LEAGUE.md`, section 14). Of the edit data, the
   player, team and manager fields are mapped; five blocks are not read (`NOTES.md`).
 - Virtual calls are not resolved, so `calls.tsv.xz` misses every call through a vtable.

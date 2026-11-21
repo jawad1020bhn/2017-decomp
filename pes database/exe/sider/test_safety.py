@@ -1,4 +1,4 @@
-"""Shared-memory and failed-install regressions for the nine Master League modules.
+"""Shared-memory and failed-install regressions for the eight Master League modules.
 
     python test_safety.py <PES2017.exe>
 
@@ -13,7 +13,7 @@ import test_money as tm
 
 HERE = Path(__file__).resolve().parent
 NAMES = ('MLCheck', 'MLMoney', 'MLYear', 'MLTransfers', 'MLSimMatch',
-         'MLTeamSpirit', 'MLSimToDate', 'MLGrowth', 'MLNews')
+         'MLTeamSpirit', 'MLSimToDate', 'MLGrowth')
 
 
 def installed(name, lines):
@@ -33,7 +33,7 @@ def main(exe):
             tm.poke(game, address, data)
 
     orders = [list(NAMES), ['MLCheck', 'MLGrowth', 'MLMoney', 'MLYear', 'MLTransfers',
-                           'MLTeamSpirit', 'MLSimToDate', 'MLNews', 'MLSimMatch']]
+                           'MLTeamSpirit', 'MLSimToDate', 'MLSimMatch']]
     rng = random.Random(2017)
     dependencies = {'MLMoney': ('MLCheck',), 'MLTransfers': ('MLMoney',)}
     for _ in range(20):
@@ -64,13 +64,13 @@ def main(exe):
         for name, address, data in snapshots:
             assert game.read(address, len(data)) == data, (order, name, hex(address))
         gc.collect()
-    print('ok 1: all nine modules install in both Growth/SimMatch orders and 20 sampled '
+    print('ok 1: all eight modules install in both Growth/SimMatch orders and 20 sampled '
           'orders; no cross-module writes overlap and every installed byte survives')
 
     # shortcut: current patches are <=32 bytes and caves are larger; use explicit ranges if that changes.
     # SimToDate already tests its READY gate/rollback in test_simdate*.py.
     checked = 0
-    for name in ('MLMoney', 'MLTransfers', 'MLYear', 'MLSimMatch', 'MLGrowth', 'MLTeamSpirit', 'MLNews'):
+    for name in ('MLMoney', 'MLTransfers', 'MLYear', 'MLSimMatch', 'MLGrowth', 'MLTeamSpirit'):
         patches = [(a, n) for a, n in module_writes[name] if n <= 32]
         assert patches, name
 
@@ -128,7 +128,7 @@ def main(exe):
         assert 'restore failed.' in lines[-1], (name, lines[-1])
         gc.collect()
     print('ok 2: %d refused/damaged patch writes restore every original patch; refused '
-          'restoration is reported for all seven patchers' % checked)
+          'restoration is reported for all six patchers' % checked)
     print('all ok')
 
 

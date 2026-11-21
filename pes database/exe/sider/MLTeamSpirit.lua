@@ -1,4 +1,4 @@
--- MLTeamSpirit.lua, version 5: Team Spirit follows your club's form
+-- MLTeamSpirit.lua, version 6: Team Spirit follows your club's form
 -- (Sider Lua module). Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): in a played match every player of
@@ -11,6 +11,7 @@
 -- Version 3 fixes Sider team IDs, date widths and the final table batches.
 -- Version 4 finds the primary controlled club in the career, not the invalid-ID placeholder.
 -- Version 5 handles normal indexed career tables (lookup mode 2) as well as counted tables.
+-- Version 6 resolves slot-zero ownership within the current home/away pair.
 --
 -- Where the number comes from: the match records of the career (mode data +0x6f154c,
 -- 9,000 records of 0x24c bytes, section 5). Every match your club has played is in there
@@ -218,7 +219,7 @@ local function scan_count(base, at, limit)
 end
 
 -- Resolve afresh on both callbacks; an unknown/ambiguous controller must never become an AI club.
-local function primary_club(base)
+local function match_primary(base, home, away)
     local count = scan_count(base, CLUB_COUNT_AT, CLUB_LIMIT)
     if count == nil then return nil end
     local found = nil
@@ -231,8 +232,10 @@ local function primary_club(base)
             local id = u32(blob, at)
             if id ~= 0xffffffff and math.floor(u32(blob, at + CLUB_CONTROL) / 128) % 256 == 0 then
                 local key = key_of(id)
-                if found ~= nil or key == nil or key == 0 or key == 65535 then return nil end
-                found = id
+                if key == home or key == away then
+                    if found ~= nil then return nil end
+                    found = id
+                end
             end
         end
     end
@@ -509,38 +512,28 @@ end
 function m.set_conditions(ctx)
     if last_value == nil then return end                     -- nothing was installed
     if mode_kind() ~= MASTER_LEAGUE then
-        if say_once("mode") then log("MLTeamSpirit 5: no career of your own in this mode; nothing changed") end
+        if say_once("mode") then log("MLTeamSpirit 6: no career of your own in this mode; nothing changed") end
         return
     end
     local base = mode_data()
     if base == nil then
-        if say_once("mode data") then log("MLTeamSpirit 5: the mode data cannot be read; the value stays where it is") end
+        if say_once("mode data") then log("MLTeamSpirit 6: the mode data cannot be read; the value stays where it is") end
         return
     end
 
     local home = tonumber(ctx and ctx.home_team)
     local away = tonumber(ctx and ctx.away_team)
-    local ours_id = primary_club(base)
+    if not home or not away or home == away or home < 1 or home >= 65535 or away < 1 or away >= 65535
+        or home % 1 ~= 0 or away % 1 ~= 0 then return end
+    local ours_id = match_primary(base, home, away)
     if ours_id == nil then
-        if say_once("user club") then log("MLTeamSpirit 5: primary controlled club unavailable or ambiguous; "
+        if say_once("user club") then log("MLTeamSpirit 6: no unique primary controlled club in this match; "
             .. "the value stays where it is") end
         return
     end
     local club = key_of(ours_id)
-    local opp, home_side = nil, nil
-    if club ~= nil then
-        if home == club then opp, home_side = away, true
-        elseif away == club then opp, home_side = home, false
-        end
-    end
-    if opp == nil then
-        -- not a match of your club (or the club is not known): the value stays as it is
-        if home ~= nil and away ~= nil and say_once("not ours") then
-            log(string.format("MLTeamSpirit 5: no match of your club (yours %s, home %s, away %s); "
-                .. "the value stays where it is", tostring(ours_id), tostring(home), tostring(away)))
-        end
-        return
-    end
+    local home_side = home == club
+    local opp = home_side and away or home
 
     -- The competition and the round: from the record of the match, when Sider's match_id
     -- is the number of one (match_record, fcn_03822b3f: the mode data + 0x6f154c + the
@@ -559,7 +552,7 @@ function m.set_conditions(ctx)
             if (one == club and two == opp) or (two == club and one == opp) then
                 comp, round = u16(s, 1 + M_COMP), u16(s, 1 + M_FLAGS) % 0x1000
             elseif say_once("match_id") then
-                log(string.format("MLTeamSpirit 5: match_id %d is not this match; the round of a cup "
+                log(string.format("MLTeamSpirit 6: match_id %d is not this match; the round of a cup "
                     .. "is not known, so the cup rules do not fire", record))
             end
         end
@@ -595,7 +588,7 @@ function m.set_conditions(ctx)
     if v ~= last_value then
         memory.write(VALUE_AT, string.char(v))
         if memory.read(VALUE_AT, 1) ~= string.char(v) then
-            if say_once("write") then log("MLTeamSpirit 5: the value did not go in. Quit the game, "
+            if say_once("write") then log("MLTeamSpirit 6: the value did not go in. Quit the game, "
                 .. "remove the module, send this log.") end
             return
         end
@@ -603,11 +596,11 @@ function m.set_conditions(ctx)
     end
 
     if say_once("club") then
-        log(string.format("MLTeamSpirit 5: your club is %d (Sider team %d). RIVALS uses packed "
+        log(string.format("MLTeamSpirit 6: your club is %d (Sider team %d). RIVALS uses packed "
             .. "club ids; copy the RIVALS id shown for the opponent.", ours_id, club))
     end
     -- one line for a match: Sider asks twice about the same one (set_conditions and after it)
-    local line = string.format("MLTeamSpirit 5: %s against club %d (RIVALS id %d), competition %s round %s, "
+    local line = string.format("MLTeamSpirit 6: %s against club %d (RIVALS id %d), competition %s round %s, "
         .. "form %s -> %d  [%s]", home_side and "at home" or "away", opp, opp * 16384, tostring(comp),
         tostring(round), form_text(ours), v, table.concat(why, "; "))
     if line ~= last_line then log(line) end
@@ -648,7 +641,7 @@ local function settings_fault()
 end
 
 function m.init(ctx)
-    log("MLTeamSpirit 5: Team Spirit follows the form of your club")
+    log("MLTeamSpirit 6: Team Spirit follows the form of your club")
 
     local fault = settings_fault()
     if fault ~= nil then
