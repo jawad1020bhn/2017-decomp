@@ -1286,7 +1286,8 @@ Master League with which level, what `+0x314` holds below bit 7, and the other s
    zeros in the file; the module's own emptiness check is what keeps a wrong guess
    harmless. `MLSimToDate.lua` version 3 used `0x047d6550`-`0x047d6e4f` and the two modules
    refused each other; version 4 moved that block to `0x03fc8000` (an unused run of zeros
-   in `.trace`, `0x03fc7d9c`-`0x03fc9da0`), so they no longer do.
+   in `.trace`, `0x03fc7d9c`-`0x03fc9da0`), so they no longer do. `MLTransfers.lua` version
+   9 takes the next run after it, `0x03fc8900`-`0x03fc92ff` (0xa00 bytes), for `DEAL_MOOD`.
 
 ## 8 Scouts
 
@@ -1526,6 +1527,12 @@ Four details, from the disassembly:
   that looks at the size of the selling club's squad by position; there is none for
   outfield players. (`sider/MLTransfers.lua` version 9 adds one for all four groups,
   `SQUAD_PRESSURE`.) Read from the disassembly, not run alone.
+- `keeps` itself — how often the club refuses to let him go — is the same number for
+  every day of the career and every buyer: nothing on this path reads a date for it.
+  `MLTransfers.lua` version 9 draws the date in (`DEAL_MOOD`, the player, both clubs and
+  the year and month of the search; 118 B at `0x03fc8910`, called from the module's own
+  ceiling routine, no place of the game's code touched), so the same club does not answer
+  the same way on two dates.
 - No test reads a fee, a salary or a budget.
 
 `ai_pick_candidate` puts the up to three candidates into a random order

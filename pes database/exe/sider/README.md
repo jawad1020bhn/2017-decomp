@@ -581,6 +581,54 @@ window, and whether squads thin out too far over seasons; no window was played w
 
 To go back to version 8: `git show 3a63fde:"pes database/exe/sider/MLTransfers.lua"`.
 
+### New in version 9: the mood of a deal
+
+**What the game does.** `keeps` — how often a club refuses to let a player go — is the same
+number every day of a career and for every buyer. A club's answer to the same player is
+fixed from the first day of the window to the last, and the same club refuses him against
+any club that asks.
+
+**What `DEAL_MOOD` adds** (no place of the game's code is changed: it is one routine that the
+ceiling routine calls, 118 bytes in a sixth piece of memory):
+
+    local DEAL_MOOD = { mood = 8, style = { seller = -12, trader = -3, builder = 5, hoarder = 12 } }
+
+1. **the mood of the deal** — from the player, the two clubs and the date of the keys of the
+   module (the year and month of the search) one byte from 0 to 99 is drawn, and it moves
+   `keeps` by `mood x (byte/window)` between `-mood` and `+mood` percent, 0 in the middle.
+   The same player and the same two clubs are not answered the same way by two dates, so a
+   club that refuses him in August may let him go in January, and the day of the career in
+   the key makes it deterministic: nothing is stored, a reload gives the same deal;
+2. **the style of the seller** — the low two bits of that same byte name one of four styles,
+   and its percent is added to `keeps` for that club: a club whose style is `hoarder` asks
+   for more, one whose style is `seller` asks for less. It is not a second personality: it
+   leans on the `keeps` its persona already has.
+
+The amount is clamped to 0 to 96 and 0 to 96 percent, and it is added **before**
+`SQUAD_PRESSURE` and before the price ceiling, so all the other rules keep their meanings.
+A player without a club has no mood (there is no club to have one), and with
+`DEAL_MOOD = false` the sixth piece of memory is left as zeros: its first dword
+`MOOD_ON` is 0 and the ceiling routine does not call the routine at all.
+
+| setting | as shipped; meaning |
+|---|---|
+| `DEAL_MOOD` | the line above; `false`: off, as up to version 9 |
+| `mood` (0 to 96) | 8: the most the mood of a deal moves `keeps`, in percent |
+| `style`: `seller`, `trader`, `builder`, `hoarder` (-96 to 96) | -12, -3, 5, 12: what each style adds to `keeps` |
+
+**Where it lives.** The routine sits at `0x03fc8910` (118 bytes) in the sixth piece of
+memory, `0x03fc8900`-`0x03fc92ff` (0xa00 bytes), in the run of zeros of `.trace` between
+`MLSimToDate.lua`'s `0x03fc8000`-`0x03fc88ff` and the next block; the dwords at
+`0x03fc8900` (`MOOD_ON`), `0x03fc8904` (window) and `0x03fc8908` (the four styles) are the
+numbers, and the write is checked before it happens as every other piece of memory is. No
+place of the game's code is changed for it.
+
+**What the test shows** (`test_money.py`, `ok 6`): the routine alone, entered with a frame
+laid out as the ceiling routine's, gives the answer of `money_cave.mood` in 1,200 made-up
+cases (any window 0 to 96, any four styles, any two clubs, any player and date, keeps 0 to
+96, the clamps at 0 and 96, a player without a club and `MOOD_ON` 0). `ok 3` runs the
+choosing code with every optional part alone, this one included.
+
 ### New in version 8: the whole rules for the club that makes an offer
 
 Version 7 only kept a rival of yours from making an offer. Version 8 makes the chooser
@@ -1272,6 +1320,7 @@ not touched.
 | `NEED`, `NEED_GAP` (1 to 30), `NEED_BETTER` (1 to 20) | `true`, 4, 1, version 6: see "New in version 6" |
 | `INCOMING` | `true`; `false`: as in the game, and the fourth piece of memory and its place are not touched. Uses `RIVALS` with the four rules of the selling side: see "New in version 8" |
 | `SQUAD_PRESSURE` | `{ positions = { GK = 3, DF = 8, MF = 9, FW = 6 }, keeps_drop = 40 }`, version 9: see "New in version 9" |
+| `DEAL_MOOD` | `{ mood = 8, style = { seller = -12, trader = -3, builder = 5, hoarder = 12 } }`, version 9: see "New in version 9: the mood of a deal" |
 
 A faulty setting is named in `sider.log` and nothing is written, as before.
 
@@ -2352,7 +2401,9 @@ Read from the DLL's code and strings, not run:
   the two modules could not be installed together; version 4 moved it to an unused run of
   8,196 zeros in `.trace`, `[0x03fc7d9c, 0x03fc9da0)` (exclusive end; the first four
   zeros finish a padding NOP, and the next function starts at `0x03fc9da0`), where it
-  takes `0x03fc8000`-`0x03fc88ff`. `MLMoney.lua` uses `0x03fc9300`–`0x03fc943f` for budget keys.
+  takes `0x03fc8000`-`0x03fc88ff`. `MLTransfers.lua` version 9 takes
+  `0x03fc8900`-`0x03fc92ff` (0xa00 bytes: `MOOD_ON`, the window, the four styles and the
+  routine of `DEAL_MOOD` at `0x03fc8910`). `MLMoney.lua` uses `0x03fc9300`–`0x03fc943f` for budget keys.
   `MLGrowth.lua` version 8 uses what is left of the `.link` gaps:
   `0x047d5b8c`-`0x047d5bde` (the age curve, 83 of the 84 bytes between
   `MLSimMatch.lua`'s hook code and its scoreline tables), `0x047d6377`-`0x047d63f6`

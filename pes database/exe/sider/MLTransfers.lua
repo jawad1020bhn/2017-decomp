@@ -27,6 +27,10 @@
 --   * position need (NEED): a club looks for a better player for the weakest place of
 --     its eleven, the goalkeeper included. In the game a club looks for a player only
 --     when a place of its eleven is empty or when it has fewer than 25 players.
+--   * the mood of a deal (DEAL_MOOD): a club does not answer the same way on every day of
+--     a career, and the club that sells has a leaning of its own (a seller, a trader, a
+--     builder or a hoarder, drawn from its id). The same two clubs and the same player are
+--     still answered the same way on the same day, so a reload changes nothing.
 --   * offers for your own players (INCOMING): the game picks the club that makes an offer
 --     for one of your players by a slot of the competition in hand. The module answers that
 --     look-up itself, with the club of the nearest slot among those that would really take
@@ -215,6 +219,19 @@ local KEEP_BEST = { 4, 12, 2 }
 -- to version 8). Needs PERSONA. The other rules stay: with SELL_SIDE a club that counts 23 players
 -- or fewer still sells nobody.
 local SQUAD_PRESSURE = { positions = { GK = 3, DF = 8, MF = 9, FW = 6 }, keeps_drop = 40 }
+
+-- The mood of a deal. `keeps` of the selling club (its persona, KEEP_BEST and SQUAD_PRESSURE)
+-- is moved by two things drawn from the deal itself: the buying club, the selling club, the
+-- player and the day of the career. Nothing is stored, so the same deal on the same day is
+-- answered the same way after a reload, and the same player is not answered the same way
+-- twice in a career. (In the game a club answers the same way on every day of the window.)
+--   * mood: the most the day moves `keeps`, in percent, down or up. 0 to 30. 0: off.
+--   * style: for each of the four styles of a club -- seller, trader, builder, hoarder -- how
+--     many percent the style adds to or takes from `keeps`. A club that CLUBS names keeps the
+--     character its archetype gives it; the style is a lean on that character, so the four
+--     numbers below sit where the archetypes of those names are. -15 to 15 each.
+-- With mood = 0 and every style 0 the module answers as version 9 did. Needs PERSONA.
+local DEAL_MOOD = { mood = 8, style = { seller = -12, trader = -3, builder = 5, hoarder = 12 } }
 
 -- Two clubs of one persona are not the same: each number of a persona (but not the
 -- order of the places; for the ages see AGE_SHIFT) is, for each club, up to this many
@@ -767,6 +784,14 @@ local INCOMING_SITE = { "incoming", 0x0381e2eb, "5589e583ec14", "e96082fb0090" }
 -- (so it is always written with it)
 local PRESSURE_CAVE = 0x047d6d40
 local PRESSURE_CAVE_SIZE = 0x110
+-- a sixth piece, in the run of zeros of .trace that MLSimToDate.lua leaves free between its
+-- calendar block (0x03fc8000-0x03fc88ff) and the budget keys of MLMoney.lua
+-- (0x03fc9300-0x03fc943f): the numbers and the routine of DEAL_MOOD, which the routine of the
+-- first piece calls
+local MOOD_CAVE = 0x03fc8900
+local MOOD_CAVE_SIZE = 0xa00
+-- the styles of DEAL_MOOD in the order of the memory, with the lowest and highest of each
+local MOOD_STYLES = { { "seller", -15, 15 }, { "trader", -15, 15 }, { "builder", -15, 15 }, { "hoarder", -15, 15 } }
 -- the groups of SQUAD_PRESSURE in the order of the memory, and the group (0 to 3) of each
 -- of the 13 positions, GK to CF
 local PRESSURE_GROUPS = { "GK", "DF", "MF", "FW" }
@@ -795,41 +820,41 @@ local PLACE = { free = 0, listed = 1, clubs = 2 }
 local NEUTRAL = "64000064ff0064646400ffff0000003fffff0100"
 -- the routine: offset in that memory, machine code (source: money_cave.py)
 local ROUTINE = { 0x7cc, "53575589e581ec900000008b45008945c88b58d88b480481f9580d660374"
-      .. "0c81f9b90d66030f85c6040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
-      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87840400008945e031c98b93b400"
+      .. "0c81f9b90d66030f85d4040000894dc08b48dc894dac8b48188b51048955bc8b09894de88b50308b128955b8"
+      .. "8b5014691235aeb2c28955b48b000fb6481b894df08b401c8b0083f8090f87920400008945e031c98b93b400"
       .. "000083e20f4a83fa01760e41f783b800000000000060750141894dd00fb74b2c6953309301000131d1894dd8"
-      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8c8040000"
-      .. "8945ec8955b031c9518b45ec8b55e8e8800400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
-      .. "45f85053e873f007ff83c40c0fb6c08945dc8b55b0e8110400008945cc837dd0000f84370100008365f8008d"
-      .. "45f8508d45c45089d9e8876505ff8b45c43b0534eb4f020f84150100008b55e88b0dc8477d0449782e3904cd"
-      .. "cc477d04750d3914cdd0477d040f849c0300003914cdcc477d0475de3904cdd0477d040f8486030000ebcf83"
-      .. "7dd0020f85d1000000e80a0400005052e8920300008945a85a833d5c427d040074588b4dc88b49f48b45c425"
-      .. "ff3f00003d8d0200000f839900000083bc81ac070000170f868b000000817dc0b90d660375285253e86bf407"
-      .. "ff83c4045a8b4de083f9087315837dbc04750439c1770b83f8077360807a0e08735a586a0c598b55c4e85e03"
+      .. "6955e8b179379e31d1894dd43155b48b4dac81e1ffffff0069c993010001314db4894dac8b45e8e8d6040000"
+      .. "8945ec8955b031c9518b45ec8b55e8e88e0400005989848d70ffffff4183f90e72e6c745f80d0000006a028d"
+      .. "45f85053e873f007ff83c40c0fb6c08945dc8b55b0e81f0400008945cc837dd0000f84450100008365f8008d"
+      .. "45f8508d45c45089d9e8876505ff8b45c43b0534eb4f020f84230100008b55e88b0dc8477d0449782e3904cd"
+      .. "cc477d04750d3914cdd0477d040f84aa0300003914cdcc477d0475de3904cdd0477d040f8494030000ebcf83"
+      .. "7dd0020f85df000000e8180400005052e8a00300008945a85a833d5c427d040074588b4dc88b49f48b45c425"
+      .. "ff3f00003d8d0200000f83a700000083bc81ac070000170f8699000000817dc0b90d660375285253e86bf407"
+      .. "ff83c4045a8b4de083f9087315837dbc04750439c1770b83f807736e807a0e087368586a0c598b55c4e86c03"
       .. "00008b55cc2b55a83b15f44f7d047d178b55dc0315ec4f7d042b55a87e090faf15f04f7d0401d0694dc4b179"
-      .. "379e334dd8334dac69c92febd427c1e9186bc964c1e908e8422100000f82b1020000eb0658e9a9020000837d"
-      .. "d00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d047319694dd4b1675616c1e9186bc9"
-      .. "64c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200008b55b88b4dc88b49f48b45e825ff3f00"
-      .. "003d8d02000073128b8481ac0700003b0558427d04730383ca018955e4837db8000f850c0100008b55ec807a"
-      .. "10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ffffff39d1722740039574ffffff39"
-      .. "d1721c40039578ffffff39d17211837de4000f84df0100008b55ec0fb64210837de400752b8b4dc80fb649de"
-      .. "3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff0f83a7010000837df00074118b55"
-      .. "ec0fb64a1039c175040fb64a1189c83b45d00f8587010000837de40075656945e8b179379e69c091f44525c1"
-      .. "e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29c18b55ec3a4a0e7c053a4a0f7e2b"
-      .. "694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05e84f7d046bc96439c10f821c0100008b"
-      .. "45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc837de400750f8b45cc2b45983945"
-      .. "dc0f8ce80000008b55f08b4dec2251128b4de074128b45dc0fb69128427d0439d00f8fc80000008b048d0042"
-      .. "7d0483f8ff0f84a80000006a645f8b4d88e8ba0000008945fc8b45e40b45f0741ba138427d048b4d90e8a200"
-      .. "00008d0c388b45fce8970000008945fca134427d048b4d8ce887000000694dd46bcaeb85c1e9180fafc88b45"
-      .. "fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00000faf4d948b45fcbfa0860100e8"
-      .. "48000000e8500000008b45dce8f1bdfdff8b4dd083f902741189f8f7248d3c427d04f73554067b0489c73b7d"
-      .. "fc771089ec5d5f5b588b4d245650e9f34495ff89ec5d5f5b83c404e94eace8fef7e139fa7303f7f7c383c8ff"
-      .. "c30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080faf054c427d04030550427d04c1e8"
-      .. "100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb6040869c99301000169d2b179379e"
-      .. "31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f73558067b04c38b55c88b52f881c2"
-      .. "cc84cc00528b8aa028000081f98a020000770c4978093902740883c210ebf48b142483c4048b0d60427d0449"
-      .. "781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b90900000069c0b179379ec1e81d0f"
-      .. "b684c878427d046bc01405c8427d04c3" }
+      .. "379e334dd8334dac69c92febd427c1e9186bc964c1e908833d0889fc03007405e8f13c7fffe8342100000f82"
+      .. "b1020000eb0658e9a9020000837dd00174358b45dc3b05f84f7d04732a8b83b4000000c1e0093b05e44f7d04"
+      .. "7319694dd4b1675616c1e9186bc964c1e9083b4d800f836e0200008b45cc03459c3945dc0f875f0200008b55"
+      .. "b88b4dc88b49f48b45e825ff3f00003d8d02000073128b8481ac0700003b0558427d04730383ca018955e483"
+      .. "7db8000f850c0100008b55ec807a10ff0f8494000000694db46bcaeb85c1e9186bc964c1e90831c08b9570ff"
+      .. "ffff39d1722740039574ffffff39d1721c40039578ffffff39d17211837de4000f84df0100008b55ec0fb642"
+      .. "10837de400752b8b4dc80fb649de3b0d54427d04751c694db4512d9eccc1e9186bc964c1e9083b8d7cffffff"
+      .. "0f83a7010000837df00074118b55ec0fb64a1039c175040fb64a1189c83b45d00f8587010000837de4007565"
+      .. "6945e8b179379e69c091f44525c1e8188b15fc4f7d048d4c12010fafc1c1e80829d08b4b1cc1e90783e13f29"
+      .. "c18b55ec3a4a0e7c053a4a0f7e2b694dd49335871bc1e9186bc964c1e9088b45a4837dd000750a0faf05e84f"
+      .. "7d046bc96439c10f821c0100008b45848d0c45010000006955d4656b54e6c1ea180fafcac1e90829c1014ddc"
+      .. "837de400750f8b45cc2b45983945dc0f8ce80000008b55f08b4dec2251128b4de074128b45dc0fb69128427d"
+      .. "0439d00f8fc80000008b048d00427d0483f8ff0f84a80000006a645f8b4d88e8ba0000008945fc8b45e40b45"
+      .. "f0741ba138427d048b4d90e8a20000008d0c388b45fce8970000008945fca134427d048b4d8ce88700000069"
+      .. "4dd46bcaeb85c1e9180fafc88b45fcbf00640000e86d000000e8750000008b8bb4000000c1e90b81e1ff0f00"
+      .. "000faf4d948b45fcbfa0860100e848000000e8500000008b45dce8e3bdfdff8b4dd083f902741189f8f7248d"
+      .. "3c427d04f73554067b0489c73b7dfc771089ec5d5f5b588b4d245650e9e54495ff89ec5d5f5b83c404e940ac"
+      .. "e8fef7e139fa7303f7f7c383c8ffc30145fc7304834dfcffc30fb64a0e83f9097605b9090000000fb742080f"
+      .. "af054c427d04030550427d04c1e8100fb69164427d0439d0730289d00fb6916e427d0439d0760289d0c30fb6"
+      .. "040869c99301000169d2b179379e31d169c96bcaeb85c1e9180faf0d48427d04c1e908030d44427d04f7e1f7"
+      .. "3558067b04c38b55c88b52f881c2cc84cc00528b8aa028000081f98a020000770c4978093902740883c210eb"
+      .. "f48b142483c4048b0d60427d0449781239048dc8447d0475f40fb68108447d04eb1f0fb64a0e83f9097605b9"
+      .. "0900000069c0b179379ec1e81d0fb684c878427d046bc01405c8427d04c3" }
 
 -- The place that is changed: name, address, bytes there now, bytes to write.
 local SITE = { "transfers", 0x0365fb0d, "8b4d2456e8aa98ac00", "e8ba4e170190909090" }
@@ -873,6 +898,12 @@ local PRESSURE_ROUTINE = { 0x18, "39c10f83a90000002b05406d7d0439c10f8c9a0000008b
       .. "c1ef0983e77f8db0f80000008d3cfe39fe73496804eb4f0289f1e8026d40fe84c075348b4dc88b49f8ff7604"
       .. "ff36e865ba04fff680b400000030751b8b4004c1e81c83f80c77100fb680486d7d043b4424047503ff042483"
       .. "c608ebb3585a0fb692446d7d045f5e39c2f5c3f9c3" }
+
+-- DEAL_MOOD: its routine (offset in the sixth piece of memory, machine code)
+local MOOD_ROUTINE = { 0x10, "51535657837dd00074678b75d88b7dc469f69301000169ff2d"
+      .. "ebd42731f78b75d469f66bcaeb8531f78b5dac69dbb179379e31df69ff6bcaeb85c1ef188b350089fc0385f6"
+      .. "740c89fb0fafdec1eb0629f301d889fb83e3030fbe9b0489fc0301d885c0790231c083f8607605b860000000"
+      .. "5f5e5b59c3" }
 
 -- What MLMoney.lua must have put into its memory: name, address, bytes.
 local MONEY = {
@@ -1215,6 +1246,14 @@ local function persona_fault()
             if not is_number(p.positions[name], 0, 99) then return fault end
         end
     end
+    if DEAL_MOOD ~= false then
+        local m = DEAL_MOOD
+        local fault = "DEAL_MOOD is not false or { mood = 0 to 30, style = { seller, trader, builder, hoarder: -15 to 15 } }"
+        if type(m) ~= "table" or not is_number(m.mood, 0, 30) or type(m.style) ~= "table" then return fault end
+        for _, st in ipairs(MOOD_STYLES) do
+            if not is_number(m.style[st[1]], st[2], st[3]) then return fault end
+        end
+    end
     if type(ARCHETYPES) ~= "table" or #ARCHETYPES < 1 or #ARCHETYPES > MOST_PERSONAS then
         return "ARCHETYPES is not a list of 1 to " .. MOST_PERSONAS .. " personas"
     end
@@ -1423,6 +1462,23 @@ local function pressure_image()
     return out .. string.rep("\0", PRESSURE_CAVE_SIZE - #out)
 end
 
+-- what goes into the memory of DEAL_MOOD: the mood (0: off, and without PERSONA), the four
+-- styles, the routine. nil: the module file is damaged
+local function mood_image()
+    local on = PERSONA and DEAL_MOOD
+    if not on then return string.rep("\0", MOOD_CAVE_SIZE) end   -- no window, no routine: MOOD_ON stays 0
+    local out = u32(round(on.mood))
+    for _, st in ipairs(MOOD_STYLES) do
+        local v = round(on.style[st[1]])
+        out = out .. string.char(v >= 0 and v or 256 + v)
+    end
+    out = out .. u32(1)                 -- MOOD_ON: the ceiling routine calls the routine below
+    if #out > MOOD_ROUTINE[1] then return nil end
+    out = out .. string.rep("\0", MOOD_ROUTINE[1] - #out) .. unhex(MOOD_ROUTINE[2])
+    if #out > MOOD_CAVE_SIZE then return nil end
+    return out .. string.rep("\0", MOOD_CAVE_SIZE - #out)
+end
+
 -- what goes into the memory of INCOMING. nil: the module file is damaged
 local function incoming_image()
     local code = unhex(INCOMING_ROUTINE)
@@ -1533,6 +1589,7 @@ function m.init(ctx)
     local need_memory = need_image()
     local incoming_memory = incoming_image()
     local pressure_memory = pressure_image()
+    local mood_memory = PERSONA and mood_image() or string.rep("\0", MOOD_CAVE_SIZE)
     local sites = { SITE }
     for _, site in ipairs(STAR_SITES) do sites[#sites + 1] = site end
     for _, site in ipairs(TRIM_SITES) do sites[#sites + 1] = site end
@@ -1540,7 +1597,8 @@ function m.init(ctx)
         for _, site in ipairs(NEED_SITES) do sites[#sites + 1] = site end
     end
     if INCOMING then sites[#sites + 1] = INCOMING_SITE end
-    if memory_image == nil or need_memory == nil or pressure_memory == nil or (INCOMING and incoming_memory == nil) then
+    if memory_image == nil or need_memory == nil or (PERSONA and mood_memory == nil)
+        or pressure_memory == nil or (INCOMING and incoming_memory == nil) then
         log("RESULT: nothing written. The module file is damaged (routine).")
         return
     end
@@ -1581,6 +1639,12 @@ function m.init(ctx)
     local spare = (room ~= nil and room == string.rep("\0", PRESSURE_CAVE_SIZE))
     log(string.format("check: %-13s at %08x  %s", "free memory", PRESSURE_CAVE, spare and "empty" or "NOT EMPTY"))
     empty = empty and spare
+    if PERSONA then
+        room = memory.read(MOOD_CAVE, MOOD_CAVE_SIZE)
+        local free = (room ~= nil and room == string.rep("\0", MOOD_CAVE_SIZE))
+        log(string.format("check: %-13s at %08x  %s", "free memory", MOOD_CAVE, free and "empty" or "NOT EMPTY"))
+        empty = empty and free
+    end
     if not found then
         log("RESULT: nothing written. MLMoney.lua is not installed, and this module needs its player values. "
             .. "In sider.ini the line for MLMoney.lua must stand above the line for MLTransfers.lua, and "
@@ -1625,6 +1689,10 @@ function m.init(ctx)
     if written then
         memory.write(PRESSURE_CAVE, pressure_memory)
         written = (memory.read(PRESSURE_CAVE, PRESSURE_CAVE_SIZE) == pressure_memory)
+    end
+    if written and PERSONA then
+        memory.write(MOOD_CAVE, mood_memory)
+        written = (memory.read(MOOD_CAVE, MOOD_CAVE_SIZE) == mood_memory)
     end
     if not written then
         log("RESULT: the table could not be written; the game's code is unchanged. "
@@ -1675,6 +1743,16 @@ function m.init(ctx)
             .. "goalkeeper included, when he stands %d or more rating points below the mean of the others; it "
             .. "takes only a player rated %d or more above him", round(NEED_GAP), round(NEED_BETTER)))
         changed[#changed + 1] = "position need"
+    end
+    if PERSONA and DEAL_MOOD then
+        local styles = {}
+        for _, st in ipairs(MOOD_STYLES) do
+            styles[#styles + 1] = string.format("%s %+d", st[1], round(DEAL_MOOD.style[st[1]]))
+        end
+        log(string.format("mood of a deal: `keeps` of the club that sells moves by up to %d percent with the day of "
+            .. "the career, and its style adds %s (percent of `keeps`); a club that CLUBS names keeps the character "
+            .. "its archetype gives it, and the style leans on it", round(DEAL_MOOD.mood), table.concat(styles, ", ")))
+        changed[#changed + 1] = "mood of a deal"
     end
     if INCOMING then
         log("offers for your players: the club that makes one is the one of the nearest slot that would take "
