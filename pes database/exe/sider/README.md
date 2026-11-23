@@ -36,7 +36,7 @@ Defaults and validation live in the linked Lua files. The references below retai
 | [MLSimMatch](MLSimMatch.lua) | Skip Match and AI simulation: strength-based results, substitutions, ratings, scorers, extra time, penalties, cards, fatigue and injury. Not the played-match Team Spirit calculation. | [Simulation and tuning](#mlsimmatch-simulated-matches); `sim_cave.py`, `test_sim.py` |
 | [MLTeamSpirit](MLTeamSpirit.lua) | **v6:** updates form at **played match setup** when exactly one controller-slot-0 record matches either participant. An unrelated marked club no longer blocks it. If ownership is unclear, it keeps the previous value. Check the matchup, form and final 90–99 value in the log. | [Rules, examples and native reader](#mlteamspiritlua-version-6-team-spirit-follows-the-form-of-your-club); `test_spirit.py` |
 | [MLSimToDate](MLSimToDate.lua) | Off by default. In **Schedule**, highlight a future day, press **F8**, check the heading, then advance normally. **F9** cancels; **F10** toggles stopping for news. “Switched off” does not mean the hooks were uninstalled. | [Controls, early stops and optional date file](#install-and-use-the-in-game-control); `test_simdate.py`, `test_simdate_calendar.py` |
-| [MLGrowth](MLGrowth.lua) | Potential, playtime and age affect development; annual AI changes include position-specific skills and physical decline for contracted veterans. Check a training/award event or season transition, not just startup OVR. | [Original growth mechanics, §12](../MASTER_LEAGUE.md#122-the-growth-system); `growth_cave.py`, `test_growth.py` |
+| [MLGrowth](MLGrowth.lua) | **v8:** the tracked squad's exp and training follow an age curve x potential x playtime; every other player gets a hash-driven season on the attributes his position is rated by, with personal ceilings and five decline families. Nothing is stored, so a reload changes nothing. Check a season transition, not just startup OVR. | [Growth mechanics, §12](../MASTER_LEAGUE.md#122-the-growth-system); `growth_cave.py`, `test_growth.py`, `growth_twin.py` |
 
 ## Developer workflow
 
@@ -625,7 +625,8 @@ transfer (§ "the fee"), and neither salary nor premium is written on this path.
 code sits at `0x047d6550`-`0x047d6d3f` (the 0x7f0 bytes after the position need;
 `0x047d6d06` is its last used byte, 0x39 free) and `0x0381e2eb` starts with `e9 rel32`
 and one `nop`. That place holds zeros in the file, and it is clear of `MLGrowth.lua`'s
-`0x047d6e50`-`0x047d6efd` and of `MLSimToDate.lua`'s day-loop hook at
+`0x047d6e50`-`0x047d6ec3` and `0x047d6efe`-`0x047d6f4b`, and of `MLSimToDate.lua`'s
+day-loop hook at
 `0x047d6f60`-`0x047d6fe9`. **`MLSimToDate.lua` version 3 had its Schedule hooks here**
 (`0x047d6550`-`0x047d6e4f`), and the two modules then refused each other — the one that
 came second found the memory not empty and wrote nothing; version 4 moved that calendar
@@ -2238,9 +2239,10 @@ all match-sim hooks (`ok 6`–`ok 19`, `ok 21`–`ok 23`), and coexistence with 
   career day/year as u16 fields, ignores future results when calculating form, and
   bounds the final match/club/competition reads. Existing packed `RIVALS` settings
   still work; copy the labelled **`RIVALS id`**, not the Sider team number, from the log.
-- **`MLGrowth.lua` v4:** preserves the annual award's age margin across the attribute
-  lookup. The assembly, preassembled bytes and embedded Lua block are synchronized;
-  the season award uses 147 of its 153 reserved bytes.
+- **`MLGrowth.lua` v8:** the AI season is a table-driven factor model (archetype x
+  form x role x ceiling) solved by `growth_twin.py`, and the season walk moved out of
+  `.link` to the `.trace` page behind the day step, so no gap is shared with another
+  module. The assembly, preassembled bytes and embedded Lua block are synchronized.
 - **`MLSimMatch.lua` v9:** neither checks nor writes the 84-byte gap reserved for
   Growth's curve. The matching SimMatch/Growth files now work in either load order.
   With an older SimMatch v8, SimMatch must still load first. Upgrade both files.
@@ -2259,7 +2261,7 @@ all match-sim hooks (`ok 6`–`ok 19`, `ok 21`–`ok 23`), and coexistence with 
 
 ### Tools not covered by the module index
 
-- `growth_cave.py calibrate <exe> <save>` projects annual AI-player changes. Growth v7 alternates primary and secondary positional skills by year; contracted AI veterans (32+) can lose speed and stamina down to 45.
+- `growth_cave.py calibrate <exe> <save>` projects annual AI-player changes (it needs a save `window_report.py` can unpack; `growth_twin.py <exe> <edit> 20` is the fuller check and is the spec of the tables). Growth v8 gives every AI player a hash-driven season on the attributes his position is rated by, and one decline point a season from each of five families (pace 27, stamina 29, strength 32, technique 33, cognitive 34, shifted by position, down to 45).
 - `club_ids.tsv` maps 499 ranked clubs to packed IDs, places, personas and eleven strength. Sporting projects select up to five eligible AI clubs from the top 15 in the top five leagues: no user club, no backfilling, no match RNG. The need-position ceiling boost is at most 20%; it does not change personas.
 - `window_report.py <exe> <before> <after>` compares a window by club, level and persona. `window_transfers.py` instead exports one save’s signings. `test_transfers.py` checks against the four repository saves.
 - `simdate_calendar.py`, `sim_cave.py` and `money_cave.py` generate native hook code. Use the [module/test index](#find-the-implementation-and-the-test) for the corresponding emulator tests; the [reservation map](#notes-for-the-next-module) documents shared-memory boundaries.
@@ -2341,7 +2343,8 @@ Read from the DLL's code and strings, not run:
   `0x047d6d40`-`0x047d6e4f` (272 bytes, squad pressure).
   `MLSimToDate.lua` uses `0x047d6f60`-`0x047d6fec` (141 bytes) for its day-loop hook.
   With Growth below, the ranges still free after the transfer code are
-  `0x047d6f4c`-`0x047d6f5f` (20 bytes) and `0x047d6fed`-`0x047d6fff` (19 bytes).
+  `0x047d6ec4`-`0x047d6efd` (58 bytes), `0x047d6f4c`-`0x047d6f5f` (20 bytes) and
+  `0x047d6fed`-`0x047d6fff` (19 bytes).
   **`0x047d6d60`-`0x047d6e4f` is not free**; old allocation notes understated the
   current incoming/pressure sizes.
   `MLSimToDate.lua` version 3 had its calendar block (`0x900` bytes: the Schedule poll,
@@ -2350,14 +2353,17 @@ Read from the DLL's code and strings, not run:
   8,196 zeros in `.trace`, `[0x03fc7d9c, 0x03fc9da0)` (exclusive end; the first four
   zeros finish a padding NOP, and the next function starts at `0x03fc9da0`), where it
   takes `0x03fc8000`-`0x03fc88ff`. `MLMoney.lua` uses `0x03fc9300`–`0x03fc943f` for budget keys.
-  `MLGrowth.lua` uses what is left: `0x047d3f07`-`0x047d3f9c` (the season award, 150
-  bytes, three bytes short of `MLSimMatch.lua`'s v7 tables), `0x047d5b8c`-`0x047d5bde`
-  (the age curve, 83 of the 84 bytes between `MLSimMatch.lua`'s hook code and its
-  scoreline tables), `0x047d6377`-`0x047d63f6` (the v5 exp award, 128 bytes, up to
-  `MLTransfers.lua` version 6), `0x047d6e50`-`0x047d6efd` (the season walk and the
-  award arithmetic, all 174 bytes before the training-focus code),
-  and `0x047d6efe`-`0x047d6f4b` (the training scale, 78 bytes, still 20 short of
-  `MLSimToDate.lua`'s hook).
+  `MLGrowth.lua` version 8 uses what is left of the `.link` gaps:
+  `0x047d5b8c`-`0x047d5bde` (the age curve, 83 of the 84 bytes between
+  `MLSimMatch.lua`'s hook code and its scoreline tables), `0x047d6377`-`0x047d63f6`
+  (the exp award, 128 bytes, up to `MLTransfers.lua` version 6),
+  `0x047d6e50`-`0x047d6ec3` (the award arithmetic, 116 of the 174 bytes; version 7's
+  season walk was here), and `0x047d6efe`-`0x047d6f4b` (the training scale, 78 bytes,
+  still 20 short of `MLSimToDate.lua`'s hook).  Its season walk and tables moved out of
+  `.link` entirely: they sit in the `.trace` page behind the day step
+  `0x02e8b198`-`0x02e8b9b8` (the hash chain, 0x600 bytes of code, then 0x200 bytes
+  of tables), where no other module of the set lives.  The old `.xcode` gap
+  `0x047d3f07`-`0x047d3f9c` (the version-3 season award) is free again.
   `MLSimToDate.lua` also
   checks and uses `0x0298c0e0`-`0x0298c1ff` in the writable, zero-filled `.text` stub
   for its state, and `MLGrowth.lua` checks and uses the page tail behind it,

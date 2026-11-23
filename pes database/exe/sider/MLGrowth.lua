@@ -1,56 +1,57 @@
--- MLGrowth.lua, version 7: calibrated realistic age curve, multi-attribute positional
--- development, and AI veteran physical decline for Master League (Sider Lua module).
--- Made for PES2017.exe sha256 44b0caaa...
+-- MLGrowth.lua, version 8: a factor model for every Master League player
+-- (Sider Lua module).  Made for PES2017.exe sha256 44b0caaa...
 --
 -- What the game does (MASTER_LEAGUE.md, section 12): Master League keeps growth
--- records (experience, carry, match counters, pending events) for about fifty players
--- only -- the user's squad and the youth team.  Experience is awarded through one
--- function, fcn_038b2fc4, whose amount is the same at every age: a 33-year-old grows
--- as fast as a 17-year-old, and declines hit every ability equally.  The after-match
--- training path (fcn_036225f8 individual focus, fcn_0362274d team focus) sets its
--- values with no regard of age either.  Every other player of the game -- the AI
--- majority, 19,871 of 19,921 in the test save -- has no record, gets no experience
--- at all and is frozen for his whole career.  Once a season a walk over all players
--- raises only their age.
+-- records for about fifty players only -- the user's squad and the youth team.  Every
+-- other player of the game (19,871 of 19,921 in the test save) has no record, gets no
+-- experience and is frozen for his whole career; once a season a walk over all players
+-- raises only their age.  The fifty grow through one exp award, whose amount is the
+-- same at every age.
 --
--- What the module changes, in the running game only (no file is touched):
---   Version 6 calibrated the youth rates to realistic football development paces:
---   the effective rates are x1.75 at 15-17, x1.50 at 18-21, x1.00 at 22-24, x0.75 at
---   25-27, x0.50 at 28-29 and x0.25 from 30. Unplayed reserve players develop slowly
---   (20% playtime baseline), requiring regular match appearances to unlock full growth.
---   Package D adds comprehensive development conditioning to the annual season walk:
---   - Contract status gating: Uncontracted free agents receive zero growth.
---   - Stochastic trajectory dithering: Knuth LCG hash produces breakout seasons vs
---     25% plateau/slump seasons, preventing uniform development across all youth.
---   - Non-linear diminishing headroom & prodigy resistance: Dynamic resistance tiers
---     at 75+ and 82+ OVR prevent young players from reaching 90+ on autopilot.
---   Version 7 adds Package E AI player realism improvements:
---   - Multi-attribute positional development: Youth progression alternates between
---     primary and secondary positional attributes on even/odd age years (e.g. CF finish
---     and dribbling; midfielders dribbling and passing; defenders defending and ball
---     winning/speed; GK goalkeeping and reflexes).
---   - AI veteran physical decline: Contracted AI players aged 32+ now experience
---     natural physical decline (-1) on speed and stamina down to a protected floor of 45,
---     mirroring human squad physical decline and preventing static evergreen veterans.
---   A. The exp award fcn_038b2fc4 now multiplies the exp by this age curve, a
---      potential scale (how close the player is to the ceiling his age allows) and,
---      for a player with a growth record, by his playtime of the cycle. Kind-2 awards
---      already scale by minutes played, so they get the curve and scale but not the
---      playtime factor. Decline exp is dampened to a quarter, except
---      the physical fields (speed, body balance, physical contact, explosive power,
---      jumping, stamina) from 31 on, which decline in full.  Guards, carry, level-ups,
---      news and the growth report run as before.
---   Version 4 fixes the annual award's age-margin calculation.
---   Version 5 restores the exp pointer and runs the full curve on a growth-record miss;
---   the old miss branch skipped the float setup and could write through a bad pointer.
---   B. The season walk now gives AI players without a growth record points on their
---      position ability according to the conditioned curve (CF/SS finishing, DMF and
---      defenders defending, GK goalkeeping, the rest dribbling). Free agents get 0,
---      plateau seasons are filtered, and prodigies above 75/82 face resistance.
---   C. The two training-focus calls of the after-match step (individual and team)
---      now run their exp through the same age curve and potential scale before the
---      game turns it into levels, so training a 33-year-old no longer improves him
---      as fast as a 17-year-old.
+-- What version 8 changes, in the running game only (no file is touched):
+--
+--   A. The exp award fcn_038b2fc4 (the tracked fifty) keeps version 6's arithmetic: the
+--      exp times an age curve, a potential scale and the playtime of the cycle; decline
+--      dampened to a quarter except the physical fields from 31.  The youth steps of the
+--      curve are eased (x1.50 at 15-17, x1.25 at 18-21): version 6 made 15-17 *faster*
+--      than the game, which was the point the outcomes disagreed with.
+--   C. The two training-focus calls of the after-match step run their exp through the
+--      same curve and scale before the game turns it into levels.
+--
+--   B. The season walk (hook B) is now the whole growth model for the AI players, and no
+--      longer a hand-set multiplier on the game's own rate.  Version 6 added 1.75/1.50/
+--      ... points a season on one ability; a season now awards
+--
+--          points = BASE(age, archetype) x TRAJ(form) x PLAY(role) x HEAD(ceiling)
+--
+--      on up to twelve attributes the player's position is actually rated by (the game's
+--      own weight rows: finishing, attack and ball control for a CF; defending for a CB),
+--      the season reaching six to twelve of them, by the same hash.
+--      Everything is a hash of (player id, age), so no state is stored and a reload
+--      changes nothing:
+--        - ARCH: four archetypes from the first hash byte (early 12%, normal 62%, late
+--          12%, limited 14%): a fast starter who fades, the ordinary curve that peaks at
+--          26-28, a late bloomer that is still growing at 30, and the academy product
+--          who plateaus at 21.
+--        - TRAJ: form is an AR(2)-shaped chain (0.5 of the age-2 draw, 0.3 of age-1,
+--          0.2 of this one), so good seasons follow good ones.  A breakout season is
+--          followed by a consolidation season; two bad draws in a row before 20 derail
+--          a career for good (talent and ceiling down).
+--        - PLAY: the season's role -- a starter, a rotation player, a fringe player --
+--          from the same hash byte (AI minutes are not readable from the cave).
+--        - HEAD: a personal ceiling of the ability, and a talent that sets how fast the
+--          attributes climb to it, so the drag starts four points below the ceiling, not
+--          at a fixed 75.  The universal 86+/89+ scarcity gates stay.
+--        - DECLINE: five families with their own start age (pace 27, stamina 29,
+--          strength 32, technique 33, cognitive 34) shifted by the position
+--          (a GK three years later, a winger one year earlier), one point a season per
+--          family, down to 45.
+--
+-- What the numbers are: `growth_twin.py` replays the model over the whole database for
+-- twenty seasons and checks the outcomes the shape was solved for -- career gains of
+-- +18..25 (elite), +10..15 (regular), +5..8 (squad), +2..4 (limited), a peak age of
+-- 26-27, the elite at 1-2 per cent of the population, and a league mean that stops
+-- moving.  Run it before changing a table here.
 --
 -- It first checks that the game holds the expected code at every place it touches and
 -- that its caves are zero.  If anything differs it writes nothing and says so in
@@ -58,9 +59,12 @@
 --
 -- Install: copy this file into the "modules" folder next to sider.exe and add
 --     lua.module = "MLGrowth.lua"
--- to sider.ini. With MLSimMatch version 9 either order works; version 8 must load
--- before Growth. Upgrade both files together. Remove the line and restart PES to
--- restore vanilla growth. Development already saved by the game is not undone.
+-- to sider.ini. The season walk now writes in the .trace page behind the day step
+-- fcn_0362752f (0x02e8b198), where no other module of the set lives, so the load order
+-- against MLSimMatch matters no longer; its other caves reuse the .link gaps of
+-- version 7 (the exp award code sits where version 7's E1 was).
+-- Remove the line and restart PES to restore vanilla growth; development already saved
+-- by the game is not undone.
 --
 -- It needs no other module, and no other module needs it. Its write ranges are
 -- separate from the matching SimMatch, Money, Transfers and SimToDate modules.
@@ -70,32 +74,37 @@
 local m = {}
 
 -- Generated by growth_cave.py (do not edit by hand; test_growth.py checks this block)
-local DATA = 0x0298c200
-local DATA_SIZE = 236
-local CAVE_E2 = 0x047d3f07
-local CAVE_E2_SIZE = 150
 local CAVE_CURVE = 0x047d5b8c
 local CAVE_CURVE_SIZE = 83
 local CAVE_B1 = 0x047d6377
 local CAVE_B1_SIZE = 128
-local CAVE_E1 = 0x047d6e50
-local CAVE_E1_SIZE = 174
 local CAVE_FOCUS = 0x047d6efe
 local CAVE_FOCUS_SIZE = 78
+local CAVE_B2 = 0x047d6e50
+local CAVE_B2_SIZE = 116
+local CAVE_HB = 0x02e8b198
+local CAVE_HB_SIZE = 43
+local CAVE_WALK = 0x02e8b1d0
+local CAVE_WALK_SIZE = 795
+local CAVE_DATA = 0x0298c200
+local CAVE_DATA_SIZE = 236
+local CAVE_SEASON = 0x02e8b798
+local CAVE_SEASON_SIZE = 512
 
 local BLOCKS = {
-    { "season award code", CAVE_E2, "83bfa8000000ff747c6a0d5883fb20730e8d43f183f80a736c8b4704c1e81cbac8c29802f6c301740383ea100fb614108955fc6a00545289f9e86b3905ff5e8b472c69c06d4ec64101d8c1e8183c40723483fb20720c3c80722b83fe2d76264eeb1883fe58731e83fe4b720d3c80721583fe5272043cd2720c4656ff75fc89f9e8244205ff89ec5d5f5e5b8b1518e54f02e9a3f7e4fe" },
     { "age curve code", CAVE_CURVE, "8d43f10fb68010c2980250db0424d80dd8c29802588d43f10fb68858c2980285c9742b8d469df7d883fe4b7c0883fb157f0383c00450db04245851db042458def9d9e8dbf1dbc1d9c9ddd8dec9c3ddd8d9eec3" },
-    { "exp award code", CAVE_B1, "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e87d2806ff83c40c0fb6f08b551cf64203800f85100b0000c745f814000000a1e00365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c074178b4df4ff7730ff772ce8e0a394fe8b90a00100008955f88b551ce9930a0000" },
-    { "season walk code", CAVE_E1, "5356575589e583ec1089f7a1e00365028b40308d884001d100ff7730ff772ce8414696fe84c00f8510d1ffff8b5f1cc1eb0783e33fe97dd0ffff" },
-    { "season walk code 2", CAVE_E1 + 58, "d902e8fbecffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b5589e581ec3c020000e9cfc00dff" },
+    { "exp award code", CAVE_B1, "5356575589e583ec108b7d148b5f1cc1eb0783e33f8d45fc6a00508d472c50e87d2806ff83c40c0fb6f08b551cf64203800f85d60a0000c745f814000000a1e00365028b40308d804001d1008945f48b4df4ff7730ff772ce8e15096fe84c074178b4df4ff7730ff772ce8e0a394fe8b90a00100008955f88b551ce9590a0000" },
     { "training scale code", CAVE_FOCUS, "5356575589e583ec10894df88b5f1cc1eb0783e33f8d45fc6a00508d472c50e8f61c06ff83c40c0fb6f0e85fecffffdb4518dec983ec04db1c24ff75148b4df8e8a6a7e4fe89ec5d5f5e5bc20800" },
-    { "growth tables", DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0707070606060604040403030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c050505010101010101010101010101010101010101010101010101010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010101000101010000111114141417141414171f1f1a25141413131111110f1111110f0f0f101f11110000803e0000a041cdcc4c3fcdcc4c3e0000803e" },
+    { "exp award code 2", CAVE_B2, "d902e835edffffdec9837d20027421db45f8d835dcc29802d9e8dbf1dbc1d80de0c29802d805e4c29802d9c9ddd8dec9d91aeb2cd9028b45188b0031c983f82677070fb68890c29802d905e8c2980283fb1f7c0885c97404ddd8d9e8dec9d91a89ec5d5f5e5b5589e581ec3c020000e909c10dff" },
+    { "hash chain", CAVE_HB, "538b44240869c06bcaeb850344240c69c035aeb2c289c3c1eb0f31d869c02debd42789c3c1eb1031d85bc3" },
+    { "season walk code", CAVE_WALK, "fc609c89e583ec4889f783bfa8000000ff0f84f5020000a1e00365028b40308d804001d10089c1ff7730ff772ce8b3022b0084c00f85d2020000ff772c6a00e884ffffff83c4080fb6c80fb6d083e10fc1ea0383e2070fb6926cb9e8028855f40fb6895cb9e802884df50fb6848ab9b8e8028845f60fb6848ac9b8e8028945f88b471cc1e80783e03f8945fc83f80f0f827702000083f83c0f836e020000ff772cff75fce81fffffff83c4088845d40fb64df6837dfc1477368b45fc488945ecff772c50e8fffeffff83c4083c60731fff4decff772cff75ece8eafeffff83c4083c60730a498b45f883e8038945f8894dec8b45fc48ff772c50e8c9feffff83c4088b4dec3ce072068d0c49c1e902884df68b45fc83e80f83f8110f87830100000fb64df58d0cc98d0c4d98b7e8020fb60c08894df085c90f8466010000c745e80000000031c98b45fc29c851ff772c50e872feffff83c408590fb6c00fb69180b9e8020fafc20145e84183f90372d78b45e8c1e8083dff0000007605b8ff000000c1e8050fb680a0b8e8020fb655d4c1ea050fb692a9b8e8020fafc28945e485c00f84fc0000008b4f04c1e91c83e10f83f910720231c98d0c49c1e10281c1e0b7e802894de00fb655d4c1ea050fb692b1b8e8028955dcc745d8000000008b55d83b55dc0f83b90000008b45e00fb634108975d08d45cc505689f9e8dfc499008b75cc3b75f80f838f0000000fb64df6ba6300000029f20fafd1c1ea0483fa087605ba080000008955c80fb64dd483fe59720881f9d2000000726083fe56720881f98000000072538b4df00faf4de40faf4dc8d1e9894dc40fb645d48b55d86bd22501d025ff0000008945c03b45c4732a8b4dc4d1e9ba0100000039c87305ba0200000001f283fa637605ba6300000052ff75d089f9e844cd9900ff45d8e93bffffff8b4f04c1e91c83e10f0fbe997cb9e80231f68d04f5e8b8e8020fb60801d93b4dfc753f0fb6480385c974378945e08b45fcd1e831d2f7f18b4de00fb65411048955d08d45cc505289f9e8eec399008b4dcc83f92d760c4951ff75d089f9e8dacc99004683fe0572aa89ec9d618b1518e54f02e955827900" },
+    { "growth tables", CAVE_DATA, "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0606060505050504040403030302020101010101010101010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000001919191313130c0c0c050505010101010101010101010101010101010101010101010101010100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010101000101010000111114141417141414171f1f1a25141413131111110f1111110f0f0f101f11110000803e0000a041cdcc4c3fcdcc4c3e0000803e" },
+    { "season tables", CAVE_SEASON, "100f0e0c0a070402010000000000000000000d0e0f0e0d0b090705040302010000000000050607090b0c0d0e0e0d0c0a07040100000012100e0b0805030100000000000000000000130e12111f2320211622240f2311120e1314151f2225202111120e1f231315251422202111120e1f2313152514222021111214130e15231f2520210f1512141125190f0e202124171112141525230e1f0f202110111f231225150e14190f1013111f231225150e14190f10130f1716241f2021250e1011121f0f111523251724120e20211f0f111523251724120e2021101d1a1b1c2420210e0f1112130e12111f2320211622240f130e12111f2320211622240f130e12111f2320211622240f00040608080a0a0c1003030404040404020c0c0b0a0908070606070808050607080506080803030404484e565b464c545c484e585c3e42464a032d000000000000000000000000001b0000031f2311001d0001012500000020000203212024002100030512141518220004050f170e1600000000000000000000000000000000000000000000000000000000000000000000000000000000020000020000010203010304000000000000010004010200000000000000000000000000000101020301010201030101020103010001020300010203601480d2e0000000ffffffff334d80000001000003000000000000000000000000000000" },
 }
 
 local SITES = {
     { "exp award entry", 0x038b2fc4, "5589e581ec", "e9ae33f200" },
-    { "season age walk", 0x0362373a, "8b1518e54f02", "e911371b0190" },
+    { "season age walk", 0x0362373a, "8b1518e54f02", "e9917a86ff90" },
     { "individual training", 0x036226a7, "e83df0ffff", "e852481b01" },
     { "team training", 0x036227e5, "e8ffeeffff", "e814471b01" },
 }
@@ -134,9 +143,9 @@ local function check_bytes(name, addr, expected_hex)
 end
 
 function m.init(ctx)
-    log("MLGrowth 7: a moderated age curve for every Master League player "
-        .. "(potential, playtime, multi-attribute youth development, "
-        .. "physical decline from 32, training follows the curve too)")
+    log("MLGrowth 8: a factor model for every Master League player (archetypes, "
+        .. "correlated seasons, personal ceilings, five decline families, and the "
+        .. "training and exp awards on the same age curve)")
 
     -- 1. the code the cave jumps to and calls must be where it is
     local good = true
@@ -158,12 +167,20 @@ function m.init(ctx)
         end
     end
 
-    -- 3. every cave must be zero
+    -- 3. every cave must be zero.  The season page is checked whole (HB, the walk and
+    --    its tables share it), then written block by block; a second module that took
+    --    part of it shows here before anything is written.
+    local room = memory.read(CAVE_HB, CAVE_SEASON + CAVE_SEASON_SIZE - CAVE_HB)
+    local empty = (room ~= nil and room == string.rep("\0", CAVE_SEASON + CAVE_SEASON_SIZE - CAVE_HB))
+    log(string.format("check: %-22s at %08x  %s", "season page", CAVE_HB, empty and "empty" or "NOT EMPTY"))
+    if not empty then good = false end
     for _, b in ipairs(BLOCKS) do
-        local room = memory.read(b[2], #b[3] / 2)
-        local empty = (room ~= nil and room == string.rep("\0", #b[3] / 2))
-        log(string.format("check: %-22s at %08x  %s", b[1], b[2], empty and "empty" or "NOT EMPTY"))
-        if not empty then good = false end
+        if b[2] < CAVE_HB or b[2] >= CAVE_SEASON + CAVE_SEASON_SIZE then
+            local got = memory.read(b[2], #b[3] / 2)
+            local ok = (got ~= nil and got == string.rep("\0", #b[3] / 2))
+            log(string.format("check: %-22s at %08x  %s", b[1], b[2], ok and "empty" or "NOT EMPTY"))
+            if not ok then good = false end
+        end
     end
 
     if not good then
@@ -203,9 +220,10 @@ function m.init(ctx)
         end
     end
 
-    log("RESULT: installed. The moderated age curve is scaled by potential and "
-        .. "playtime, the training focus follows it, and every other player gains a "
-        .. "few position-specific points a season until the curve flattens.")
+    log("RESULT: installed. The season awards AI players points on the abilities their "
+        .. "position is rated by (archetype x form x role x ceiling), veterans decline "
+        .. "family by family, and the tracked squad's exp and training follow the age "
+        .. "curve.")
 end
 
 return m
