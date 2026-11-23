@@ -1286,7 +1286,8 @@ Master League with which level, what `+0x314` holds below bit 7, and the other s
    zeros in the file; the module's own emptiness check is what keeps a wrong guess
    harmless. `MLSimToDate.lua` version 3 used `0x047d6550`-`0x047d6e4f` and the two modules
    refused each other; version 4 moved that block to `0x03fc8000` (an unused run of zeros
-   in `.trace`, `0x03fc7d9c`-`0x03fc9da0`), so they no longer do.
+   in `.trace`, `0x03fc7d9c`-`0x03fc9da0`), so they no longer do. `MLTransfers.lua` version
+   9 takes the next run after it, `0x03fc8900`-`0x03fc92ff` (0xa00 bytes), for `DEAL_MOOD`.
 
 ## 8 Scouts
 
@@ -1526,6 +1527,12 @@ Four details, from the disassembly:
   that looks at the size of the selling club's squad by position; there is none for
   outfield players. (`sider/MLTransfers.lua` version 9 adds one for all four groups,
   `SQUAD_PRESSURE`.) Read from the disassembly, not run alone.
+- `keeps` itself — how often the club refuses to let him go — is the same number for
+  every day of the career and every buyer: nothing on this path reads a date for it.
+  `MLTransfers.lua` version 9 draws the date in (`DEAL_MOOD`, the player, both clubs and
+  the year and month of the search; 118 B at `0x03fc8910`, called from the module's own
+  ceiling routine, no place of the game's code touched), so the same club does not answer
+  the same way on two dates.
 - No test reads a fee, a salary or a budget.
 
 `ai_pick_candidate` puts the up to three candidates into a random order
@@ -2096,57 +2103,57 @@ fitness; `rec+0x2c` the id (low, high). The overall rating of a record:
 
 ### 12.3 A Sider module that gives every player an age curve
 
-`sider/MLGrowth.lua` (version 3) changes four places in the running game; what it
+`sider/MLGrowth.lua` (version 8) changes four places in the running game; what it
 writes and why is in `sider/growth_cave.py` (its Python is the reference the test
 compares the machine code with), `sider/test_growth.py` runs the game's own award,
-training and season-walk code with the changes in the emulator.
+training and season-walk code with the changes in the emulator, and
+`sider/growth_twin.py` replays the season walk over the whole database for twenty
+seasons and checks the outcomes the tables were solved for.
 
 - **Hook A, the exp award** (`fcn_038b2fc4` entry, `0x038b2fc4`): before the function
-  runs, the exp argument is multiplied by the moderated age curve (x2.5 at 15-17,
-  x2.0 at 18-21, x1.25 at 22-24, x0.75 at 25-27, x0.5 at 28-29, x0.25 from 30), by
-  the potential scale `min(1, (99 - rating [+4 when rating >= 75 and age <= 21]) /
-  margin(age))` with
-  margins 25/19/12/5/1 from 15/18/21/24/27 on (0 below 15 and from 53 on: no growth),
-  and, for a player with a growth record, by his playtime of the cycle
-  (`0.5 + 0.5 x min(1, appearances / 20)`, 20 for a player without one). The rating
-  is the game's own (`fcn_03838c18`). Version 3 applies a 0.80 pace setting before
-  the quarter-step table is made. It therefore reduces the 15-27 rates but keeps the
-  x0.5/x0.25 late-career tail; potential headroom and playtime still determine whether
-  a player receives the reduced rate. Negative exp (decline) is multiplied by 0.25,
-  except the physical fields — speed, body balance, physical contact, explosive
+  runs, the exp argument is multiplied by the age curve (x1.50 at 15-17, x1.25 at
+  18-21, x1.00 at 22-24, x0.75 at 25-27, x0.50 at 28-29, x0.25 from 30), by the
+  potential scale `min(1, (99 - rating [+4 when rating >= 75 and age <= 21]) /
+  margin(age))` with margins 25/19/12/5/1 from 15/18/21/24/27 on (0 below 15 and from
+  53 on: no growth), and, for a player with a growth record, by his playtime of the
+  cycle (`0.5 + 0.5 x min(1, appearances / 20)`, 20 for a player without one). The
+  rating is the game's own (`fcn_03838c18`). Negative exp (decline) is multiplied by
+  0.25, except the physical fields — speed, body balance, physical contact, explosive
   power, jumping, stamina — from 31 on, which decline in full. Guards, carry, levels,
   news and reports run as before.
-- **Hook E, the season walk** (after the age setter call, `0x0362373a`): every player
-  without a growth record — the frozen 19,871 — now also gets
-  `season_levels(age, value)` points on the ability of his position (CF and SS
-  finishing, DMF and the defenders defending, the GK goalkeeping, the rest dribbling;
-  a position number above 12 falls back to dribbling), where `season_levels` is
-  `floor(curve)` at full headroom and `headroom x curve / margin` (integer division)
-  below it, capped so the ability stays under 99. Players with a record are left to
-  hook A.
+- **Hook B, the season walk** (after the age setter call, `0x0362373a`): every player
+  without a growth record — the frozen 19,871 — gets a season of a factor model on the
+  attributes his position is actually rated by (the game's own weight rows `SIX`),
+  plus one decline point a season from each of five families. Everything is a pure
+  function of `(player id, age)` — an LCG-style hash chain, no stored state:
+
+      points = BASE(age, archetype) x TRAJ(form) x PLAY(role) x HEAD(ceiling)
+
+  `BASE` is `PHASE[arch][age - 15]` in 16ths of a point (early / normal / late /
+  limited archetypes; no season from 33 on); `TRAJ` turns an AR(2)-shaped form
+  (`0.5 u(age-2) + 0.3 u(age-1) + 0.2 u(age)`) into eighths of a season, with a
+  consolidation season after a breakout and a ceiling penalty for two slumps before
+  20; `PLAY` is the season's role (starter to fringe) from the same byte; `HEAD` is
+  `min(8, ((99 - value) x talent) >> 4)`, zero at the personal ceiling and, above
+  86/89, for most draws (the scarcity gates). A per-attribute draw decides +2, +1 or
+  nothing. Players with a record are left to hook A.
 - **Version 2, hook A fix**: kind-2 awards (the regime meters of the after-match
   step, which the game already scales by minutes played) no longer get the playtime
   factor on top -- the minutes were counted twice.
-- **Version 2, hook C, the training focus** (the two `call fcn_036216e9` sites of
-  the after-match step, `0x036226a7` in `fcn_036225f8` and `0x036227e5` in
-  `fcn_0362274d`): the exp of the individual and the team focus is multiplied by
-  the same age curve and potential scale before the game turns it into levels --
-  vanilla training improved a 33-year-old as fast as a 17-year-old.  The cave holds
-  the player (edi) and the growth record (ecx) of the call sites and passes them
-  on; the scaled exp lands in `fcn_036216e9`'s own exp array of the growth record.
+A twenty-season replay of the hook B model over all 19,921 players of the test edit
+(`python3 sider/growth_twin.py <exe> <edit> 20`) lands in the bands the tables were
+solved for: career gain (first season to peak) +18 for the elite, +10 for the regular,
++6 for the squad and +3 for the limited; peak age 27; the elite (86+) 0.96-1.58 per cent
+of the population at every season mark; and a league mean that moves 0.014 a season
+from season 9 on. The ~50 players with growth records follow hook A instead, which
+hangs on matches played and cannot be replayed from a save.
 
-A six-season replay of **version 3** hook E on all 19,921 players of the test save
-(`python3 sider/growth_cave.py calibrate <exe> <save>`) moves the mean rating from
-67.81 to 67.92. The 15-20-year-olds gain 0.49 on average (the biggest riser is +17),
-the 21-24-year-olds 0.12, and from 25 on nothing moves. The ~50 players with growth
-records follow hook A instead, which hangs on matches played and cannot be replayed
-from a save.
-
-The module uses the free gaps `0x047d3f07`-`0x047d3f9a` (season award),
-`0x047d5b8c`-`0x047d5bde` (the curve routine), `0x047d6377`-`0x047d63fa` (the exp
-award), `0x047d6e50`-`0x047d6ef7` (the season walk) and the `.text` page tail
-`0x0298c200`-`0x0298c2eb` (236 bytes of tables), all zero-checked first; see the
-memory map in `sider/README.md`.
+The module uses the free gaps `0x047d5b8c`-`0x047d5bdf` (the curve routine),
+`0x047d6377`-`0x047d63f7` (the exp award), `0x047d6e50`-`0x047d6ec3` (the award
+arithmetic), `0x047d6efe`-`0x047d6f4c` (the training scale), the `.trace` page behind
+the day step `0x02e8b198`-`0x02e8b9b8` (the hash chain, the season walk and its
+tables), and the `.text` page tail `0x0298c200`-`0x0298c2eb` (236 bytes of tables),
+all zero-checked first; see the memory map in `sider/README.md`.
 
 ## 13 The Master League save file
 

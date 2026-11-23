@@ -19,6 +19,7 @@ import random
 import re
 import struct
 import sys
+import types
 
 from lupa.luajit21 import LuaRuntime
 
@@ -62,7 +63,8 @@ READS = tuple((at, n) for _, at, n in mc.CONTEXT) + CAVE + INCOMING
 # the same for MLTransfers.lua (the price ceiling): touched only when CEILING is on
 # (the third piece, of the position need, only with NEED on; the fifth, of SQUAD_PRESSURE, always)
 CAVE_2 = ((mc.CAVE_2, mc.CAVE_2_SIZE), (mc.CAVE_3, mc.CAVE_3_SIZE),
-          (mc.INCOMING_CODE, mc.INCOMING_CAVE_SIZE), (mc.CAVE_5, mc.CAVE_5_SIZE))
+          (mc.INCOMING_CODE, mc.INCOMING_CAVE_SIZE), (mc.CAVE_5, mc.CAVE_5_SIZE),
+          (mc.CAVE_6, mc.CAVE_6_SIZE))          # the sixth, of DEAL_MOOD, only with PERSONA on
 READS_2 = tuple((at, n) for _, at, n in mc.CONTEXT_CEILING) + CAVE_2
 # ai_candidates: its two calls in ai_pick_candidate (the call, where it returns to), and what it asks
 CHOOSE_CALLS = ((0x03660d53, 0x03660d58), (0x03660db4, 0x03660db9))
@@ -75,7 +77,7 @@ INSTALLED = 'RESULT: installed. Changed: '
 CEILING_LABEL = 'price ceiling of the computer clubs'
 # the RESULT lines of MLTransfers.lua
 LABELS_T = (CEILING_LABEL, 'selling side', 'club personas', 'scouting', 'rivals', 'position need',
-            'offers for your players')
+            'mood of a deal', 'offers for your players')
 INSTALLED_T = INSTALLED + ', '.join(LABELS_T) + '.'
 OFF_T = ('RESULT: nothing written. CEILING, SELL_SIDE, PERSONA, NEED and INCOMING are off and RIVALS is '
          'empty: the computer clubs choose as in the game.')
@@ -148,6 +150,14 @@ def settings(source):
     if re.search(r'^local SQUAD_PRESSURE = \{', source, re.M):
         entries = {k: float(x) for k, x in re.findall(r'(\w+) = ([\d.]+)', text('SQUAD_PRESSURE'))}
         pressure = ([entries[k] for k in mc.GROUPS], entries['keeps_drop'])
+    # (a file of version 9 or older has no DEAL_MOOD)
+    mood = None
+    if re.search(r'^local DEAL_MOOD = \{', source, re.M):
+        body = text('DEAL_MOOD')
+        m = re.search(r'mood\s*=\s*(-?[\d.]+)', body)
+        styles = [float(x) for x in re.findall(r'(?:seller|trader|builder|hoarder)\s*=\s*(-?[\d.]+)', body)]
+        assert m and len(styles) == len(mc.STYLES), body
+        mood = (float(m.group(1)), styles)
     position = {n: float(p) for n, p in re.findall(r'(\w+)\s*=\s*([\d.]+)', text('POSITION'))}
     projects = re.search(r'^local SPORTING_PROJECTS = true$', source, re.M) is not None
     p_count = number('PROJECT_COUNT') if projects else 5
@@ -161,7 +171,8 @@ def settings(source):
                      knots('CUP_TV'), number('INCOME_WAGES'), numbers('CEILING'), text('CEILING_RATING') == 'true',
                      number('CEILING_STRETCH'), number('CEILING_NEED'), number('CEILING_LISTED'), number('CEILING_FREE'),
                      text('SELL_SIDE') == 'true', text('SCOUTING') == 'true', persona(), rivals, need, pressure,
-                     sporting_projects=projects, project_count=p_count, project_boost=p_boost, project_rank_max=p_rank_max)
+                     sporting_projects=projects, project_count=p_count, project_boost=p_boost, project_rank_max=p_rank_max,
+                     deal_mood=mood)
     # version 7: the offers for the user's players (a file of version 6 has no INCOMING)
     t.incoming = re.search(r'^local INCOMING = true$', source, re.M) is not None
     if t.incoming:
@@ -174,7 +185,8 @@ def installed_t(t):
     """The RESULT line of MLTransfers.lua for these settings."""
     # scouting is only reported with PERSONA on (the module logs it inside that part)
     parts = [label for on, label in zip((t.has_ceiling, t.sell, t.has_persona, t.scouting and t.has_persona,
-                                        bool(t.rivals), t.need, getattr(t, 'incoming', True)), LABELS_T) if on]
+                                        bool(t.rivals), t.need, bool(getattr(t, 'mood', None)),
+                                        getattr(t, 'incoming', True)), LABELS_T) if on]
     return INSTALLED + ', '.join(parts) + '.' if parts else OFF_T
 
 
@@ -297,6 +309,11 @@ def inside(calls, allowed):
     return all(any(a <= address and address + count <= a + n for a, n in allowed) for address, count in calls)
 
 
+def mood_image(t):
+    """The sixth piece of memory for these settings (DEAL_MOOD off: all zeros)."""
+    return mc.image_6(t) if getattr(t, 'mood', None) is not None else b'\0' * mc.CAVE_6_SIZE
+
+
 class Harness:
     """The game's salary, fee, budget, prize and contract-years code with chosen answers for
     what it would look up (the set-up of ../tools/check_findings.py, checks 7 and 8, of
@@ -364,6 +381,13 @@ class Harness:
         self.entries, self.found, self.found_data = g.alloc(size=16 * 64), g.alloc(size=16), g.alloc(size=64)
         self.cells = [g.alloc(size=4) for _ in range(9)]
         self.pick_frame = g.alloc(size=0x4000) + 0x3f00
+        # for mood_cases: a frame laid out as the ceiling routine's and a jump into the routine
+        # of DEAL_MOOD that gives it that frame (the routine reads [ebp - ...] only)
+        self.mood_frame = g.alloc(size=0x100) + 0x80
+        cell, self.mood_into = g.alloc(size=4), g.alloc(size=0x20)
+        g.write(cell, struct.pack('<I', self.mood_frame))
+        g.write(self.mood_into, b'\x8b\x2d' + struct.pack('<I', cell)
+                + b'\xe9' + struct.pack('<i', mc.MOOD_CODE - (self.mood_into + 11)))
         # the records of four selling clubs and of the players of their squads who are on no list
         self.teams, self.bench = [g.alloc(size=0x520) for _ in range(4)], [g.alloc(size=0xc0) for _ in range(96)]
         self.squads = random.Random(12)                      # choose_cases: the squads of the selling clubs
@@ -478,6 +502,42 @@ class Harness:
 
     def mode(self, number):
         self.g.write(self.menu + 0x20, struct.pack('<I', number))
+
+    def mood_cases(self, n):
+        """DEAL_MOOD's routine, entered at its first instruction with a frame of the ceiling
+        routine's, against mc.mood(): any window, any styles, any two clubs (in and out of the
+        pool of the club counts), any player, any date, keeps 0 to 96. -> number of cases."""
+        g = self.g
+        for case in range(n):
+            window = random.randint(0, 96)
+            styles = [random.randint(-96, 96) for _ in range(len(mc.STYLES))]
+            live = types.SimpleNamespace(mood=(window, styles))
+            # DEAL_MOOD off (what MLTransfers.lua writes then): the whole piece of memory is
+            # zero, so MOOD_ON is 0 and the ceiling routine does not call this one at all
+            poke(g, mc.CAVE_6, mc.image_6(live) if case else b'\0' * mc.CAVE_6_SIZE)
+            on = struct.unpack('<I', g.read(mc.MOOD_ON_AT, 4))[0]
+            assert on == (0 if not case else 1), (case, on)
+            seller = random.getrandbits(22) << 1 | 1
+            buyer = random.getrandbits(22) << 1
+            ident = (random.getrandbits(16), random.getrandbits(32) | 1)
+            date = random.getrandbits(32)
+            keeps = random.randint(0, 96)
+            key = mc.player_key(ident)
+            for off, value in ((0x28, key), (0x2c, key ^ mc.club_key(buyer)), (0x3c, seller),
+                               (0x54, date), (0x30, 2)):
+                g.write(self.mood_frame - off, struct.pack('<I', value))
+            if not case:                       # nothing to call: MOOD_ON is 0 (checked above)
+                continue
+            got = g.call(self.mood_into, [], eax=keeps, ecx=0)
+            want = min(max(keeps + mc.mood(live, seller, buyer, ident, date), 0), 96)
+            assert got == want, (case, window, styles, seller, buyer, ident, date, keeps, got, want)
+            # and a player without a club has no mood at all
+            if case % 16 == 0:
+                g.write(self.mood_frame - 0x30, struct.pack('<I', 0))
+                assert g.call(self.mood_into, [], eax=keeps, ecx=0) == keeps, 'clubless'
+                g.write(self.mood_frame - 0x30, struct.pack('<I', 2))
+        poke(g, mc.CAVE_6, b'\0' * mc.CAVE_6_SIZE)
+        return n
 
     def cup_cases(self, t):
         """cup_prize for the competitions 0 to 100 and the stages 0 to 12. -> number of cases"""
@@ -830,6 +890,9 @@ class Harness:
                     return (walk(tables, 1, most) if kind not in (1, 4) else []) or walk(tables, 0, most)
                 # the emulator keeps translated code together with the place it was told to stop at
                 mu.ctl_remove_cache(mc.AI_PICK, PICK_SEARCHED + 16)
+                if t is not None and t.mood is not None:    # the sixth piece of memory must be in place
+                    poke(g, mc.CAVE_6, mc.image_6(t))
+
                 if how == 'frame':
                     esp = frame - 0x60
                     mu.mem_write(esp - 0x1000, random.getrandbits(8 * 0x1000).to_bytes(0x1000, 'little'))   # what the stack held before
@@ -840,6 +903,8 @@ class Harness:
                     mu.reg_write(REG['ecx'], self.pool)
                     mu.reg_write(UC_X86_REG_ESP, esp)
                     mu.reg_write(UC_X86_REG_EBP, frame)
+                    if t is not None:
+                        poke(g, mc.CAVE_6, mood_image(t))
                     mu.emu_start(site, back, count=STEPS)
                     assert mu.reg_read(UC_X86_REG_ESP) == esp + 0x2c and mu.reg_read(UC_X86_REG_EBP) == frame, 'stack'
                     assert all(mu.reg_read(REG[k]) == value for k, value in kept.items()), 'registers'
@@ -856,6 +921,8 @@ class Harness:
                     mu.reg_write(REG['ecx'], self.pool)
                     mu.reg_write(UC_X86_REG_ESP, esp)
                     mu.reg_write(UC_X86_REG_EBP, random.getrandbits(32))
+                    if t is not None:
+                        poke(g, mc.CAVE_6, mood_image(t))
                     mu.emu_start(mc.AI_PICK, PICK_SEARCHED, count=STEPS)
                     assert mu.reg_read(UC_X86_REG_EBP) == esp - 4, 'frame'
                     begin, end, room = struct.unpack('<III', g.read(esp - 4 - 0x3c, 12))
@@ -1311,6 +1378,8 @@ def main(exe=None):
         assert g.read(mc.CAVE_3, mc.CAVE_3_SIZE) == (mc.image_3(t) if t.need else b'\0' * mc.CAVE_3_SIZE), 'need'
         assert ((mc.CAVE_3, mc.CAVE_3_SIZE) in writes) == t.need
         assert g.read(mc.CAVE_5, mc.CAVE_5_SIZE) == (mc.image_5(t) if ceiling else b'\0' * mc.CAVE_5_SIZE), 'squad pressure'
+        assert g.read(mc.CAVE_6, mc.CAVE_6_SIZE) == (b'\0' * mc.CAVE_6_SIZE if not t.has_persona or t.mood is None
+                                                    else mc.image_6(t)), 'deal mood'
         for name, at, old, _ in mc.SITES:
             assert g.read(at, len(old)) == (used[name][2] if name in used else old), name
         assert [l.split()[1] + (' ' + l.split()[2] if l.split()[3] == 'at' else '') for l in lines if l.startswith('written:')] == list(used)
@@ -1344,7 +1413,8 @@ def main(exe=None):
     assert mc.lua_block_transfers(exe) in transfers_text, 'ROUTINE, SITE, NEED_ROUTINES, NEED_SITES, PRESSURE_ROUTINE, MONEY or CONTEXT of MLTransfers.lua are not what money_cave.py makes'
     assert 'eiling' not in money_text.split('local m = {}')[1], 'MLMoney.lua still holds a part of the ceiling'
     assert mc.build() == {name: getattr(mc, name) for name in [r[2] for r in mc.ROUTINES] + [
-        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES', 'INCOMING_BYTES', 'PRESSURE_BYTES']} if KEYSTONE else True
+        'CEILING_BYTES', 'NEED_PLAN_BYTES', 'NEED_PICK_BYTES', 'INCOMING_BYTES', 'PRESSURE_BYTES',
+        'MOOD_BYTES']} if KEYSTONE else True
     everything = ('values, salaries, transfer budget, cup prizes, league prizes, prizes into the transfer budget, '
                   'pay gap, salary bonuses, contract years, yearly income, national cup prizes, '
                   'price ceiling of the computer clubs')
@@ -2019,6 +2089,10 @@ def main(exe=None):
         counts[mc.spread_hash(i, 1)] += 1
     assert min(counts) > 60 and max(counts) < 180, (min(counts), max(counts))       # 117 expected per value
     print('      the 256 steps of the spread are used evenly by the ids 1 to 30,000 (%d to %d players each)' % (min(counts), max(counts)))
+
+    print('ok 6: the routine of DEAL_MOOD, with a frame of the ceiling routine\'s, gives %d cases of '
+          'money_cave.mood: any window 0 to 96 (0: DEAL_MOOD off), any four styles, any selling and buying '
+          'club, any player and date, keeps 0 to 96, and the same clamps at 0 and 96' % h.mood_cases(1200))
 
 
 if __name__ == '__main__':

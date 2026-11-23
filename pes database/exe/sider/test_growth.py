@@ -8,7 +8,7 @@ test_money.py.  Then the game's own functions run as machine code on made-up pla
 the exp award fcn_038b2fc4 (hook A) and the season age walk fcn_036236a2 (hook E), with
 the lookups the hooks need (growth record test/find, news) answered by stubs.  The
 amounts the cave leaves in the exp argument are compared with growth_cave.py's Python
-arithmetic, and the points hook E adds to a position ability with its season_levels().
+arithmetic, and the points the season walk adds to a player's abilities with growth_cave.season_points().
 
 What this shows: the module's logic and byte discipline, and that with it a tracked
 18-year-old with ten appearances gets 1000 x 2.0 x playtime(10) exp while the vanilla
@@ -35,9 +35,10 @@ AWARD, SEASON, SEASON_COUNT = gc.AWARD, gc.SEASON, 0x05fecdc
 PLAYER_OVR, GETTER, SETTER = gc.PLAYER_OVR, 0x038278b0, 0x038281b0
 NEWS = 0x03623150                          # the news push of the award
 
-INSTALLED = ('RESULT: installed. The moderated age curve is scaled by potential and '
-             'playtime, the training focus follows it, and every other player gains a '
-             'few position-specific points a season until the curve flattens.')
+INSTALLED = ("RESULT: installed. The season awards AI players points on the abilities "
+             "their position is rated by (archetype x form x role x ceiling), veterans "
+             "decline family by family, and the tracked squad's exp and training follow "
+             "the age curve.")
 NOTHING = 'RESULT: nothing written. This game does not hold'
 ALREADY = 'RESULT: nothing written. A growth hook is already modified'
 
@@ -151,129 +152,145 @@ def native_awards(g):
     return checked
 
 
-def test_e2_standalone():
-    """Emulate E2 in a standalone Unicorn instance without needing PES2017.exe."""
+def test_walk_standalone():
+    """Run HB and the season walk in a standalone CPU, without PES2017.exe: the tables,
+    the hash chain and the two setters are all it needs.  Every case is compared with
+    growth_cave.season_points() and growth_cave.decline_sel(), so the machine code and
+    the Python twin must agree point for point."""
     from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_PROT_ALL, UC_HOOK_CODE
     from unicorn.x86_const import (UC_X86_REG_ESP, UC_X86_REG_EBP, UC_X86_REG_EDI,
-                                   UC_X86_REG_EBX, UC_X86_REG_EIP)
+                                   UC_X86_REG_EBX, UC_X86_REG_ESI, UC_X86_REG_EIP,
+                                   UC_X86_REG_EAX)
 
     mu = Uc(UC_ARCH_X86, UC_MODE_32)
-    mu.mem_map(0x0298c000, 0x1000, UC_PROT_ALL)   # DATA
-    mu.mem_map(0x047d3000, 0x2000, UC_PROT_ALL)   # E2
-    mu.mem_map(0x03827000, 0x3000, UC_PROT_ALL)   # GETTER / SETTER
-    mu.mem_map(0x03623000, 0x1000, UC_PROT_ALL)   # SEASON_NEXT
-    mu.mem_map(0x024fe000, 0x1000, UC_PROT_ALL)   # [0x24fe518]
-    mu.mem_map(0x10000000, 0x10000, UC_PROT_ALL)  # Stack & Player
+    mu.mem_map(0x02e8b000, 0x1000, UC_PROT_ALL)     # HB, WALK, tables
+    mu.mem_map(0x03827000, 0x3000, UC_PROT_ALL)     # GETTER / SETTER
+    mu.mem_map(0x0313b000, 0x1000, UC_PROT_ALL)     # TRACKED (stubbed below)
+    mu.mem_map(0x02650000, 0x1000, UC_PROT_ALL)     # [MODE_OBJECT] -> mode data
+    mu.mem_map(0x03623000, 0x1000, UC_PROT_ALL)     # SEASON_NEXT
+    mu.mem_map(0x024fe000, 0x1000, UC_PROT_ALL)     # [0x24fe518]
+    mu.mem_map(0x10000000, 0x10000, UC_PROT_ALL)    # stack and player
+    data, season = gc.tables()
+    mu.mem_write(gc.HB, bytes.fromhex(gc.part('HB')[1]))
+    mu.mem_write(gc.WALK_CODE, bytes.fromhex(gc.part('walk')[1]))
+    mu.mem_write(gc.TBL, season)
 
-    mu.mem_write(gc.POSTBL_TBL, bytes(gc.POSTBL))
-    mu.mem_write(gc.POSTBL2_TBL, bytes(gc.POSTBL2))
-    e2_bytes = bytes.fromhex(gc.part('E2')[1])
-    mu.mem_write(gc.E2, e2_bytes)
+    # [MODE_OBJECT] -> +0x30 -> the record table; TRACKED then says whether a player
+    # has a growth record (the tracked squad is hook A's, the walk must leave it alone)
+    mu.mem_write(MODE_OBJECT, struct.pack('<I', 0x02650200))
+    mu.mem_write(0x02650200 + 0x30, struct.pack('<I', 0x03000000))
 
-    player_attrs = {}
-    last_set = {}
+    attrs, last_set = {}, []
+    state = {'done': False}
+    tracked = {'on': set()}
 
-    def hook_code(uc, address, size, user_data):
+    def hook(uc, address, size, user):
         if address == gc.GETTER:
             esp = uc.reg_read(UC_X86_REG_ESP)
             sel = struct.unpack('<I', uc.mem_read(esp + 4, 4))[0]
-            out_ptr = struct.unpack('<I', uc.mem_read(esp + 8, 4))[0]
-            val = player_attrs.get(sel, 50)
-            uc.mem_write(out_ptr, struct.pack('<I', val))
-            ret_addr = struct.unpack('<I', uc.mem_read(esp, 4))[0]
+            out = struct.unpack('<I', uc.mem_read(esp + 8, 4))[0]
+            uc.mem_write(out, struct.pack('<I', attrs.get(sel, 0)))
+            uc.reg_write(UC_X86_REG_EIP, struct.unpack('<I', uc.mem_read(esp, 4))[0])
             uc.reg_write(UC_X86_REG_ESP, esp + 12)
-            uc.reg_write(UC_X86_REG_EIP, ret_addr)
         elif address == gc.SETTER:
             esp = uc.reg_read(UC_X86_REG_ESP)
             sel = struct.unpack('<I', uc.mem_read(esp + 4, 4))[0]
             val = struct.unpack('<I', uc.mem_read(esp + 8, 4))[0]
-            last_set['sel'] = sel
-            last_set['val'] = val
-            ret_addr = struct.unpack('<I', uc.mem_read(esp, 4))[0]
+            last_set.append((sel, val))
+            uc.mem_write(uc.reg_read(UC_X86_REG_ESP) + 8, struct.pack('<I', val))
+            attrs[sel] = val
+            uc.reg_write(UC_X86_REG_EIP, struct.unpack('<I', uc.mem_read(esp, 4))[0])
             uc.reg_write(UC_X86_REG_ESP, esp + 12)
-            uc.reg_write(UC_X86_REG_EIP, ret_addr)
+        elif address == gc.TRACKED:      # (id lo, id hi) -> al, the caller's ret 8
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            pid = struct.unpack('<I', uc.mem_read(esp + 4, 4))[0]
+            uc.reg_write(UC_X86_REG_EAX, 1 if pid in tracked['on'] else 0)
+            uc.reg_write(UC_X86_REG_EIP, struct.unpack('<I', uc.mem_read(esp, 4))[0])
+            uc.reg_write(UC_X86_REG_ESP, esp + 12)
         elif address == gc.SEASON_NEXT:
+            state['done'] = True
             uc.emu_stop()
 
-    mu.hook_add(UC_HOOK_CODE, hook_code)
+    mu.hook_add(UC_HOOK_CODE, hook)
 
-    def run_e2(player_id, club_id, age, pos, attrs):
-        nonlocal player_attrs, last_set
-        player_attrs = dict(attrs)
-        last_set = {}
-
-        player_addr = 0x10008000
-        p_data = bytearray(0xe0)
-        struct.pack_into('<I', p_data, 4, pos << 28)
-        struct.pack_into('<I', p_data, 0x1c, age << 7)
-        struct.pack_into('<I', p_data, 0x2c, player_id)
-        struct.pack_into('<I', p_data, 0xa8, club_id)
-        mu.mem_write(player_addr, bytes(p_data))
-
-        stack_top = 0x10005000
-        ebp = stack_top - 16
-        esp = ebp - 16
+    def run_one(pid, age, pos, values, club=10):
+        nonlocal attrs, last_set
+        attrs = dict(values)
+        last_set = []
+        player = 0x10008000
+        rec = bytearray(0xe0)
+        struct.pack_into('<I', rec, 4, pos << 28)
+        struct.pack_into('<I', rec, 0x1c, age << 7)
+        struct.pack_into('<I', rec, 0x2c, pid)
+        struct.pack_into('<I', rec, 0xa8, club)
+        mu.mem_write(player, bytes(rec))
+        esp = 0x10005000
         mu.reg_write(UC_X86_REG_ESP, esp)
-        mu.reg_write(UC_X86_REG_EBP, ebp)
-        mu.reg_write(UC_X86_REG_EDI, player_addr)
-        mu.reg_write(UC_X86_REG_EBX, age)
-        mu.reg_write(UC_X86_REG_EIP, gc.E2)
+        mu.reg_write(UC_X86_REG_ESI, player)
+        mu.reg_write(UC_X86_REG_EIP, gc.WALK_CODE)
+        state['done'] = False
+        mu.emu_start(gc.WALK_CODE, gc.SEASON_NEXT + 16, timeout=2000000)
+        assert state['done'], 'the walk did not reach the game loop'
+        ag = (struct.unpack_from('<I', rec, 0x1c)[0] >> 7) & 0x3f
+        return last_set, ag
 
-        mu.emu_start(gc.E2, gc.SEASON_NEXT + 10, timeout=1000000)
-        return last_set
-
-    # 1. CF turning 18 (even age): Finishing (0x13)
-    res = run_e2(player_id=1, club_id=10, age=18, pos=0, attrs={0x13: 65, 0x11: 60})
-    assert res.get('sel') == 0x13 and res.get('val') == 66, f'CF age 18 failed: {res}'
-
-    # 2. CF turning 19 (odd age): Dribbling (0x11)
-    res = run_e2(player_id=1, club_id=10, age=19, pos=0, attrs={0x13: 66, 0x11: 60})
-    assert res.get('sel') == 0x11 and res.get('val') == 61, f'CF age 19 failed: {res}'
-
-    # 3. CMF turning 18 (even): Dribbling (0x11)
-    res = run_e2(player_id=1, club_id=10, age=18, pos=6, attrs={0x11: 65, 0x14: 60})
-    assert res.get('sel') == 0x11 and res.get('val') == 66, f'CMF age 18 failed: {res}'
-
-    # 4. CMF turning 19 (odd): Low Pass (0x14)
-    res = run_e2(player_id=1, club_id=10, age=19, pos=6, attrs={0x11: 66, 0x14: 60})
-    assert res.get('sel') == 0x14 and res.get('val') == 61, f'CMF age 19 failed: {res}'
-
-    # 5. Senior 32yo (even age): Speed (0x1f) declines
-    res = run_e2(player_id=2, club_id=10, age=32, pos=0, attrs={0x1f: 80, 0x25: 75})
-    assert res.get('sel') == 0x1f and res.get('val') == 79, f'Senior 32 failed: {res}'
-
-    # 6. Senior 33yo (odd age): Stamina (0x25) declines
-    res = run_e2(player_id=2, club_id=10, age=33, pos=0, attrs={0x1f: 79, 0x25: 75})
-    assert res.get('sel') == 0x25 and res.get('val') == 74, f'Senior 33 failed: {res}'
-
-    # 7. Floor protection: stat <= 45 must not decline
-    res = run_e2(player_id=2, club_id=10, age=32, pos=0, attrs={0x1f: 45, 0x25: 45})
-    assert res == {}, f'Floor protection failed: {res}'
-
-    # 8. Free agent: club 0xffffffff gets 0
-    res = run_e2(player_id=1, club_id=0xffffffff, age=18, pos=0, attrs={0x13: 65})
-    assert res == {}, f'Free agent gating failed: {res}'
+    checked = 0
+    for age in (16, 18, 21, 26, 31, 36):
+        for pos in (0, 5, 9, 12):
+            for pid in (1, 2, 3, 17, 99, 1234):
+                six = gc.six(pos)
+                values = {sel: 60 for sel in six}
+                values[six[0]] = 74
+                got, _ = run_one(pid, age, pos, values)
+                # the walk applies the season's points first, then the family decline,
+                # and the decline reads the value the points may already have raised
+                want = []
+                after = dict(values)
+                for sel, step in gc.season_points(pid, age, values, pos):
+                    after[sel] = min(99, values[sel] + step)
+                    want.append((sel, after[sel]))
+                d = gc.decline_sel(pid, age, pos)
+                if d is not None and after.get(d, 0) > gc.DECLINE_FLOOR:
+                    want.append((d, after[d] - 1))
+                assert got == want, (pid, age, pos, got, want)
+                checked += 1
+    # the gates: a free agent is left alone, and the ceiling is a wall
+    got, _ = run_one(5, 18, 0, {0x13: 60}, club=0xffffffff)
+    assert got == [], 'a free agent grew'
+    top = gc.ceiling(5)
+    got, _ = run_one(5, 18, 0, {sel: top for sel in gc.six(0)})
+    assert got == [], ('an attribute at the personal ceiling grew', got, top)
+    tracked['on'].add(7)                            # a player of the tracked squad
+    got, _ = run_one(7, 18, 0, {0x13: 60})
+    assert got == [], ('a tracked player grew twice (hook A and the walk)', got)
+    tracked['on'].clear()
+    for pid in (11, 12, 13):
+        assert gc.hashb(pid, 0) == gc.hashb(pid, 0)
+    print('ok 0b: the season walk in a standalone CPU agrees with growth_cave.season_points '
+          'and decline_sel point for point over %d player/age/position cases, and leaves '
+          'a free agent and a full attribute alone' % checked)
 
 
 def main(exe):
-    # Version 7: Multi-attribute positional development & AI veteran physical decline.
-    # Calibrated realistic rates: quarter-step rates guarding the realistic
-    # 1.75/1.50/1.00/0.75 youth curve and 0.50/0.25 late tail, with 20% playtime baseline.
-    expected_curve = {15: 1.75, 18: 1.50, 22: 1.00, 25: 0.75, 28: 0.50, 30: 0.25}
+    # Version 8: the tracked squad keeps hook A with an eased youth curve; the AI
+    # season follows a calibrated archetype table (growth_twin.py is the spec).
+    expected_curve = {15: 1.50, 18: 1.25, 22: 1.00, 25: 0.75, 28: 0.50, 30: 0.25}
     assert {age: gc.mult(age) for age in expected_curve} == expected_curve
-    assert gc.award_exp(1000, 18, 60) == 1500
-    assert gc.season_levels(18, 90) == 0    # close to the ceiling: no forced extra point
-    print('ok 0: version 7 uses the calibrated 1.75/1.50/1.00/0.75 youth curve, keeps '
-          'the 0.50/0.25 late tail, multi-attribute youth growth and senior physical decline')
+    assert gc.award_exp(1000, 18, 60) == 1250
+    # BASE, the shape of the AI season: each archetype peaks where its name says
+    assert gc.phase(1, 40) == 0 and gc.phase(0, 32) == 0
+    assert gc.phase(0, 15) > gc.phase(1, 15)            # the early developer starts fast
+    assert gc.phase(2, 26) > gc.phase(1, 26)            # the late bloomer is not done
+    assert gc.phase(3, 23) == 0 and gc.phase(3, 22) > 0  # the limited one has stopped
+    print('ok 0: version 8 eases the tracked squad\'s youth steps (1.50 at 15, 1.25 at 18) '
+          'and the AI season follows a calibrated archetype curve (normal peaks at 26-28)')
 
     source = open(MODULE, encoding='utf-8').read()
     assert gc.lua_block() in source, 'MLGrowth.lua does not hold the block of growth_cave.py'
     print('ok 0a: MLGrowth.lua holds exactly the code and tables growth_cave.py builds '
           '(the generated block matches)')
 
-    test_e2_standalone()
-    print('ok 0b: standalone CPU emulation verified: multi-attribute youth growth, '
-          'senior physical decline (32+ speed/stamina), floor protection (45), and free agent gating')
+    test_walk_standalone()
 
     image = Game(exe)
 
@@ -299,12 +316,12 @@ def main(exe):
     lines, reads, writes = run(image, source)
     assert lines[-1] == INSTALLED, lines
     assert not any('DIFFERENT' in l or 'NOT EMPTY' in l or 'FAILED' in l for l in lines), lines
-    expect = [(gc.part(k)[0], len(bytes.fromhex(gc.part(k)[1])))
-              for k in ('E2', 'curve', 'B1', 'E1', 'B2', 'focus', 'data')]
+    expect = [(gc.part(k)[0], len(bytes.fromhex(gc.lua_block_hex(k))))
+              for k in ('curve', 'B1', 'focus', 'B2', 'HB', 'walk', 'data', 'season')]
     expect += [(at, len(new)) for at, old, new in gc.patches()]
     assert writes == expect, (writes, expect)
     print('ok 2: the module checks the nine context anchors and all four hook sites, '
-          'finds its seven caves empty, writes them and the four patches, and nothing '
+          'finds its caves empty, writes them and the four patches, and nothing '
           'else (%d writes)' % len(writes))
 
     checked = native_awards(image)
@@ -362,78 +379,52 @@ def main(exe):
     print('ok 4: the age-curve fragment answers mult(age) x scale(age, rating) for %d '
           'age/rating pairs, including no growth below 15 and from 53 on' % checked)
 
-    # -- 5: hook E with the module ----------------------------------------------
+    # -- 5: the season walk over the game's own array, with the module -----------
     mode, _ = world(image, tracked=0)
-    players = [craft({0x13: 64, 0x11: 61}, 17, 0, id_lo=1),          # CF turning 18 (even age -> finish 0x13)
-               craft({0x13: 70, 0x0f: 58}, 30, 9, id_lo=1),          # CB turning 31 (age 31 -> 0 change)
-               craft({0x13: 40, 0x17: 30}, 22, 9, id_lo=1),          # CB turning 23 (odd age -> ball_win 0x17)
-               craft({0x1a: 50}, 16, 12, id_lo=1),                   # GK turning 17 (odd age -> reflex 0x1a)
-               craft({0x11: 50}, 17, 13, id_lo=1)]                   # broken position 13 -> drib 0x11
-    sel_of = [0x13, 0x0f, 0x17, 0x1a, 0x11]
-    before = [field(p, s) for p, s in zip(players, sel_of)]
+    players = [craft({0x13: 64, 0x11: 61}, 17, 0, id_lo=1),
+               craft({0x13: 70, 0x0f: 58}, 30, 9, id_lo=1),
+               craft({0x13: 40, 0x17: 30}, 22, 9, id_lo=1),
+               craft({0x1a: 50}, 16, 12, id_lo=1),
+               craft({0x11: 50}, 17, 13, id_lo=1),
+               craft({0x13: 64}, 17, 0, id_lo=5, club=0xffffffff)]
     after = season(image, mode, players)
-    for i, (rec, sel, was) in enumerate(zip(after, sel_of, before)):
+    for i, rec in enumerate(after):
         age = (struct.unpack_from('<I', rec, 0x1c)[0] >> 7) & 0x3f
-        assert age == (17, 30, 22, 16, 17)[i] + 1, (i, age)
-        assert field(rec, sel) == was + gc.season_levels(age, was, player_id=1, pos=(0, 9, 9, 12, 13)[i]), (i, field(rec, sel), was)
+        pos = struct.unpack_from('<I', rec, 4)[0] >> 28
+        assert age == (17, 30, 22, 16, 17, 17)[i] + 1, (i, age)
+        if i == 5:
+            assert field(rec, 0x13) == 64, 'a free agent grew'
+            continue
+        # 0x1e is not an attribute selector: walk the ones the game has
+        sels = [s_ for s_ in range(0x0e, 0x26) if s_ in SLOT]
+        before = {sel: field(players[i], sel) for sel in sels}
+        want = dict(before)
+        for sel, step in gc.season_points(1, age, before, pos):
+            want[sel] = min(99, before[sel] + step)
+        d = gc.decline_sel(1, age, pos)
+        if d is not None and want.get(d, 0) > gc.DECLINE_FLOOR:
+            want[d] = want[d] - 1
+        got = {sel: field(rec, sel) for sel in sels}
+        assert got == want, (i, age, pos, got, want)
     mode, _ = world(image, tracked=1)
     after = season(image, mode, [craft({0x13: 64}, 17, 0)])
     assert field(after[0], 0x13) == 64, 'a tracked player gets no season points'
-    print('ok 5: with the module the season walk raises the age of everyone, adds '
-          'season_levels points on multi-attribute position abilities for youth, and '
-          'declines veterans physically; a tracked player is left to hook A')
+    print('ok 5: the season walk over the game\'s own player array gives each AI player '
+          'exactly growth_cave.season_points, declines him by decline_sel, and leaves a '
+          'tracked player and a free agent alone')
 
-    checked = 0
-    for before_age in (14, 15, 16, 17, 20, 21, 22, 24, 28, 30, 51, 52, 62):
-        cases = [(pos, value) for pos in range(16) for value in (40, 75, 80, 84, 90, 98, 99)]
-        mode, _ = world(image, tracked=0)
-        age = before_age + 1
-        players = [craft({gc.season_attr(age, pos): value}, before_age, pos) for pos, value in cases]
-        after = season(image, mode, players)
-        for rec, (pos, was) in zip(after, cases):
-            sel = gc.season_attr(age, pos)
-            expected = was + gc.season_levels(age, was, pos=pos)
-            assert field(rec, sel) == expected, (age, pos, was, field(rec, sel), expected)
-            checked += 1
-    assert gc.build() == {name: (gc.part(name)[0], bytes.fromhex(gc.part(name)[1])) for name in gc.CODE_PARTS}
-    print('ok 5a: annual awards match the age-margin reference near the ceiling across '
-          '%d age/position/ability cases; assembled code matches every embedded block' % checked)
-
-    # -- 5b: Package D & E development conditioning -----------------------------
-    mode, _ = world(image, tracked=0)
-    free_agent = craft({0x13: 64}, 17, 0, id_lo=5, club=0xffffffff)
-    contracted = craft({0x13: 64}, 17, 0, id_lo=5, club=100)
-    senior_32 = craft({0x1f: 80, 0x25: 78}, 31, 0, id_lo=2, club=100)
-    senior_33 = craft({0x1f: 79, 0x25: 75}, 32, 0, id_lo=2, club=100)
-    senior_floor = craft({0x1f: 45, 0x25: 45}, 31, 0, id_lo=2, club=100)
-    after = season(image, mode, [free_agent, contracted, senior_32, senior_33, senior_floor])
-    assert field(after[0], 0x13) == 64, 'uncontracted free agent must receive 0 growth'
-    assert field(after[1], 0x13) == 65, 'contracted youth player develops'
-    assert field(after[2], 0x1f) == 79, 'senior speed must decline at age 32'
-    assert field(after[3], 0x25) == 74, 'senior stamina must decline at age 33'
-    assert field(after[4], 0x1f) == 45, 'senior at floor (<= 45) must not decline'
-
-    plateaus = 0
-    sample_ids = range(1, 101)
-    for pid in sample_ids:
-        p = craft({0x13: 60}, 17, 0, id_lo=pid, club=100)
-        res = season(image, mode, [p])
-        gained = field(res[0], 0x13) - 60
-        if gained == 0:
-            plateaus += 1
-        assert gained == gc.season_levels(18, 60, club_id=100, player_id=pid)
-    assert 20 <= plateaus <= 30, ('plateau rate must be ~25%%, got %d / 100' % plateaus)
-
-    p_sub75_gains = [gc.season_levels(18, 60, club_id=100, player_id=pid) for pid in sample_ids]
-    p_mid_gains = [gc.season_levels(18, 78, club_id=100, player_id=pid) for pid in sample_ids]
-    p_high_gains = [gc.season_levels(18, 85, club_id=100, player_id=pid) for pid in sample_ids]
-    p_cap_gains = [gc.season_levels(18, 90, club_id=100, player_id=pid) for pid in sample_ids]
-    assert sum(p_sub75_gains) == 100 - plateaus
-    assert 40 <= sum(p_mid_gains) <= 60
-    assert 10 <= sum(p_high_gains) <= 25
-    assert sum(p_cap_gains) == 0
-    print('ok 5b: Package D development conditioning verified: free agents gated (0 growth), '
-          'trajectory dithering produces %d%% plateaus, and progressive resistance dampens high OVR' % plateaus)
+    # -- 5a: the tables and the code agree with growth_cave ----------------------
+    assert gc.build() == {name: (gc.part(name)[0], bytes.fromhex(gc.part(name)[1]))
+                          for name in gc.CODE_PARTS}
+    data, season_img = gc.tables()
+    assert season_img[gc.T_PHASE - gc.TBL:gc.T_PHASE - gc.TBL + 18] == bytes(gc.PHASE[0])
+    assert season_img[gc.T_SIX - gc.TBL:gc.T_SIX - gc.TBL + 12] == bytes(gc.six(0))
+    for pid in range(1, 60):
+        for age in (16, 18, 22, 27, 33):
+            f = gc.form(pid, age)
+            assert 0 <= f < 256 and isinstance(gc.hashb(pid, age), int)
+    print('ok 5a: the assembled code matches every embedded block, the tables the cave '
+          'reads are growth_cave\'s own, and the hash chain is in range')
 
     # -- 6: the training focus runs through the curve (hook C) -------------------
     INDIVIDUAL, TEAM = 0x036225f8, 0x0362274d
@@ -500,10 +491,12 @@ def main(exe):
     tm.poke(bad, gc.FOCUS_CALLS[0], old)
     lines, _, writes = run(bad, source)
     assert lines[-1].startswith(ALREADY) and not writes, lines
+    # a cave that will not take its bytes: the module stops before any patch goes in
     stick = Game(exe)
-    lines, _, writes = run(stick, source, sticky=lambda a: a != gc.CODE_PARTS['E2'][0])
+    lines, _, writes = run(stick, source, sticky=lambda a: a != gc.CODE_PARTS['curve'][0])
     assert 'could not be written' in lines[-1], lines[-1]
-    assert not [w for w in writes if w[0] != gc.CODE_PARTS['E2'][0]], writes
+    sites = [site for site, _, _ in gc.patches()]
+    assert not [w for w in writes if w[0] in sites], writes
     print('ok 7: a byte changed at a hook site or a context anchor, a cave not empty, or '
           'a hook already installed: nothing is written; a cave that will not hold the '
           'code leaves the game unchanged')
@@ -523,8 +516,13 @@ def main(exe):
         assert result.startswith('RESULT: 6 of 6 as expected.' if name == 'MLCheck' else 'RESULT: installed'), (name, result)
     checked = native_awards(image)
     mode, _ = world(image, tracked=0)
+    sels = [s_ for s_ in range(0x0e, 0x26) if s_ in SLOT]
+    before = {sel: field(craft({0x13: 64}, 17, 0), sel) for sel in sels}
     after = season(image, mode, [craft({0x13: 64}, 17, 0)])
-    assert field(after[0], 0x13) == 64 + gc.season_levels(18, 64)
+    want = dict(before)
+    for sel, step in gc.season_points(5, 18, before, 0):
+        want[sel] = min(99, before[sel] + step)
+    assert all(field(after[0], sel) == want[sel] for sel in sels)
     for which, menu_code, sel, expected in focus_results:
         assert focus_exp(image, which, menu_code, sel) == expected
     print('ok 9: all eight modules coexist during %d native-lookup awards, the season walk '
